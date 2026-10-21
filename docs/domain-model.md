@@ -13,8 +13,8 @@ Adapters translate vendor objects into these terms.
 | group | `<workspace-ref>:group:<native-id>` | Optional container of maps |
 | map | `<workspace-ref>:map:<native-id>` | Ordered collection of tickets |
 | ticket | `<workspace-ref>:ticket:<native-id>` | One unit of work |
-| run | `wayfinder-run:<id>` | Local execution identity |
-| claim | `wayfinder-claim:<id>` | Tracker coordination identity |
+| run | `interlock-run:<id>` | Local execution identity |
+| claim | `interlock-claim:<id>` | Tracker coordination identity |
 
 Qualification prevents collisions across tracker installations. Dependency
 evaluation can cross maps within a workspace; protocol 1.x rejects evaluation

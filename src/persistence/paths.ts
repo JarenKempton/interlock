@@ -4,22 +4,22 @@ export function dataDirectory(environment: NodeJS.ProcessEnv = process.env): str
   if (process.platform === "win32") {
     const root = environment.LOCALAPPDATA;
     if (!root) throw new Error("LOCALAPPDATA is not set");
-    return join(root, "Wayfinder CLI");
+    return join(root, "Interlock");
   }
   if (process.platform === "darwin") {
     const home = environment.HOME;
     if (!home) throw new Error("HOME is not set");
-    return join(home, "Library", "Application Support", "wayfinder");
+    return join(home, "Library", "Application Support", "interlock");
   }
   const root = environment.XDG_STATE_HOME;
-  if (root) return join(root, "wayfinder");
+  if (root) return join(root, "interlock");
   const home = environment.HOME;
   if (!home) throw new Error("HOME is not set");
-  return join(home, ".local", "state", "wayfinder");
+  return join(home, ".local", "state", "interlock");
 }
 
 export function databasePath(environment: NodeJS.ProcessEnv = process.env): string {
-  return join(dataDirectory(environment), "wayfinder.db");
+  return join(dataDirectory(environment), "interlock.db");
 }
 
 export function updateCheckPath(environment: NodeJS.ProcessEnv = process.env): string {

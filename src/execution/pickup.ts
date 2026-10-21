@@ -256,7 +256,7 @@ export class PickupCoordinator {
       if (recoveryErrors.length === 0) throw new PickupResultError(receipt, cause);
     }
     receipt.state = "recovery_required";
-    receipt.recoveryCommand = `wayfinder recover ${receipt.run} --evidence '{"tracker":"verify","session":"verify"}'`;
+    receipt.recoveryCommand = `interlock recover ${receipt.run} --evidence '{"tracker":"verify","session":"verify"}'`;
     const combined = new AggregateError(
       [cause, ...recoveryErrors],
       "Pickup compensation could not be fully verified",

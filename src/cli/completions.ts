@@ -17,7 +17,7 @@ export function completionCandidates(tree: ActionTree, words: readonly string[])
   return [...new Set(suggestions.flatMap((item) => (item.kind === "literal" ? [item.text] : [])))];
 }
 export function completionScript(shell: CompletionShell): string {
-  return `${shells[shell].generateScript("wayfinder", ["--complete", shell]).trimEnd()}\n`;
+  return `${shells[shell].generateScript("interlock", ["--complete", shell]).trimEnd()}\n`;
 }
 export function completeShell(
   tree: ActionTree,

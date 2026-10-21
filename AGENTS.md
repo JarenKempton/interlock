@@ -2,7 +2,7 @@
 
 ## Project intent
 
-Wayfinder CLI is a portable orchestration CLI for Wayfinder maps. Preserve tracker,
+Interlock is a portable orchestration CLI for tracker maps. Preserve tracker,
 harness, model, and workspace independence in all core packages.
 
 The implementation language is TypeScript and the build/runtime tool is Bun.

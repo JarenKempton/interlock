@@ -76,7 +76,7 @@ function refreshIdentityService(
 }
 
 function fixture(): string {
-  const directory = mkdtempSync(join(tmpdir(), "wayfinder-reconcile-"));
+  const directory = mkdtempSync(join(tmpdir(), "interlock-reconcile-"));
   const blocker: Ticket = {
     ref: ticketRefSchema.parse("jira:x:W:ticket:A"),
     map,
@@ -509,7 +509,7 @@ describe("reconcile statuses CLI", () => {
       run(["reconcile", "statuses", "--input", fixture()], () => undefined),
     ).rejects.toThrow("Invalid arguments");
     await expect(
-      run(["reconcile", "statuses", "wayfinder-run:123", "--input", fixture()], () => undefined),
+      run(["reconcile", "statuses", "interlock-run:123", "--input", fixture()], () => undefined),
     ).rejects.toThrow("not a frontier scope");
     await expect(
       run(["reconcile", "statuses", "not-a-reference", "--input", fixture()], () => undefined),

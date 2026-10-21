@@ -126,7 +126,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
       throw new Error("Jira page size must be an integer from 1 to 100");
     this.#transport = options.transport;
     this.#prefix = `jira:${options.instance}:${options.workspace}`;
-    this.#claimProperty = options.claimProperty ?? "wayfinder.claim";
+    this.#claimProperty = options.claimProperty ?? "interlock.claim";
     this.#priorityOrder = options.priorityOrder;
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;

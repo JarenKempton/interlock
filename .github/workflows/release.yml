@@ -32,27 +32,27 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: bun-linux-x64-baseline
-            asset: wayfinder-linux-x64
+            asset: interlock-linux-x64
             smoke: true
           - runner: ubuntu-latest
             target: bun-linux-arm64
-            asset: wayfinder-linux-arm64
+            asset: interlock-linux-arm64
             smoke: false
           - runner: macos-14
             target: bun-darwin-arm64
-            asset: wayfinder-darwin-arm64
+            asset: interlock-darwin-arm64
             smoke: true
           - runner: macos-15-intel
             target: bun-darwin-x64
-            asset: wayfinder-darwin-x64
+            asset: interlock-darwin-x64
             smoke: true
           - runner: windows-latest
             target: bun-windows-x64-baseline
-            asset: wayfinder-windows-x64.exe
+            asset: interlock-windows-x64.exe
             smoke: true
           - runner: windows-latest
             target: bun-windows-arm64
-            asset: wayfinder-windows-arm64.exe
+            asset: interlock-windows-arm64.exe
             smoke: false
     runs-on: ${{ matrix.runner }}
     steps:
@@ -73,8 +73,8 @@ jobs:
           VERSION="${VERSION#v}"
           mkdir -p dist
           bun build src/cli.ts --compile --target="$TARGET" \
-            --define "WAYFINDER_BUILD_VERSION=\"$VERSION\"" \
-            --define "WAYFINDER_BUILD_RELEASES_URL=\"$RELEASES_URL\"" --outfile="dist/$ASSET"
+            --define "INTERLOCK_BUILD_VERSION=\"$VERSION\"" \
+            --define "INTERLOCK_BUILD_RELEASES_URL=\"$RELEASES_URL\"" --outfile="dist/$ASSET"
       - name: Native executable smoke test
         if: matrix.smoke
         shell: bash
@@ -87,8 +87,8 @@ jobs:
           case "$ASSET" in *.exe) PROGRAM="dist/$ASSET" ;; *) chmod +x "dist/$ASSET"; PROGRAM="./dist/$ASSET" ;; esac
           test "$("$PROGRAM" version)" = "$VERSION"
           "$PROGRAM" doctor
-          "$PROGRAM" completions bash | grep -q wayfinder
-          "$PROGRAM" man | grep -q 'WAYFINDER.*1'
+          "$PROGRAM" completions bash | grep -q interlock
+          "$PROGRAM" man | grep -q 'INTERLOCK.*1'
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
@@ -110,33 +110,33 @@ jobs:
           merge-multiple: true
       - name: Generate release documentation assets
         run: |
-          chmod +x dist/wayfinder-linux-x64
-          dist/wayfinder-linux-x64 completions bash > dist/wayfinder.bash
-          dist/wayfinder-linux-x64 completions zsh > dist/_wayfinder
-          dist/wayfinder-linux-x64 completions fish > dist/wayfinder.fish
-          dist/wayfinder-linux-x64 man > dist/wayfinder.1
+          chmod +x dist/interlock-linux-x64
+          dist/interlock-linux-x64 completions bash > dist/interlock.bash
+          dist/interlock-linux-x64 completions zsh > dist/_interlock
+          dist/interlock-linux-x64 completions fish > dist/interlock.fish
+          dist/interlock-linux-x64 man > dist/interlock.1
           cp scripts/install.sh scripts/install.ps1 dist/
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
           path: dist
           format: spdx-json
-          output-file: dist/wayfinder.spdx.json
+          output-file: dist/interlock.spdx.json
           upload-artifact: false
       - name: Generate checksums
-        run: cd dist && sha256sum wayfinder-* wayfinder.bash wayfinder.fish wayfinder.1 _wayfinder install.sh install.ps1 wayfinder.spdx.json > checksums.txt
+        run: cd dist && sha256sum interlock-* interlock.bash interlock.fish interlock.1 _interlock install.sh install.ps1 interlock.spdx.json > checksums.txt
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
-            dist/wayfinder-*
-            dist/wayfinder.bash
-            dist/wayfinder.fish
-            dist/wayfinder.1
-            dist/_wayfinder
+            dist/interlock-*
+            dist/interlock.bash
+            dist/interlock.fish
+            dist/interlock.1
+            dist/_interlock
             dist/install.sh
             dist/install.ps1
-            dist/wayfinder.spdx.json
+            dist/interlock.spdx.json
             dist/checksums.txt
       - name: Publish GitHub prerelease
         uses: softprops/action-gh-release@v2
@@ -145,12 +145,12 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            dist/wayfinder-*
-            dist/wayfinder.bash
-            dist/wayfinder.fish
-            dist/wayfinder.1
-            dist/_wayfinder
+            dist/interlock-*
+            dist/interlock.bash
+            dist/interlock.fish
+            dist/interlock.1
+            dist/_interlock
             dist/install.sh
             dist/install.ps1
-            dist/wayfinder.spdx.json
+            dist/interlock.spdx.json
             dist/checksums.txt

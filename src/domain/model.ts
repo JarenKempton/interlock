@@ -3,8 +3,8 @@ export type WorkspaceRef = string & { readonly __kind: "WorkspaceRef" };
 export type GroupRef = string & { readonly __kind: "GroupRef" };
 export type MapRef = string & { readonly __kind: "MapRef" };
 export type TicketRef = string & { readonly __kind: "TicketRef" };
-export type RunRef = `wayfinder-run:${string}`;
-export type ClaimRef = `wayfinder-claim:${string}`;
+export type RunRef = `interlock-run:${string}`;
+export type ClaimRef = `interlock-claim:${string}`;
 export type ActorRef = string & { readonly __kind: "ActorRef" };
 export type AdapterRef = string & { readonly __kind: "AdapterRef" };
 
@@ -107,7 +107,7 @@ export interface WorkGroup {
   native: NativeReference;
 }
 
-export interface WayfinderMap {
+export interface TrackerMap {
   ref: MapRef;
   group?: GroupRef;
   tickets: TicketRef[];

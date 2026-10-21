@@ -20,7 +20,7 @@ export function fakeConfigurationPlan() {
   const configuration = resolveProjectConfiguration(
     parseProjectToml(INITIAL_CONFIGURATION),
     {},
-    { path: "wayfinder.toml (fake input)", version: configurationVersion(INITIAL_CONFIGURATION) },
+    { path: "interlock.toml (fake input)", version: configurationVersion(INITIAL_CONFIGURATION) },
   );
   return planConfiguredLaunch({
     ticket: fakePlanningTicket,

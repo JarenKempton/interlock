@@ -8,11 +8,11 @@ import { type Claim, capabilities, type Run } from "../src/domain/model.ts";
 import { StateStore } from "../src/persistence/state.ts";
 
 test("SQLite store round-trips runs", () => {
-  const directory = mkdtempSync(join(tmpdir(), "wayfinder-test-"));
-  const store = new StateStore(join(directory, "wayfinder.db"));
+  const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
+  const store = new StateStore(join(directory, "interlock.db"));
   const now = new Date().toISOString();
   const run: Run = {
-    ref: "wayfinder-run:test",
+    ref: "interlock-run:test",
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     model: "gpt",
@@ -30,7 +30,7 @@ test("SQLite store round-trips runs", () => {
     store.saveRun(run);
     expect(store.run(run.ref)).toEqual(run);
     const claim: Claim = {
-      ref: "wayfinder-claim:test",
+      ref: "interlock-claim:test",
       ticket: run.ticket,
       humanOwner: actorRefSchema.parse("human"),
       run: run.ref,
@@ -60,8 +60,8 @@ test("SQLite store round-trips runs", () => {
 });
 
 test("SQLite store additively migrates legacy run routing columns", () => {
-  const directory = mkdtempSync(join(tmpdir(), "wayfinder-test-"));
-  const path = join(directory, "wayfinder.db");
+  const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
+  const path = join(directory, "interlock.db");
   const legacy = new Database(path, { create: true });
   legacy.exec(`CREATE TABLE runs (
     ref TEXT PRIMARY KEY,
@@ -79,7 +79,7 @@ test("SQLite store additively migrates legacy run routing columns", () => {
   const store = new StateStore(path);
   const now = new Date().toISOString();
   const run: Run = {
-    ref: "wayfinder-run:migrated",
+    ref: "interlock-run:migrated",
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     model: "gpt",
@@ -103,11 +103,11 @@ test("SQLite store additively migrates legacy run routing columns", () => {
 });
 
 test("SQLite store atomically records recovery-required run, step, and evidence", () => {
-  const directory = mkdtempSync(join(tmpdir(), "wayfinder-test-"));
-  const store = new StateStore(join(directory, "wayfinder.db"));
+  const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
+  const store = new StateStore(join(directory, "interlock.db"));
   const now = new Date().toISOString();
   const run: Run = {
-    ref: "wayfinder-run:recovery",
+    ref: "interlock-run:recovery",
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
@@ -119,7 +119,7 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
   try {
     store.saveRun(run);
     const recoveryRun = { ...run, status: "recovery_required" as const };
-    const receipt = { state: "recovery_required", recoveryCommand: "wayfinder recover" };
+    const receipt = { state: "recovery_required", recoveryCommand: "interlock recover" };
     const evidence = { tracker: "verification_required", session: "not_started" };
 
     store.saveRecoveryRequired(recoveryRun, receipt, new Error("ambiguous"), evidence);
@@ -142,12 +142,12 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
 });
 
 test("SQLite recovery-required transaction rolls back every row on a mid-transaction failure", () => {
-  const directory = mkdtempSync(join(tmpdir(), "wayfinder-test-"));
-  const path = join(directory, "wayfinder.db");
+  const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
+  const path = join(directory, "interlock.db");
   const store = new StateStore(path);
   const now = new Date().toISOString();
   const run: Run = {
-    ref: "wayfinder-run:rollback",
+    ref: "interlock-run:rollback",
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },

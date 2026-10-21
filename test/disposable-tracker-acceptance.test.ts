@@ -69,7 +69,7 @@ afterEach(async () => {
 
 function document(): MarkdownTrackerDocument {
   return {
-    format: "wayfinder-markdown-tracker",
+    format: "interlock-markdown-tracker",
     version: 1,
     workspace,
     maps: [
@@ -121,7 +121,7 @@ function document(): MarkdownTrackerDocument {
 async function fixtureTracker(
   clock: MarkdownTrackerClock = fixedClock,
 ): Promise<MarkdownTrackerAdapter> {
-  const directory = await mkdtemp(join(tmpdir(), "wayfinder-accept-"));
+  const directory = await mkdtemp(join(tmpdir(), "interlock-accept-"));
   directories.push(directory);
   const path = join(directory, "tracker.md");
   // Human prose around the fenced state proves the disposable tracker is a
@@ -134,7 +134,7 @@ async function fixtureTracker(
 }
 
 async function newStore(name: string): Promise<StateStore> {
-  const directory = await mkdtemp(join(tmpdir(), `wayfinder-state-${name}-`));
+  const directory = await mkdtemp(join(tmpdir(), `interlock-state-${name}-`));
   directories.push(directory);
   const store = new StateStore(join(directory, "state.db"));
   stores.push(store);
@@ -142,7 +142,7 @@ async function newStore(name: string): Promise<StateStore> {
 }
 
 async function newWorkspacePath(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "wayfinder-ws-"));
+  const directory = await mkdtemp(join(tmpdir(), "interlock-ws-"));
   directories.push(directory);
   return directory;
 }
@@ -182,7 +182,7 @@ function tempWorkspace(path: string): WorkspaceAdapter {
   return {
     async preflight() {},
     async plan(ticket) {
-      return { ticket: ticket.ref, path, branch: `wayfinder/${ticket.ref}` };
+      return { ticket: ticket.ref, path, branch: `interlock/${ticket.ref}` };
     },
     async prepare(plan) {
       return { path: plan.path, branch: plan.branch };
@@ -249,8 +249,8 @@ async function committedPickup(options: {
     tracker: options.tracker,
     store,
     wsPath,
-    runRef: options.runRef ?? "wayfinder-run:accept",
-    claimRef: options.claimRef ?? "wayfinder-claim:accept",
+    runRef: options.runRef ?? "interlock-run:accept",
+    claimRef: options.claimRef ?? "interlock-claim:accept",
   });
   const receipt = await harness.coordinator.execute(harness.request);
   return { store, receipt, spawned: harness.spawned, wsPath };
@@ -299,15 +299,15 @@ describe("JWB-295 disposable-tracker acceptance", () => {
       tracker,
       store: storeOne,
       wsPath: await newWorkspacePath(),
-      runRef: "wayfinder-run:one",
-      claimRef: "wayfinder-claim:one",
+      runRef: "interlock-run:one",
+      claimRef: "interlock-claim:one",
     });
     const two = makePickup({
       tracker,
       store: storeTwo,
       wsPath: await newWorkspacePath(),
-      runRef: "wayfinder-run:two",
-      claimRef: "wayfinder-claim:two",
+      runRef: "interlock-run:two",
+      claimRef: "interlock-claim:two",
     });
     const outcomes = await Promise.allSettled([
       one.coordinator.execute(one.request),
@@ -337,9 +337,9 @@ describe("JWB-295 disposable-tracker acceptance", () => {
       leaseExpiresAt: LEASE_TIME,
       expectedVersion: before.version,
     });
-    await clean.claim(claimRequest("wayfinder-claim:x", "wayfinder-run:x"));
+    await clean.claim(claimRequest("interlock-claim:x", "interlock-run:x"));
     await expect(
-      clean.claim(claimRequest("wayfinder-claim:y", "wayfinder-run:y")),
+      clean.claim(claimRequest("interlock-claim:y", "interlock-run:y")),
     ).rejects.toBeInstanceOf(ClaimCollisionError);
   });
 
@@ -384,8 +384,8 @@ describe("JWB-295 disposable-tracker acceptance", () => {
     const tracker = await fixtureTracker({ now: () => new Date(current) });
     const before = await tracker.snapshotClaimState(ta);
     const firstClaim = {
-      claim: claimRefSchema.parse("wayfinder-claim:first"),
-      run: runRefSchema.parse("wayfinder-run:first"),
+      claim: claimRefSchema.parse("interlock-claim:first"),
+      run: runRefSchema.parse("interlock-run:first"),
       ticket: ta,
       owner,
       leaseExpiresAt: LEASE_TIME,
@@ -399,8 +399,8 @@ describe("JWB-295 disposable-tracker acceptance", () => {
     await expect(
       tracker.reclaim({
         staleClaim: firstClaim.claim,
-        claim: claimRefSchema.parse("wayfinder-claim:second"),
-        run: runRefSchema.parse("wayfinder-run:second"),
+        claim: claimRefSchema.parse("interlock-claim:second"),
+        run: runRefSchema.parse("interlock-run:second"),
         ticket: ta,
         owner,
         authorizedBy: owner,
@@ -415,8 +415,8 @@ describe("JWB-295 disposable-tracker acceptance", () => {
     const stale = await tracker.snapshotClaimState(ta);
     const reclaim = {
       staleClaim: firstClaim.claim,
-      claim: claimRefSchema.parse("wayfinder-claim:second"),
-      run: runRefSchema.parse("wayfinder-run:second"),
+      claim: claimRefSchema.parse("interlock-claim:second"),
+      run: runRefSchema.parse("interlock-run:second"),
       ticket: ta,
       owner,
       authorizedBy: owner,
@@ -446,8 +446,8 @@ describe("JWB-295 disposable-tracker acceptance", () => {
       tracker,
       store,
       wsPath: await newWorkspacePath(),
-      runRef: "wayfinder-run:comp",
-      claimRef: "wayfinder-claim:comp",
+      runRef: "interlock-run:comp",
+      claimRef: "interlock-claim:comp",
       platform: { spawnThrows: true },
     });
 
@@ -483,8 +483,8 @@ describe("JWB-295 disposable-tracker acceptance", () => {
       tracker,
       store,
       wsPath: await newWorkspacePath(),
-      runRef: "wayfinder-run:rec",
-      claimRef: "wayfinder-claim:rec",
+      runRef: "interlock-run:rec",
+      claimRef: "interlock-claim:rec",
       platform: { spawnThrows: true },
     });
 
@@ -495,8 +495,8 @@ describe("JWB-295 disposable-tracker acceptance", () => {
     expect(error).toBeInstanceOf(PickupResultError);
     const receipt = z.instanceof(PickupResultError).parse(error).receipt;
     expect(receipt.state).toBe("recovery_required");
-    expect(receipt.recoveryCommand).toContain("wayfinder recover wayfinder-run:rec");
-    expect(store.run(runRefSchema.parse("wayfinder-run:rec")).status).toBe("recovery_required");
+    expect(receipt.recoveryCommand).toContain("interlock recover interlock-run:rec");
+    expect(store.run(runRefSchema.parse("interlock-run:rec")).status).toBe("recovery_required");
   });
 
   test("stop tears down execution while release separately returns the claim", async () => {
@@ -531,7 +531,7 @@ describe("JWB-295 disposable-tracker acceptance", () => {
 
   test("run identity survives a supervisor restart and lost sessions require attention", async () => {
     const tracker = await fixtureTracker();
-    const directory = await mkdtemp(join(tmpdir(), "wayfinder-crash-"));
+    const directory = await mkdtemp(join(tmpdir(), "interlock-crash-"));
     directories.push(directory);
     const dbPath = join(directory, "state.db");
 
@@ -541,8 +541,8 @@ describe("JWB-295 disposable-tracker acceptance", () => {
       tracker,
       store,
       wsPath,
-      runRef: "wayfinder-run:crash",
-      claimRef: "wayfinder-claim:crash",
+      runRef: "interlock-run:crash",
+      claimRef: "interlock-claim:crash",
     });
     const receipt = await harness.coordinator.execute(harness.request);
     store.close(); // simulate a supervisor/CLI crash
@@ -616,7 +616,7 @@ describe("JWB-295 disposable-tracker acceptance", () => {
         prompt_generation: true,
       });
       const launch = await harness.launch({
-        run: runRefSchema.parse("wayfinder-run:xp"),
+        run: runRefSchema.parse("interlock-run:xp"),
         ticket,
         workspace: { path: wsPath },
       });

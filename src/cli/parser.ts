@@ -75,7 +75,7 @@ export function inputParser(shape: z.ZodRawShape, forHelp = false): InputParser 
     const base = unwrap(schema);
     const info = fieldDescription(schema);
     const description = [text(info.description)];
-    // Library validation errors can echo raw input; Wayfinder emits only schema-owned diagnostics.
+    // Library validation errors can echo raw input; Interlock emits only schema-owned diagnostics.
     const value = (
       item: z.core.$ZodType,
       metavar = fieldDescription(item).values[0] ?? "VALUE",

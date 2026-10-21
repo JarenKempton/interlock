@@ -205,7 +205,7 @@ export class GitHubIssuesTrackerAdapter
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${this.#token}`,
-        "User-Agent": "wayfinder-cli",
+        "User-Agent": "interlock",
         "X-GitHub-Api-Version": GITHUB_API_VERSION,
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },

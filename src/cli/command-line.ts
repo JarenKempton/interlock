@@ -23,7 +23,7 @@ export function actionHelp(tree: ActionTree, prefix: string[] = [], json = false
     );
   const page = getDocPageSync(commandParser(tree), prefix);
   return page
-    ? formatDocPage("wayfinder", page, {
+    ? formatDocPage("interlock", page, {
         colors: false,
         maxWidth: 100,
         showUsage: prefix.length > 0,

@@ -42,9 +42,9 @@ class FakePlatform implements HarnessPlatform {
 }
 
 function fixture() {
-  const path = mkdtempSync(join(tmpdir(), "wayfinder-harness-"));
+  const path = mkdtempSync(join(tmpdir(), "interlock-harness-"));
   const request: LaunchRequest = {
-    run: "wayfinder-run:test",
+    run: "interlock-run:test",
     ticket: {
       ref: ticketRefSchema.parse("jira:example:W:ticket:T-1"),
       map: mapRefSchema.parse("jira:example:W:map:M-1"),

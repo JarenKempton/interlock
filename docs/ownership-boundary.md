@@ -1,6 +1,6 @@
 # Client and core ownership
 
-Wayfinder's CLI owns portable execution: normalized tracker reads, frontier
+Interlock's CLI owns portable execution: normalized tracker reads, frontier
 selection, claims, workspace preparation, configuration, launch, supervision,
 and recovery. Adapters own vendor mechanics. Tracker facts remain durable
 coordination truth; the local ledger holds execution and recovery evidence.

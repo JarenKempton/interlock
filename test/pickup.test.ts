@@ -199,8 +199,8 @@ function coordinator(
       harness,
       ledger,
       ids: {
-        run: () => runRefSchema.parse("wayfinder-run:test"),
-        claim: () => claimRefSchema.parse("wayfinder-claim:test"),
+        run: () => runRefSchema.parse("interlock-run:test"),
+        claim: () => claimRefSchema.parse("interlock-claim:test"),
       },
       clock: { now: () => new Date("2026-08-10T12:00:00Z") },
     }),
@@ -330,7 +330,7 @@ describe("pickup coordinator", () => {
     expect((await failure(subject)).receipt.state).toBe("compensated");
     expect(tracker.restoreRequest).toEqual({
       ticket: request.ticket,
-      claim: "wayfinder-claim:test",
+      claim: "interlock-claim:test",
       claimedOwner: request.owner,
       originalSnapshot: { version: "1", payload: { assignee: null, status: "To Do" } },
     });
@@ -367,8 +367,8 @@ describe("pickup coordinator", () => {
   });
 
   test("final compensated-step persistence failure is durably recovery-required", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "wayfinder-test-"));
-    const store = new FailingCompensatedStateStore(join(directory, "wayfinder.db"));
+    const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
+    const store = new FailingCompensatedStateStore(join(directory, "interlock.db"));
     const tracker = new FakeTracker();
     const workspace = new FakeWorkspace();
     workspace.prepareError = new Error("prepare failed");
@@ -378,8 +378,8 @@ describe("pickup coordinator", () => {
       harness: new FakeHarness(),
       ledger: store,
       ids: {
-        run: () => runRefSchema.parse("wayfinder-run:test"),
-        claim: () => claimRefSchema.parse("wayfinder-claim:test"),
+        run: () => runRefSchema.parse("interlock-run:test"),
+        claim: () => claimRefSchema.parse("interlock-claim:test"),
       },
       clock: { now: () => new Date("2026-08-10T12:00:00Z") },
     });
@@ -390,23 +390,23 @@ describe("pickup coordinator", () => {
       expect(tracker.restoreCalls).toBe(1);
       expect(result.receipt).toMatchObject({
         state: "recovery_required",
-        recoveryCommand: `wayfinder recover wayfinder-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
+        recoveryCommand: `interlock recover interlock-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
       });
       expect(result.cause).toBeInstanceOf(AggregateError);
       const error = z.instanceof(AggregateError).parse(result.cause);
       expect(error.message).toBe("Pickup compensation could not be fully verified");
       expect(error.errors).toEqual([workspace.prepareError, store.compensatedStepError]);
-      expect(store.run(runRefSchema.parse("wayfinder-run:test")).status).toBe("recovery_required");
-      expect(store.claim(claimRefSchema.parse("wayfinder-claim:test")).status).toBe("active");
-      expect(store.steps(runRefSchema.parse("wayfinder-run:test")).at(-1)).toMatchObject({
+      expect(store.run(runRefSchema.parse("interlock-run:test")).status).toBe("recovery_required");
+      expect(store.claim(claimRefSchema.parse("interlock-claim:test")).status).toBe("active");
+      expect(store.steps(runRefSchema.parse("interlock-run:test")).at(-1)).toMatchObject({
         state: "recovery_required",
         error_text: "Pickup compensation could not be fully verified",
       });
-      expect(store.recoveryEvidence(runRefSchema.parse("wayfinder-run:test"))).toEqual([
+      expect(store.recoveryEvidence(runRefSchema.parse("interlock-run:test"))).toEqual([
         expect.objectContaining({
           outcome: "verification_required",
           evidence_json: JSON.stringify({
-            command: `wayfinder recover wayfinder-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
+            command: `interlock recover interlock-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
             tracker: "restored_verified",
             session: "not_started",
             ledger: "compensated_step_persistence_failed",
@@ -428,7 +428,7 @@ describe("pickup coordinator", () => {
     const result = await failure(item.coordinator);
     expect(result.receipt.state).toBe("recovery_required");
     expect(result.receipt.recoveryCommand).toBe(
-      `wayfinder recover wayfinder-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
+      `interlock recover interlock-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
     );
     expect(item.ledger.recoveryRun?.status).toBe("recovery_required");
   });

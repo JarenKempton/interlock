@@ -359,7 +359,7 @@ describe("GitHub Issues tracker adapter", () => {
     ]);
     for (const request of requests) {
       expect(request.headers?.["X-GitHub-Api-Version"]).toBe("2026-03-10");
-      expect(request.headers?.["User-Agent"]).toBe("wayfinder-cli");
+      expect(request.headers?.["User-Agent"]).toBe("interlock");
     }
   });
 
@@ -567,8 +567,8 @@ test("registry does not advertise uncomposed tracker adapters as available", () 
 
 function claimRequest(): ClaimRequest {
   return {
-    claim: claimRefSchema.parse("wayfinder-claim:test"),
-    run: runRefSchema.parse("wayfinder-run:test"),
+    claim: claimRefSchema.parse("interlock-claim:test"),
+    run: runRefSchema.parse("interlock-run:test"),
     ticket: ticketRefSchema.parse("github:github.com:o/r:ticket:1"),
     owner: actorRefSchema.parse("human"),
     leaseExpiresAt: "2026-08-11T00:15:00.000Z",
@@ -578,7 +578,7 @@ function claimRequest(): ClaimRequest {
 
 function releaseRequest(): ReleaseClaimRequest {
   return {
-    claim: claimRefSchema.parse("wayfinder-claim:test"),
+    claim: claimRefSchema.parse("interlock-claim:test"),
     ticket: ticketRefSchema.parse("github:github.com:o/r:ticket:1"),
     claimedOwner: actorRefSchema.parse("human"),
     originalSnapshot: { version: "v1", payload: { assignee: null } },

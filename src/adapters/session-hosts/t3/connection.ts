@@ -178,9 +178,9 @@ async function issueCredential(io: T3Platform, command: string, home: string) {
       "--ttl",
       "2m",
       "--label",
-      "wayfinder",
+      "interlock",
       "--subject",
-      "wayfinder",
+      "interlock",
       "--base-dir",
       home,
     ]);

@@ -40,7 +40,7 @@ afterEach(async () => {
 
 function document(): MarkdownTrackerDocument {
   return {
-    format: "wayfinder-markdown-tracker",
+    format: "interlock-markdown-tracker",
     version: 1,
     workspace,
     maps: [
@@ -78,7 +78,7 @@ function document(): MarkdownTrackerDocument {
 }
 
 async function fixture(prose = "Human preface.\n\n", fixtureClock = clock) {
-  const directory = await mkdtemp(join(tmpdir(), "wayfinder-markdown-"));
+  const directory = await mkdtemp(join(tmpdir(), "interlock-markdown-"));
   directories.push(directory);
   const path = join(directory, "tracker.md");
   await writeFile(path, `${prose}${formatMarkdownTracker(document())}`);
@@ -86,8 +86,8 @@ async function fixture(prose = "Human preface.\n\n", fixtureClock = clock) {
 }
 
 const claimRequest = (expectedVersion: string, claimant = owner) => ({
-  claim: "wayfinder-claim:first" as const,
-  run: "wayfinder-run:first" as const,
+  claim: "interlock-claim:first" as const,
+  run: "interlock-run:first" as const,
   ticket: blocker,
   owner: claimant,
   leaseExpiresAt: "2026-08-11T12:15:00.000Z",
@@ -99,11 +99,11 @@ describe("MarkdownTrackerAdapter", () => {
     const value = document();
     const firstMap = value.maps[0];
     if (!firstMap) throw new Error("fixture map missing");
-    firstMap.title = "Map with `ticks`\n```wayfinder-tracker";
-    firstMap.context = ["gist\n```wayfinder-tracker\nmore"];
-    const source = `Prose mentions x \`\`\`wayfinder-tracker inline.\n\n${formatMarkdownTracker(value)}`;
+    firstMap.title = "Map with `ticks`\n```interlock-tracker";
+    firstMap.context = ["gist\n```interlock-tracker\nmore"];
+    const source = `Prose mentions x \`\`\`interlock-tracker inline.\n\n${formatMarkdownTracker(value)}`;
     expect(parseMarkdownTracker(source)).toEqual(value);
-    expect(source).toContain("\\```wayfinder-tracker");
+    expect(source).toContain("\\```interlock-tracker");
   });
 
   test("preserves human prose while validating the final replacement", async () => {
@@ -122,7 +122,7 @@ describe("MarkdownTrackerAdapter", () => {
     const firstTicket = value.tickets[0];
     if (!firstTicket) throw new Error("fixture ticket missing");
     firstTicket.comments = [42];
-    const source = `\`\`\`wayfinder-tracker\n${JSON.stringify(value)}\n\`\`\``;
+    const source = `\`\`\`interlock-tracker\n${JSON.stringify(value)}\n\`\`\``;
     expect(() => parseMarkdownTracker(source)).toThrow(
       expect.objectContaining({
         name: "MarkdownTrackerValidationError",
@@ -172,7 +172,7 @@ describe("MarkdownTrackerAdapter", () => {
   ])("rejects %s references", (_name, mutate) => {
     const value = document();
     mutate(value);
-    const source = `\`\`\`wayfinder-tracker\n${JSON.stringify(value)}\n\`\`\``;
+    const source = `\`\`\`interlock-tracker\n${JSON.stringify(value)}\n\`\`\``;
     expect(() => parseMarkdownTracker(source)).toThrow(MarkdownTrackerValidationError);
   });
 
@@ -196,8 +196,8 @@ describe("MarkdownTrackerAdapter", () => {
     const staleSnapshot = await adapter.snapshotClaimState(blocker);
     const reclaim = {
       staleClaim: request.claim,
-      claim: "wayfinder-claim:second" as const,
-      run: "wayfinder-run:second" as const,
+      claim: "interlock-claim:second" as const,
+      run: "interlock-run:second" as const,
       ticket: blocker,
       owner,
       authorizedBy: owner,
@@ -224,7 +224,7 @@ describe("MarkdownTrackerAdapter", () => {
     const before = await adapter.snapshotClaimState(blocker);
     const restore = {
       ticket: blocker,
-      claim: "wayfinder-claim:first" as const,
+      claim: "interlock-claim:first" as const,
       originalSnapshot: before,
     };
     await adapter.restoreClaimState(restore);
@@ -251,7 +251,7 @@ describe("MarkdownTrackerAdapter", () => {
         ticket: blocker,
         expectedVersion: claimed.version,
         owner,
-        claim: "wayfinder-claim:first",
+        claim: "interlock-claim:first",
         resolution: "foreign",
       }),
     ).rejects.toBeInstanceOf(ClaimCollisionError);

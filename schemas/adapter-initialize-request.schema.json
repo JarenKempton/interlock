@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wayfinder-cli.dev/schemas/adapter-initialize-request.schema.json",
-  "title": "Wayfinder adapter.initialize request",
+  "$id": "https://interlock.dev/schemas/adapter-initialize-request.schema.json",
+  "title": "Interlock adapter.initialize request",
   "type": "object",
   "additionalProperties": false,
   "required": ["jsonrpc", "id", "method", "params"],

@@ -21,15 +21,15 @@ describe("prerelease workflow", () => {
   test("publishes, checksums, and attests the man page and SBOM", () => {
     const workflow = readFileSync(".github/workflows/release.yml", "utf8");
     const checksumStep = workflow.split("- name: Generate checksums")[1]?.split("- name:")[0];
-    expect(checksumStep).toContain("wayfinder.1");
-    expect(checksumStep).toContain("wayfinder.spdx.json");
+    expect(checksumStep).toContain("interlock.1");
+    expect(checksumStep).toContain("interlock.spdx.json");
     const attestation = workflow
       .split("- name: Attest release artifacts")[1]
       ?.split("- name: Publish GitHub prerelease")[0];
-    expect(attestation).toContain("dist/wayfinder.1");
-    expect(attestation).toContain("dist/wayfinder.spdx.json");
+    expect(attestation).toContain("dist/interlock.1");
+    expect(attestation).toContain("dist/interlock.spdx.json");
     const publication = workflow.split("- name: Publish GitHub prerelease")[1];
-    expect(publication).toContain("dist/wayfinder.1");
-    expect(publication).toContain("dist/wayfinder.spdx.json");
+    expect(publication).toContain("dist/interlock.1");
+    expect(publication).toContain("dist/interlock.spdx.json");
   });
 });

@@ -21,10 +21,10 @@ const originalSnapshot: TrackerSnapshot = {
 };
 
 const claim: Claim = {
-  ref: "wayfinder-claim:first",
+  ref: "interlock-claim:first",
   ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
   humanOwner: actorRefSchema.parse("jaren"),
-  run: "wayfinder-run:first",
+  run: "interlock-run:first",
   previousState: originalSnapshot,
   claimedAt: "2026-08-10T12:00:00.000Z",
   leaseExpiresAt: "2026-08-10T12:15:00.000Z",
@@ -42,8 +42,8 @@ describe("claim semantics", () => {
   test("reclaim contract requires authorization, expected state, and original snapshot", () => {
     const request: ReclaimRequest = {
       staleClaim: claim.ref,
-      claim: "wayfinder-claim:second",
-      run: "wayfinder-run:second",
+      claim: "interlock-claim:second",
+      run: "interlock-run:second",
       ticket: claim.ticket,
       owner: actorRefSchema.parse("new-owner"),
       authorizedBy: actorRefSchema.parse("operator"),
@@ -52,7 +52,7 @@ describe("claim semantics", () => {
       originalSnapshot: claim.previousState,
     };
     expect(String(request.authorizedBy)).toBe("operator");
-    expect(request.staleClaim).toBe("wayfinder-claim:first");
+    expect(request.staleClaim).toBe("interlock-claim:first");
     expect(request.originalSnapshot).toBe(originalSnapshot);
   });
 
@@ -74,7 +74,7 @@ describe("claim semantics", () => {
 
   test("stop changes only run execution fields", () => {
     const run: Run = {
-      ref: runRefSchema.parse("wayfinder-run:first"),
+      ref: runRefSchema.parse("interlock-run:first"),
       ticket: claim.ticket,
       harness: adapterRefSchema.parse("codex"),
       workspace: { path: "/work", branch: "decision/A" },

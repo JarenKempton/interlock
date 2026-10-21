@@ -28,10 +28,10 @@ export const groupRefSchema = identifier<GroupRef>();
 export const trackerRefSchema = identifier<TrackerRef>();
 export const workspaceRefSchema = identifier<WorkspaceRef>();
 export const runRefSchema = z.custom<RunRef>(
-  (value) => typeof value === "string" && value.startsWith("wayfinder-run:") && value.length > 14,
+  (value) => typeof value === "string" && value.startsWith("interlock-run:") && value.length > 14,
   "Expected a run reference",
 );
 export const claimRefSchema = z.custom<ClaimRef>(
-  (value) => typeof value === "string" && value.startsWith("wayfinder-claim:") && value.length > 16,
+  (value) => typeof value === "string" && value.startsWith("interlock-claim:") && value.length > 16,
   "Expected a claim reference",
 );
