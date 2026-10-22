@@ -11,7 +11,7 @@ export interface HostFixture {
     sessions: readonly HostSession[];
     messages: readonly string[];
     focused: string | null;
-    children: readonly HostSession[];
+    children: readonly { parentSessionId: string; session: HostSession }[];
   }>;
   loseLaunchReadback(): void | Promise<void>;
   restoreReadback(): void | Promise<void>;
@@ -115,9 +115,9 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
             });
             const children = await adapter.subagents(session);
             const others = await adapter.subagents(other);
-            const observed = (await observe()).children.filter(
-              (child) => child.workspace.path === session.workspace.path,
-            );
+            const observed = (await observe()).children
+              .filter((child) => child.parentSessionId === session.id)
+              .map((child) => child.session);
             requireBehavior(
               others.length > 0 &&
                 others.every((child) => !children.some((item) => item.id === child.id)),

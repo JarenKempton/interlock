@@ -249,7 +249,9 @@ export class JiraTrackerAdapter implements Tracker {
   async apply(request: MirrorClaim): Promise<void> {
     const issue = await this.#issue(request.ticket);
     const current = await this.#claimState(request.ticket, issue);
-    if (this.#validateClaim && current.claim?.claim !== request.claim) {
+    const replacing =
+      request.supersedes !== undefined && current.claim?.claim === request.supersedes;
+    if (this.#validateClaim && current.claim?.claim !== request.claim && !replacing) {
       const parent = issue.fields.parent?.key;
       if (!parent) throw new ClaimCollisionError("Jira ticket no longer has a parent map");
       this.#validateClaim(
@@ -261,8 +263,6 @@ export class JiraTrackerAdapter implements Tracker {
         ),
       );
     }
-    const replacing =
-      request.supersedes !== undefined && current.claim?.claim === request.supersedes;
     const expectedOwner = replacing ? current.claim?.owner : request.owner;
     if (
       (current.assignee !== null && current.assignee !== expectedOwner) ||

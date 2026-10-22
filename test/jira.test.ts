@@ -6,6 +6,7 @@ import type { HttpRequest, HttpTransport } from "../src/adapters/trackers/http.t
 import {
   type JiraResponse,
   JiraTrackerAdapter,
+  type JiraTrackerOptions,
   type JiraTransport,
   jiraBasicAuthTransport,
 } from "../src/adapters/trackers/jira.ts";
@@ -135,11 +136,12 @@ const TRANSITIONS = [
   { id: "21", to: { name: "In Progress" } },
 ];
 
-function adapter(api: FakeJira) {
+function adapter(api: FakeJira, validateClaim?: JiraTrackerOptions["validateClaim"]) {
   return new JiraTrackerAdapter({
     instance: "responsibid",
     workspace: "JWB",
     transport: api,
+    ...(validateClaim ? { validateClaim } : {}),
     rankField: "customfield_rank",
     priorityOrder: ["Highest", "High", "Medium", "Low", "Lowest"],
   });
@@ -340,7 +342,7 @@ function claimRequest(claimOwner: ActorRef, id: string, expectedVersion: string)
   };
 }
 
-async function lockedJira(api: FakeJira) {
+async function lockedJira(api: FakeJira, validateClaim?: JiraTrackerOptions["validateClaim"]) {
   const fixture = await gitRemoteFixture();
   remotes.push(fixture);
   const locked = (repository: string) =>
@@ -351,9 +353,9 @@ async function lockedJira(api: FakeJira) {
         clock: fixture.clock,
         git: fixture.git,
       }),
-      adapter(api),
+      adapter(api, validateClaim),
     );
-  return { first: locked(fixture.alice), second: locked(fixture.bob) };
+  return { first: locked(fixture.alice), second: locked(fixture.bob), clock: fixture.clock };
 }
 
 describe("Jira mirror behind the Git claim lock", () => {
@@ -750,6 +752,52 @@ test(
       first.restoreClaimState({ ...request, claimedOwner: owner, originalSnapshot: original }),
     ).rejects.toThrow("Jira restored state could not be verified");
     expect(await first.lock.read(ticket)).toEqual(held);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "authorized reclaim bypasses pickup eligibility while preserving predecessor and owner guards",
+  async () => {
+    const api = new FakeJira();
+    let validations = 0;
+    const { first, clock } = await lockedJira(api, (ticket) => {
+      validations += 1;
+      if (ticket.assignee || ticket.status !== "To Do")
+        throw new Error("Ticket is not eligible for initial pickup");
+    });
+    const original = await first.snapshotClaimState(ticket);
+    const initial = claimRequest(owner, "alice", original.version);
+    await first.claim(initial);
+    const held = await first.lock.read(ticket);
+    clock.set("2026-10-22T00:16:00.000Z");
+    const successor = {
+      ...claimRequest(actorRefSchema.parse("bob"), "bob", held.version),
+      leaseExpiresAt: "2026-10-22T00:45:00.000Z",
+      staleClaim: initial.claim,
+      authorizedBy: actorRefSchema.parse("operator"),
+      originalSnapshot: original,
+    };
+    await expect(
+      first.reclaim({ ...successor, staleClaim: "interlock-claim:unrelated" }),
+    ).rejects.toBeInstanceOf(ClaimCollisionError);
+    await first.reclaim(successor);
+    await first.verifyReclaimed(successor);
+    expect(validations).toBe(1);
+    expect(api.mirror()).toMatchObject({
+      assignee: "bob",
+      claim: { claim: successor.claim, supersedes: initial.claim, owner: "bob" },
+    });
+    const renewed = await first.lock.read(ticket);
+    await first.releaseClaim({
+      ticket,
+      claim: successor.claim,
+      claimedOwner: successor.owner,
+      authorizedBy: successor.owner,
+      expectedVersion: renewed.version,
+      originalSnapshot: original,
+    });
+    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
   },
   GIT_TEST_TIMEOUT_MS,
 );

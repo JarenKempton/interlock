@@ -167,3 +167,33 @@ describe("portable adapter conformance", () => {
     );
   });
 });
+
+test("host subagent conformance accepts children in separate worktrees", async () => {
+  const report = await runConformance(
+    hostConformance(async () => {
+      const fixture = fakeHostFixture();
+      const discover = fixture.adapter.subagents?.bind(fixture.adapter);
+      if (!discover) throw new Error("Missing fake subagents");
+      fixture.adapter.subagents = async (parent) =>
+        (await discover(parent)).map((child) => ({
+          ...child,
+          workspace: { path: `/isolated/${child.id}` },
+        }));
+      const observe = fixture.observe;
+      fixture.observe = async () => {
+        const state = await observe();
+        return {
+          ...state,
+          children: state.children.map((child) => ({
+            ...child,
+            session: { ...child.session, workspace: { path: `/isolated/${child.session.id}` } },
+          })),
+        };
+      };
+      return fixture;
+    }),
+  );
+  expect(report.results.find((result) => result.name === "host.subagents")).toMatchObject({
+    ok: true,
+  });
+});

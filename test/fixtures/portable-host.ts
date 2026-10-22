@@ -13,7 +13,7 @@ export function fakeHostFixture(
 ): HostFixture {
   const sessions: HostSession[] = [];
   const messages: string[] = [];
-  const children: HostSession[] = [];
+  const children: { parentSessionId: string; session: HostSession }[] = [];
   let focused: string | null = null;
   let failReadback = false;
   const ownedPullRequest = "https://example.invalid/pull/1";
@@ -48,9 +48,12 @@ export function fakeHostFixture(
       };
       sessions.push(structuredClone(session));
       children.push({
-        ...session,
-        id: `child-${session.id}`,
-        run: `interlock-run:child-${session.id}`,
+        parentSessionId: session.id,
+        session: {
+          ...session,
+          id: `child-${session.id}`,
+          run: `interlock-run:child-${session.id}`,
+        },
       });
       if (failReadback && !(fault === "duplicate_retry" && existing))
         throw new AmbiguousTrackerResultError();
@@ -71,9 +74,9 @@ export function fakeHostFixture(
     },
     async subagents(session) {
       return structuredClone(
-        children.filter(
-          (child) => fault === "global_children" || child.workspace.path === session.workspace.path,
-        ),
+        children
+          .filter((child) => fault === "global_children" || child.parentSessionId === session.id)
+          .map((child) => child.session),
       );
     },
     async owns_pull_request(session, url) {
