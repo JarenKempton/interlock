@@ -3,6 +3,7 @@ import { claimLockConformance } from "../src/conformance/claim-lock.ts";
 import { hostConformance } from "../src/conformance/host.ts";
 import { runConformance } from "../src/conformance/runner.ts";
 import { trackerConformance } from "../src/conformance/tracker.ts";
+import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import { fakeHostFixture } from "./fixtures/portable-host.ts";
 import { fakeLockFixture } from "./fixtures/portable-lock.ts";
 import { fakeTrackerFixture } from "./fixtures/portable-tracker.ts";
@@ -197,3 +198,32 @@ test("host subagent conformance accepts children in separate worktrees", async (
     ok: true,
   });
 });
+
+test.each(["initial", "retry"])(
+  "host conformance rejects an incorrect %s launch receipt",
+  async (phase) => {
+    const report = await runConformance(
+      hostConformance(async () => {
+        const fixture = fakeHostFixture();
+        const launch = fixture.adapter.launch.bind(fixture.adapter);
+        let calls = 0;
+        fixture.adapter.launch = async (request) => {
+          const receipt = await launch(request);
+          calls += 1;
+          if ((phase === "initial" && calls === 1) || (phase === "retry" && calls === 2))
+            return {
+              ...receipt,
+              ticket: ticketRefSchema.parse("jira:test:TEST:ticket:OTHER-1"),
+              workspace: { path: "/wrong-worktree" },
+              state: "stopped",
+            };
+          return receipt;
+        };
+        return fixture;
+      }),
+    );
+    expect(report.results.find((result) => result.name === "host.launch_and_locate")).toMatchObject(
+      { ok: false },
+    );
+  },
+);

@@ -121,6 +121,7 @@ const claimPropertySchema = z.object({
   run: z.string(),
   owner: z.string(),
   supersedes: z.string().optional(),
+  pendingOwner: z.string().optional(),
 });
 type JiraClaimProperty = z.infer<typeof claimPropertySchema>;
 const claimSnapshotSchema = z.object({
@@ -263,10 +264,18 @@ export class JiraTrackerAdapter implements Tracker {
         ),
       );
     }
-    const expectedOwner = replacing ? current.claim?.owner : request.owner;
+    const resuming = current.claim !== null && sameClaimIdentity(current.claim, request);
+    const pendingOwner = replacing
+      ? current.claim?.owner
+      : resuming && request.supersedes
+        ? current.claim?.pendingOwner
+        : undefined;
+    const expectedOwner = replacing ? pendingOwner : request.owner;
     if (
-      (current.assignee !== null && current.assignee !== expectedOwner) ||
-      (current.claim !== null && current.claim.claim !== request.claim && !replacing) ||
+      (current.assignee !== null &&
+        current.assignee !== expectedOwner &&
+        !(resuming && current.assignee === pendingOwner)) ||
+      (current.claim !== null && !resuming && !replacing) ||
       (request.supersedes !== undefined && current.claim === null)
     )
       throw new ClaimCollisionError("Jira ticket is assigned or marked by another claim");
@@ -278,6 +287,7 @@ export class JiraTrackerAdapter implements Tracker {
           run: request.run,
           owner: request.owner,
           ...(request.supersedes ? { supersedes: request.supersedes } : {}),
+          ...(pendingOwner ? { pendingOwner } : {}),
         },
         current,
       );
@@ -302,7 +312,8 @@ export class JiraTrackerAdapter implements Tracker {
       current.claim?.claim !== request.claim ||
       current.claim.run !== request.run ||
       current.claim.owner !== request.owner ||
-      current.claim.supersedes !== request.supersedes
+      current.claim.supersedes !== request.supersedes ||
+      current.claim.pendingOwner !== undefined
     )
       throw new AmbiguousTrackerResultError("Jira claim mirror could not be verified");
   }
@@ -313,7 +324,10 @@ export class JiraTrackerAdapter implements Tracker {
     const current = await this.#claimState(request.ticket);
     if (current.claim?.claim !== request.claim) return;
     if (
-      (current.assignee !== owner && current.assignee !== original.assignee) ||
+      current.claim.owner !== owner ||
+      (current.assignee !== owner &&
+        current.assignee !== original.assignee &&
+        !(current.claim.supersedes && current.assignee === current.claim.pendingOwner)) ||
       (current.status !== CLAIMED_STATUS && current.status !== original.status)
     )
       throw new ClaimCollisionError("Jira claim mirror was changed outside Interlock");
@@ -429,23 +443,28 @@ export class JiraTrackerAdapter implements Tracker {
     current: JiraClaimSnapshot,
   ): Promise<void> {
     if (
-      current.claim?.claim !== property.claim ||
-      current.claim.run !== property.run ||
-      current.claim.owner !== property.owner ||
-      current.claim.supersedes !== property.supersedes
-    ) {
-      await this.#write("PUT", this.#propertyPath(ticket), property, "set claim property");
-      const installed = await this.#readClaim(ticket);
-      if (
-        installed?.claim !== property.claim ||
-        installed.run !== property.run ||
-        installed.owner !== property.owner ||
-        installed.supersedes !== property.supersedes
-      )
-        throw new AmbiguousTrackerResultError("Jira claim property was not verified");
-    }
+      !current.claim ||
+      !sameClaimIdentity(current.claim, property) ||
+      current.claim.pendingOwner !== property.pendingOwner
+    )
+      await this.#writeClaimProperty(ticket, property);
     if (current.assignee !== property.owner) await this.#assign(ticket, property.owner);
     if (current.status !== CLAIMED_STATUS) await this.#transition(ticket, CLAIMED_STATUS);
+    if (property.pendingOwner !== undefined) {
+      const { pendingOwner: _, ...completed } = property;
+      await this.#writeClaimProperty(ticket, completed);
+    }
+  }
+
+  async #writeClaimProperty(ticket: TicketRef, property: JiraClaimProperty): Promise<void> {
+    await this.#write("PUT", this.#propertyPath(ticket), property, "set claim property");
+    const installed = await this.#readClaim(ticket);
+    if (
+      !installed ||
+      !sameClaimIdentity(installed, property) ||
+      installed.pendingOwner !== property.pendingOwner
+    )
+      throw new AmbiguousTrackerResultError("Jira claim property was not verified");
   }
 
   async #assign(ticket: TicketRef, accountId: string | null): Promise<void> {
@@ -558,6 +577,15 @@ export class JiraTrackerAdapter implements Tracker {
   #mutationUnavailable(): never {
     throw new UnsupportedCapabilityError(MUTATION_CAPABILITIES);
   }
+}
+
+function sameClaimIdentity(left: JiraClaimProperty, right: JiraClaimProperty): boolean {
+  return (
+    left.claim === right.claim &&
+    left.run === right.run &&
+    left.owner === right.owner &&
+    left.supersedes === right.supersedes
+  );
 }
 
 function originalClaimState(request: MirrorRestore): JiraClaimSnapshot {

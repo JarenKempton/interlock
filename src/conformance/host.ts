@@ -22,7 +22,8 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
     return { name: `host.${name}`, run: async () => run(await create()) };
   }
   return [
-    scenario("launch_and_locate", async ({ adapter, request, observe }) => {
+    scenario("launch_and_locate", async (fixture) => {
+      const { adapter, request, observe } = fixture;
       const capabilities = await adapter.describe();
       requireBehavior(
         Object.keys(capabilities).every((key) => HOST_CAPABILITIES.some((known) => known === key)),
@@ -33,17 +34,9 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
         "Unlaunched run must locate as absent",
       );
       const launched = await adapter.launch(request);
-      const located = await adapter.locate(request.run);
-      requireBehavior(
-        located?.id === launched.id &&
-          located.run === request.run &&
-          located.ticket === request.ticket.ref &&
-          located.workspace.path === request.workspace.path &&
-          located.workspace.branch === request.workspace.branch &&
-          located.state === "running",
-        "Launch could not be located with exact identity",
-      );
+      await requireLaunch(fixture, request, launched);
       const repeated = await adapter.launch(request);
+      await requireLaunch(fixture, request, repeated);
       requireBehavior(
         repeated.id === launched.id && (await observe()).sessions.length === 1,
         "Retry duplicated a host session",
@@ -54,35 +47,29 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
         "claim_collision",
       );
     }),
-    scenario(
-      "ambiguous_launch",
-      async ({ adapter, request, observe, loseLaunchReadback, restoreReadback }) => {
-        await loseLaunchReadback();
-        await requireRejection(() => adapter.launch(request), "ambiguous_tracker_result");
-        const before = await observe();
-        requireBehavior(
-          before.sessions.length === 1,
-          "Lost-response fixture did not commit a launch",
-        );
-        await restoreReadback();
-        const retried = await adapter.launch(request);
-        const located = await adapter.locate(request.run);
-        requireBehavior(
-          retried.id === before.sessions[0]?.id &&
-            located?.id === retried.id &&
-            located.run === request.run &&
-            located.ticket === request.ticket.ref &&
-            located.workspace.path === request.workspace.path &&
-            (await observe()).sessions.length === 1,
-          "Lost-response retry duplicated or lost the original session",
-        );
-      },
-    ),
+    scenario("ambiguous_launch", async (fixture) => {
+      const { adapter, request, observe, loseLaunchReadback, restoreReadback } = fixture;
+      await loseLaunchReadback();
+      await requireRejection(() => adapter.launch(request), "ambiguous_tracker_result");
+      const before = await observe();
+      requireBehavior(
+        before.sessions.length === 1,
+        "Lost-response fixture did not commit a launch",
+      );
+      await restoreReadback();
+      const retried = await adapter.launch(request);
+      await requireLaunch(fixture, request, retried);
+      requireBehavior(
+        retried.id === before.sessions[0]?.id && (await observe()).sessions.length === 1,
+        "Lost-response retry duplicated or lost the original session",
+      );
+    }),
     ...HOST_CAPABILITIES.map((capability) =>
       scenario(capability, async (fixture) => {
         const { adapter, request, observe } = fixture;
         if (!(await adapter.describe())[capability]) return;
         const session = await adapter.launch(request);
+        await requireLaunch(fixture, request, session);
         switch (capability) {
           case "message":
             requireBehavior(adapter.message, "Advertised message has no implementation");
@@ -161,4 +148,29 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
       }),
     ),
   ];
+}
+
+async function requireLaunch(
+  fixture: HostFixture,
+  request: LaunchRequest,
+  receipt: HostSession,
+): Promise<void> {
+  const observed = (await fixture.observe()).sessions.filter(
+    (session) => session.run === request.run,
+  );
+  const located = await fixture.adapter.locate(request.run);
+  requireBehavior(observed.length === 1, "Launch must have exactly one observed session");
+  for (const session of [receipt, located, observed[0]]) {
+    requireBehavior(
+      session &&
+        session.id.length > 0 &&
+        session.id === receipt.id &&
+        session.run === request.run &&
+        session.ticket === request.ticket.ref &&
+        session.workspace.path === request.workspace.path &&
+        session.workspace.branch === request.workspace.branch &&
+        session.state === "running",
+      "Launch receipt, lookup and observation must match the requested session",
+    );
+  }
 }
