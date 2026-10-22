@@ -9,7 +9,7 @@ export interface HostFixture {
   unrelatedPullRequest: string;
   observe(): Promise<{
     sessions: readonly HostSession[];
-    messages: readonly string[];
+    messages: readonly { sessionId: string; text: string }[];
     focused: string | null;
     children: readonly { parentSessionId: string; session: HostSession }[];
   }>;
@@ -75,8 +75,11 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
             requireBehavior(adapter.message, "Advertised message has no implementation");
             await adapter.message(session, "Conformance delivery probe");
             requireBehavior(
-              (await observe()).messages.includes("Conformance delivery probe"),
-              "Message was acknowledged without delivery",
+              (await observe()).messages.some(
+                (message) =>
+                  message.sessionId === session.id && message.text === "Conformance delivery probe",
+              ),
+              "Message was acknowledged without delivery to the requested session",
             );
             break;
           case "interrupt":

@@ -91,8 +91,8 @@ workspace refuses. A lost launch response must not cause a duplicate launch.
 
 Message delivery, interrupt, focus, subagent discovery, and PR ownership are
 optional capabilities. Each needs independently observed behavior: a delivered
-message, verified stopped session, focused session, actual child sessions, or
-an ownership check that rejects an unrelated PR. Interrupting a host session
+message to the requested session, verified stopped session, focused session,
+actual child sessions, or an ownership check that rejects an unrelated PR. Interrupting a host session
 does not release a claim or delete a workspace. This is an ordinary TypeScript
 boundary, with no generic plugin transport or host-specific HTTP protocol.
 

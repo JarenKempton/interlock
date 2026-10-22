@@ -105,7 +105,13 @@ claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
   property first, then assignee and `In Progress`, each read back. During an
   authorized succession the property temporarily retains the verified predecessor
-  owner, so interrupted reassignment can resume or compensate after a restart.
+  owner and a pending assignment phase, so interrupted property installation can
+  resume or compensate after a restart. Before dispatching successor assignment,
+  it persists and verifies the started phase. Only the pending phase authorizes
+  predecessor-owner recovery. If the predecessor is assigned with a started or
+  legacy unknown phase, Interlock cannot distinguish an incomplete assignment
+  from a later human reassignment and retains the lock for recovery. Current
+  successor ownership still permits resuming or compensating the attempt.
   Successful application clears that evidence with readback; it never permits
   overwriting later human reassignments. Restoration
   removes the property last, so a property that no longer names the claim means

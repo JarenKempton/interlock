@@ -12,7 +12,7 @@ export function fakeHostFixture(
   fault?: "duplicate_retry" | "global_ownership" | "global_children",
 ): HostFixture {
   const sessions: HostSession[] = [];
-  const messages: string[] = [];
+  const messages: { sessionId: string; text: string }[] = [];
   const children: { parentSessionId: string; session: HostSession }[] = [];
   let focused: string | null = null;
   let failReadback = false;
@@ -62,8 +62,8 @@ export function fakeHostFixture(
     async locate(run) {
       return structuredClone(sessions.find((session) => session.run === run) ?? null);
     },
-    async message(_session, text) {
-      messages.push(text);
+    async message(session, text) {
+      messages.push({ sessionId: session.id, text });
     },
     async interrupt(session) {
       const current = sessions.find((item) => item.id === session.id);

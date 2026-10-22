@@ -199,6 +199,28 @@ test("host subagent conformance accepts children in separate worktrees", async (
   });
 });
 
+test("host conformance rejects delivery to the wrong session", async () => {
+  const report = await runConformance(
+    hostConformance(async () => {
+      const fixture = fakeHostFixture();
+      const deliver = fixture.adapter.message?.bind(fixture.adapter);
+      if (!deliver) throw new Error("Missing fake messaging");
+      fixture.adapter.message = async (_requested, text) => {
+        const other = await fixture.adapter.launch({
+          ...fixture.request,
+          run: "interlock-run:unrelated",
+          workspace: { path: "/unrelated" },
+        });
+        await deliver(other, text);
+      };
+      return fixture;
+    }),
+  );
+  expect(report.results.find((result) => result.name === "host.message")).toMatchObject({
+    ok: false,
+  });
+});
+
 test.each(["initial", "retry"])(
   "host conformance rejects an incorrect %s launch receipt",
   async (phase) => {

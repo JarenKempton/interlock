@@ -122,6 +122,7 @@ const claimPropertySchema = z.object({
   owner: z.string(),
   supersedes: z.string().optional(),
   pendingOwner: z.string().optional(),
+  assignmentPhase: z.enum(["pending", "started"]).optional(),
 });
 type JiraClaimProperty = z.infer<typeof claimPropertySchema>;
 const claimSnapshotSchema = z.object({
@@ -297,11 +298,12 @@ export class JiraTrackerAdapter implements Tracker {
       : resuming && request.supersedes
         ? current.claim?.pendingOwner
         : undefined;
+    const assignmentPhase = replacing ? "pending" : current.claim?.assignmentPhase;
     const expectedOwner = replacing ? pendingOwner : request.owner;
     if (
       (current.assignee !== null &&
         current.assignee !== expectedOwner &&
-        !(resuming && current.assignee === pendingOwner)) ||
+        !(resuming && assignmentPhase === "pending" && current.assignee === pendingOwner)) ||
       (current.claim !== null && !resuming && !replacing) ||
       (request.supersedes !== undefined && current.claim === null)
     )
@@ -315,6 +317,7 @@ export class JiraTrackerAdapter implements Tracker {
           owner: request.owner,
           ...(request.supersedes ? { supersedes: request.supersedes } : {}),
           ...(pendingOwner ? { pendingOwner } : {}),
+          ...(assignmentPhase ? { assignmentPhase } : {}),
         },
         current,
       );
@@ -341,7 +344,8 @@ export class JiraTrackerAdapter implements Tracker {
       current.claim.run !== request.run ||
       current.claim.owner !== request.owner ||
       current.claim.supersedes !== request.supersedes ||
-      current.claim.pendingOwner !== undefined
+      current.claim.pendingOwner !== undefined ||
+      current.claim.assignmentPhase !== undefined
     )
       throw new AmbiguousTrackerResultError("Jira claim mirror could not be verified");
   }
@@ -356,7 +360,11 @@ export class JiraTrackerAdapter implements Tracker {
       current.claim.owner !== owner ||
       (current.assignee !== owner &&
         current.assignee !== original.assignee &&
-        !(current.claim.supersedes && current.assignee === current.claim.pendingOwner)) ||
+        !(
+          current.claim.supersedes &&
+          current.claim.assignmentPhase === "pending" &&
+          current.assignee === current.claim.pendingOwner
+        )) ||
       (current.status !== CLAIMED_STATUS && current.status !== original.status)
     )
       throw new ClaimCollisionError("Jira claim mirror was changed outside Interlock");
@@ -486,13 +494,18 @@ export class JiraTrackerAdapter implements Tracker {
     if (
       !current.claim ||
       !sameClaimIdentity(current.claim, property) ||
-      current.claim.pendingOwner !== property.pendingOwner
+      current.claim.pendingOwner !== property.pendingOwner ||
+      current.claim.assignmentPhase !== property.assignmentPhase
     )
       await this.#writeClaimProperty(ticket, property);
-    if (current.assignee !== property.owner) await this.#assign(ticket, property.owner);
+    if (current.assignee !== property.owner) {
+      if (property.pendingOwner !== undefined && property.assignmentPhase !== "started")
+        await this.#writeClaimProperty(ticket, { ...property, assignmentPhase: "started" });
+      await this.#assign(ticket, property.owner);
+    }
     if (current.status !== CLAIMED_STATUS) await this.#transition(ticket, CLAIMED_STATUS);
-    if (property.pendingOwner !== undefined) {
-      const { pendingOwner: _, ...completed } = property;
+    if (property.pendingOwner !== undefined || property.assignmentPhase !== undefined) {
+      const { pendingOwner: _, assignmentPhase: __, ...completed } = property;
       await this.#writeClaimProperty(ticket, completed);
     }
   }
@@ -507,7 +520,8 @@ export class JiraTrackerAdapter implements Tracker {
     if (
       !installed ||
       !sameClaimIdentity(installed, property) ||
-      installed.pendingOwner !== property.pendingOwner
+      installed.pendingOwner !== property.pendingOwner ||
+      installed.assignmentPhase !== property.assignmentPhase
     )
       throw new AmbiguousTrackerResultError("Jira claim property was not verified");
   }
