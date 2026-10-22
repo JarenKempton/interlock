@@ -476,3 +476,52 @@ test(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test(
+  "release restores a claimed ticket even after its parent map is removed",
+  async () => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    Reflect.deleteProperty(f.jira.issue.fields, "parent");
+    expect(
+      (await f.git.run(["git", "branch", "-m", "main", "renamed-base"], f.remote.alice)).exitCode,
+    ).toBe(0);
+    expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(f.jira.property).toBeNull();
+    expect(f.jira.issue.fields.assignee).toBeNull();
+    expect(f.jira.issue.fields.status.name).toBe("To Do");
+    expect(existsSync(f.worktree)).toBe(true);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "release rejects repository origin drift before writing Jira or the lock",
+  async () => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    const calls = f.jira.calls.length;
+    f.services.execution = {
+      ...f.services.execution,
+      git: {
+        async run(argv, cwd) {
+          if (argv.join(" ") === "git remote get-url origin")
+            return { exitCode: 0, stdout: "https://github.com/other/repository.git", stderr: "" };
+          return f.git.run(argv, cwd);
+        },
+      },
+    };
+    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+      "Repository origin mismatch",
+    );
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(picked.claim);
+    expect(f.jira.calls.slice(calls).every((call) => call.startsWith("GET "))).toBe(true);
+    expect(f.jira.issue.fields.status.name).toBe("In Progress");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

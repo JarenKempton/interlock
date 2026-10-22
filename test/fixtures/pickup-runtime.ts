@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import type { JiraTransport } from "../../src/adapters/trackers/jira.ts";
@@ -126,7 +126,7 @@ export function localOriginGit(
 
 export async function pickupFixture() {
   const remote = await gitRemoteFixture();
-  const root = dirname(remote.alice);
+  const root = await realpath(dirname(remote.alice));
   await checkedGit(
     remote.git,
     [

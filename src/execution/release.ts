@@ -45,9 +45,7 @@ export async function releaseClaim(
     if (!claim.currentVersion)
       throw new Error("Claim has no verified lock version; inspect recovery evidence");
     const { claims, claimLock } = claimCoordination(repository, jira.tracker, services);
-    await new GitWorkspaceAdapter(repository, services.execution?.git).preflight(
-      (await jira.tracker.read(claim.ticket)).ticket,
-    );
+    await new GitWorkspaceAdapter(repository, services.execution?.git).preflightRepository();
     const request = {
       claim: claim.ref,
       ticket: claim.ticket,
@@ -71,7 +69,7 @@ export async function releaseClaim(
     try {
       if (!released) await claims.releaseClaim(request);
       await claims.verifyReleased(request);
-      const verified = await claims.snapshotClaimState(claim.ticket);
+      const verified = await claimLock.read(claim.ticket);
       claim.status = "released";
       claim.currentVersion = verified.version;
       run.status = "released";

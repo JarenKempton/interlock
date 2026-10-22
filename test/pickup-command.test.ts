@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { GitClaimLock } from "../src/adapters/claims/git-lock.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
@@ -62,7 +62,10 @@ test(
         action: "claim",
         claim: picked.claim,
       });
-      expect((await f.readJira()).issue.fields.status.name).toBe("In Progress");
+      const claimedJira = await f.readJira();
+      expect(claimedJira.issue.fields.status.name).toBe("In Progress");
+      Reflect.deleteProperty(claimedJira.issue.fields, "parent");
+      await writeFile(resolve(f.root, "jira.json"), JSON.stringify(claimedJira));
       expect(await command(["claim", "release", picked.claim])).toMatchObject({
         state: "released",
         mirror: "restored_verified",

@@ -83,13 +83,17 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
 
   async preflight(ticket: Ticket): Promise<void> {
     ticketIdentity(ticket.ref);
+    await this.preflightRepository();
+    await this.#gitChecked(["git", "rev-parse", "--verify", this.#repository.baseBranch]);
+  }
+
+  async preflightRepository(): Promise<void> {
     const topLevel = resolve(await this.#gitChecked(["git", "rev-parse", "--show-toplevel"]));
     if (topLevel !== this.#repository.path) {
       throw new WorkspaceConflictError(
         `Repository path mismatch: expected ${this.#repository.path}, found ${topLevel}`,
       );
     }
-    await this.#gitChecked(["git", "rev-parse", "--verify", this.#repository.baseBranch]);
     const actualRemote = (await this.#gitChecked(["git", "remote", "get-url", "origin"])).trim();
     if (normalizeGitRemote(actualRemote) !== normalizeGitRemote(this.#repository.remote)) {
       throw new WorkspaceConflictError(
