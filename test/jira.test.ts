@@ -598,9 +598,9 @@ describe("Jira basic-auth transport", () => {
     });
     const result = (await subject.read(ticket)).ticket;
     expect(result).toMatchObject({ title: "Live summary", description: "Live description" });
-    expect(new Set(calls.map((call) => new URL(call.url).origin))).toEqual(
-      new Set(["https://responsibid.atlassian.net"]),
-    );
+    expect([...new Set(calls.map((call) => new URL(call.url).origin))]).toEqual([
+      "https://responsibid.atlassian.net",
+    ]);
     for (const call of calls)
       expect(call.request.headers).toMatchObject({
         Authorization: `Basic ${btoa("lane@example.com:token-value")}`,

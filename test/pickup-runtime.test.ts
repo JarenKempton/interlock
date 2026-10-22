@@ -655,3 +655,84 @@ test(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test(
+  "fresh blocker issue state overrides stale completed search results",
+  async () => {
+    const f = await fixture();
+    const blocker = addBlocker(f, true, true);
+    const request = f.jira.request.bind(f.jira);
+    let reads = 0;
+    f.jira.request = async (method, path, body) => {
+      const response = await request(method, path, body);
+      if (method === "GET" && path.includes(`/issue/${blocker.key}?`)) {
+        reads++;
+        const fresh = structuredClone(blocker);
+        fresh.fields.status = { name: "To Do", statusCategory: { key: "new" } };
+        return { status: 200, body: fresh };
+      }
+      return response;
+    };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "not available",
+    );
+    expect(reads).toBeGreaterThan(0);
+    expect((await lock(f).read(ref)).version).toBe("absent");
+    expect(f.jira.property).toBeNull();
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "pickup refuses a separate push URL without leaving a claim in either remote",
+  async () => {
+    const f = await fixture();
+    const other = join(f.root, "other.git");
+    expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
+    expect(
+      (await f.git.run(["git", "remote", "set-url", "--push", "origin", other], f.remote.alice))
+        .exitCode,
+    ).toBe(0);
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "fetch and push",
+    );
+    for (const remote of [f.remote.remote, other]) {
+      const authority = new GitClaimLock({ repository: f.remote.alice, remote, git: f.git });
+      expect((await authority.read(ref)).version).toBe("absent");
+    }
+    expect(f.jira.property).toBeNull();
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "release refuses changed push destinations before restoring Jira",
+  async () => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    const other = join(f.root, "other.git");
+    expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
+    expect(
+      (await f.git.run(["git", "remote", "set-url", "--push", "origin", other], f.remote.alice))
+        .exitCode,
+    ).toBe(0);
+    const before = f.jira.calls.length;
+    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+      "fetch and push",
+    );
+    expect(f.jira.calls.slice(before).every((call) => call.startsWith("GET "))).toBe(true);
+    expect(f.jira.property).toMatchObject({ claim: picked.claim });
+    expect(f.jira.issue.fields.status.name).toBe("In Progress");
+    const original = new GitClaimLock({
+      repository: f.remote.alice,
+      remote: f.remote.remote,
+      git: f.git,
+    });
+    expect(heldClaim(await original.read(ref))?.claim).toBe(picked.claim);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

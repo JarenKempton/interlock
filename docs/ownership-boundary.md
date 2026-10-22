@@ -44,7 +44,9 @@ returned thread identity; pickup does not launch an agent or claim it did.
 
 Pickup checks frontier eligibility, hydrating blockers across maps before
 claiming and again before writing the mirror. Unfinished or unreadable blockers
-fail closed.
+fail closed. Jira search supplies ordering; a subsequent direct issue read
+supplies current fields, so search index lag cannot reopen completed tickets or
+hide reopened blockers.
 
 The implementer uses resolved personal/project settings unless
 `[roles.implementer]` supplies `provider`, `model`, and optional `options`.

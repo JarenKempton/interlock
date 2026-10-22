@@ -207,7 +207,7 @@ export class JiraTrackerAdapter implements Tracker {
     if (!found) throw new Error(`Jira ticket is not a child of its reported map: ${ticket}`);
     const latest = await this.#issue(ticket);
     if (latest.fields.parent?.key !== parent)
-      throw new Error("Jira ticket changed maps during read");
+      throw new Error("Jira ticket changed maps during read; retry pickup");
     const links = await this.#required(
       "GET",
       `/rest/api/3/issue/${this.#ticketKey(ticket)}/remotelink`,

@@ -80,6 +80,10 @@ claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
 - The ref is `refs/interlock/claims/<KEY>`, validated by `git check-ref-format`.
   There is no fallback namespace: a host that rejects `refs/interlock/*` fails
   the claim with its own rejection.
+- Lock reads and writes require one identical effective fetch and push
+  destination. Divergent or multiple remote URLs fail closed. Literal remotes
+  with applicable push rewriting must use a named remote whose destinations
+  can be verified; compensation cannot infer ownership from another repository.
 - Claim, renew, release and reclaim each append one commit whose message holds
   the claim record, built on the observed tip and sent with an ordinary
   fast-forward push. The remote applies it only while the ref is still at that
