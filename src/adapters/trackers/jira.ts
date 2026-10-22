@@ -437,6 +437,14 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     current: JiraClaimSnapshot,
   ): Promise<void> {
     await this.#write("PUT", this.#propertyPath(ticket), property, "set claim property");
+    const installed = await this.#readClaim(ticket);
+    if (
+      installed?.claim !== property.claim ||
+      installed.run !== property.run ||
+      installed.owner !== property.owner ||
+      installed.supersedes !== property.supersedes
+    )
+      throw new AmbiguousTrackerResultError("Jira claim property was not verified");
     if (current.assignee !== property.owner) await this.#assign(ticket, property.owner);
     if (current.status !== CLAIMED_STATUS) await this.#transition(ticket, CLAIMED_STATUS);
   }
@@ -448,6 +456,8 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
       { accountId },
       "assign issue",
     );
+    if ((await this.#claimState(ticket)).assignee !== accountId)
+      throw new AmbiguousTrackerResultError("Jira assignment was not verified");
   }
 
   async #transition(ticket: TicketRef, status: string): Promise<void> {
@@ -462,6 +472,8 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     const transition = transitions.find((item) => item.to.name === status);
     if (!transition) throw new Error(`Jira has no transition to ${status}`);
     await this.#write("POST", path, { transition: { id: transition.id } }, "transition issue");
+    if ((await this.#claimState(ticket)).status !== status)
+      throw new AmbiguousTrackerResultError("Jira transition was not verified");
   }
 
   async #write(method: string, path: string, body: unknown, operation: string): Promise<void> {

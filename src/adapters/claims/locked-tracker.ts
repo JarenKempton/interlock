@@ -73,7 +73,9 @@ export class GitLockedTrackerAdapter implements FrontierTrackerAdapter {
   }
 
   async restoreClaimState(request: RestoreClaimRequest): Promise<void> {
-    await this.#tracker.restoreClaimState(trackerRequest(request));
+    const restore = trackerRequest(request);
+    await this.#tracker.restoreClaimState(restore);
+    await this.#tracker.verifyRestored(restore);
     await this.#lock.restore(request.ticket, request.claim);
   }
 
@@ -97,7 +99,9 @@ export class GitLockedTrackerAdapter implements FrontierTrackerAdapter {
 
   async releaseClaim(request: ReleaseClaimRequest): Promise<void> {
     await this.#lock.releasable(request);
-    await this.#tracker.releaseClaim(trackerRequest(request));
+    const restore = trackerRequest(request);
+    await this.#tracker.releaseClaim(restore);
+    await this.#tracker.verifyReleased(restore);
     await this.#lock.release(request);
   }
 

@@ -60,7 +60,8 @@ claim statuses fail closed.
 
 `claim release CLAIM --json` uses the saved execution configuration and verifies
 the authenticated owner, remote lock and restored Jira fields. It preserves the
-workspace, including dirty work. A lost local release receipt can be retried;
+workspace, including dirty work. Release does not require the ticket's current
+parent map or the original workspace base branch. A lost local release receipt can be retried;
 an uncertain remote result remains `recovery_required`. `runs list`, `runs show`
 and `runs export` expose local run evidence; export includes configuration,
 claim, plan steps and recovery details. These commands accept `--state PATH`
