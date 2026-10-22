@@ -31,7 +31,11 @@ import {
   UnsupportedCapabilityError,
 } from "../src/domain/model.ts";
 import { evaluateFrontier, selectFrontierTicket } from "../src/frontier/evaluate.ts";
-import { type GitRemoteFixture, gitRemoteFixture } from "./fixtures/git-remote.ts";
+import {
+  GIT_TEST_TIMEOUT_MS,
+  type GitRemoteFixture,
+  gitRemoteFixture,
+} from "./fixtures/git-remote.ts";
 
 const ticket = ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-288");
 const map = mapRefSchema.parse("jira:responsibid:JWB:map:JWB-274");
@@ -309,8 +313,6 @@ describe("Jira tracker read adapter", () => {
   });
 });
 
-const now = { value: new Date("2026-10-22T00:00:00.000Z") };
-const clock = { now: () => now.value };
 let remotes: GitRemoteFixture[] = [];
 afterEach(async () => {
   await Promise.all(remotes.map((fixture) => fixture.dispose()));
@@ -339,148 +341,178 @@ async function lockedJira(api: FakeJira) {
   remotes.push(fixture);
   const locked = (repository: string) =>
     new GitLockedTrackerAdapter(
-      new GitClaimLock({ repository, remote: fixture.remote, clock }),
+      new GitClaimLock({
+        repository,
+        remote: fixture.remote,
+        clock: fixture.clock,
+        git: fixture.git,
+      }),
       adapter(api),
     );
   return { first: locked(fixture.alice), second: locked(fixture.bob) };
 }
 
 describe("Jira mirror behind the Git claim lock", () => {
-  test("only the Git-locked adapter advertises conditional ownership", async () => {
-    const { first } = await lockedJira(new FakeJira());
-    const described = await first.describe();
-    expect(described).toMatchObject(
-      capabilities("native_maps", "conditional_update", "claim_identity", "lease_metadata"),
-    );
-    expect(described.atomic_assignment).toBeUndefined();
-    expect((await adapter(new FakeJira()).describe()).conditional_update).toBeUndefined();
-  });
+  test(
+    "only the Git-locked adapter advertises conditional ownership",
+    async () => {
+      const { first } = await lockedJira(new FakeJira());
+      const described = await first.describe();
+      expect(described).toMatchObject(
+        capabilities("native_maps", "conditional_update", "claim_identity", "lease_metadata"),
+      );
+      expect(described.atomic_assignment).toBeUndefined();
+      expect((await adapter(new FakeJira()).describe()).conditional_update).toBeUndefined();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
 
-  test("claim -> verify -> renew -> release restores Jira and releases the lock", async () => {
-    const api = new FakeJira();
-    const { first } = await lockedJira(api);
-    const original = await first.snapshotClaimState(ticket);
-    expect(original.version).toBe(ABSENT_LOCK_VERSION);
-    const request = claimRequest(owner, "c", original.version);
-    await first.claim(request);
-    await first.verifyClaim(request);
-    expect(api.mirror()).toEqual({
-      assignee: owner,
-      status: "In Progress",
-      claim: { claim: request.claim, run: request.run, owner },
-    });
-    const claimed = await first.snapshotClaimState(ticket);
-    const renew = {
-      claim: request.claim,
-      ticket,
-      leaseExpiresAt: "2026-10-22T00:30:00.000Z",
-      expectedVersion: claimed.version,
-    };
-    await first.renewLease(renew);
-    await first.verifyLease(renew);
-    const renewed = await first.snapshotClaimState(ticket);
-    const release: ReleaseClaimRequest = {
-      ticket,
-      claim: request.claim,
-      claimedOwner: owner,
-      originalSnapshot: original,
-      expectedVersion: renewed.version,
-      authorizedBy: owner,
-    };
-    await first.releaseClaim(release);
-    await first.verifyReleased(release);
-    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
-    const released = await first.snapshotClaimState(ticket);
-    expect(released.payload).toMatchObject({ lock: { record: { action: "release" } } });
-  });
-
-  test("a concurrent second claim is rejected before it writes to Jira", async () => {
-    const api = new FakeJira();
-    const { first, second } = await lockedJira(api);
-    const results = await Promise.allSettled([
-      first.claim(claimRequest(owner, "a", ABSENT_LOCK_VERSION)),
-      second.claim(claimRequest(actorRefSchema.parse("other"), "b", ABSENT_LOCK_VERSION)),
-    ]);
-    const rejected = results.flatMap((result) =>
-      result.status === "rejected" ? [result.reason] : [],
-    );
-    expect(rejected).toHaveLength(1);
-    expect(rejected[0]).toBeInstanceOf(ClaimCollisionError);
-    const winner = results[0]?.status === "fulfilled" ? owner : "other";
-    expect(
-      api.requests.filter((item) => item.path.includes("/properties/") && item.method === "PUT"),
-    ).toHaveLength(1);
-    expect(api.mirror().assignee).toBe(winner);
-  });
-
-  test("a mirror failure after the lock is held compensates Jira and the lock", async () => {
-    const api = new FakeJira();
-    const { first } = await lockedJira(api);
-    const original = await first.snapshotClaimState(ticket);
-    const request = claimRequest(owner, "c", original.version);
-    api.fail = (method, path) => (method === "PUT" && path.endsWith("/assignee") ? 500 : undefined);
-    const failure = first.claim(request);
-    await expect(failure).rejects.toThrow("Jira assign issue failed (500)");
-    await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
-    api.fail = () => undefined;
-    const restore: RestoreClaimRequest = {
-      ticket,
-      claim: request.claim,
-      claimedOwner: owner,
-      originalSnapshot: original,
-    };
-    await first.restoreClaimState(restore);
-    await first.verifyRestored(restore);
-    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
-    expect((await first.snapshotClaimState(ticket)).payload).toMatchObject({
-      lock: { record: { action: "release", claim: request.claim } },
-    });
-  });
-
-  test("a human assignment after the snapshot compensates by releasing the lock", async () => {
-    const api = new FakeJira();
-    const { first } = await lockedJira(api);
-    const original = await first.snapshotClaimState(ticket);
-    const request = claimRequest(owner, "c", original.version);
-    reassign(api, "human");
-    const failure = first.claim(request);
-    await expect(failure).rejects.toThrow("Tracker mirror conflicts with the held claim lock");
-    await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
-    const restore: RestoreClaimRequest = {
-      ticket,
-      claim: request.claim,
-      claimedOwner: owner,
-      originalSnapshot: original,
-    };
-    await first.restoreClaimState(restore);
-    await first.verifyRestored(restore);
-    expect(api.mirror()).toEqual({ assignee: "human", status: "To Do", claim: null });
-    expect(api.mutationCount()).toBe(0);
-    expect((await first.snapshotClaimState(ticket)).payload).toMatchObject({
-      lock: { record: { action: "release", claim: request.claim } },
-    });
-  });
-
-  test("release refuses a human Jira change and keeps the lock held", async () => {
-    const api = new FakeJira();
-    const { first } = await lockedJira(api);
-    const original = await first.snapshotClaimState(ticket);
-    const request = claimRequest(owner, "c", original.version);
-    await first.claim(request);
-    const claimed = await first.snapshotClaimState(ticket);
-    reassign(api, "human");
-    await expect(
-      first.releaseClaim({
+  test(
+    "claim -> verify -> renew -> release restores Jira and releases the lock",
+    async () => {
+      const api = new FakeJira();
+      const { first } = await lockedJira(api);
+      const original = await first.snapshotClaimState(ticket);
+      expect(original.version).toBe(ABSENT_LOCK_VERSION);
+      const request = claimRequest(owner, "c", original.version);
+      await first.claim(request);
+      await first.verifyClaim(request);
+      expect(api.mirror()).toEqual({
+        assignee: owner,
+        status: "In Progress",
+        claim: { claim: request.claim, run: request.run, owner },
+      });
+      const claimed = await first.snapshotClaimState(ticket);
+      const renew = {
+        claim: request.claim,
+        ticket,
+        leaseExpiresAt: "2026-10-22T00:30:00.000Z",
+        expectedVersion: claimed.version,
+      };
+      await first.renewLease(renew);
+      await first.verifyLease(renew);
+      const renewed = await first.snapshotClaimState(ticket);
+      const release: ReleaseClaimRequest = {
         ticket,
         claim: request.claim,
         claimedOwner: owner,
         originalSnapshot: original,
-        expectedVersion: claimed.version,
+        expectedVersion: renewed.version,
         authorizedBy: owner,
-      }),
-    ).rejects.toThrow("changed outside Interlock");
-    expect((await first.snapshotClaimState(ticket)).version).toBe(claimed.version);
-  });
+      };
+      await first.releaseClaim(release);
+      await first.verifyReleased(release);
+      expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+      const released = await first.snapshotClaimState(ticket);
+      expect(released.payload).toMatchObject({ lock: { record: { action: "release" } } });
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a concurrent second claim is rejected before it writes to Jira",
+    async () => {
+      const api = new FakeJira();
+      const { first, second } = await lockedJira(api);
+      const results = await Promise.allSettled([
+        first.claim(claimRequest(owner, "a", ABSENT_LOCK_VERSION)),
+        second.claim(claimRequest(actorRefSchema.parse("other"), "b", ABSENT_LOCK_VERSION)),
+      ]);
+      const rejected = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]).toBeInstanceOf(ClaimCollisionError);
+      const winner = results[0]?.status === "fulfilled" ? owner : "other";
+      expect(
+        api.requests.filter((item) => item.path.includes("/properties/") && item.method === "PUT"),
+      ).toHaveLength(1);
+      expect(api.mirror().assignee).toBe(winner);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a mirror failure after the lock is held compensates Jira and the lock",
+    async () => {
+      const api = new FakeJira();
+      const { first } = await lockedJira(api);
+      const original = await first.snapshotClaimState(ticket);
+      const request = claimRequest(owner, "c", original.version);
+      api.fail = (method, path) =>
+        method === "PUT" && path.endsWith("/assignee") ? 500 : undefined;
+      const failure = first.claim(request);
+      await expect(failure).rejects.toThrow("Jira assign issue failed (500)");
+      await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+      api.fail = () => undefined;
+      const restore: RestoreClaimRequest = {
+        ticket,
+        claim: request.claim,
+        claimedOwner: owner,
+        originalSnapshot: original,
+      };
+      await first.restoreClaimState(restore);
+      await first.verifyRestored(restore);
+      expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+      expect((await first.snapshotClaimState(ticket)).payload).toMatchObject({
+        lock: { record: { action: "release", claim: request.claim } },
+      });
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a human assignment after the snapshot compensates by releasing the lock",
+    async () => {
+      const api = new FakeJira();
+      const { first } = await lockedJira(api);
+      const original = await first.snapshotClaimState(ticket);
+      const request = claimRequest(owner, "c", original.version);
+      reassign(api, "human");
+      const failure = first.claim(request);
+      await expect(failure).rejects.toThrow("Tracker mirror conflicts with the held claim lock");
+      await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+      const restore: RestoreClaimRequest = {
+        ticket,
+        claim: request.claim,
+        claimedOwner: owner,
+        originalSnapshot: original,
+      };
+      await first.restoreClaimState(restore);
+      await first.verifyRestored(restore);
+      expect(api.mirror()).toEqual({ assignee: "human", status: "To Do", claim: null });
+      expect(api.mutationCount()).toBe(0);
+      expect((await first.snapshotClaimState(ticket)).payload).toMatchObject({
+        lock: { record: { action: "release", claim: request.claim } },
+      });
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "release refuses a human Jira change and keeps the lock held",
+    async () => {
+      const api = new FakeJira();
+      const { first } = await lockedJira(api);
+      const original = await first.snapshotClaimState(ticket);
+      const request = claimRequest(owner, "c", original.version);
+      await first.claim(request);
+      const claimed = await first.snapshotClaimState(ticket);
+      reassign(api, "human");
+      await expect(
+        first.releaseClaim({
+          ticket,
+          claim: request.claim,
+          claimedOwner: owner,
+          originalSnapshot: original,
+          expectedVersion: claimed.version,
+          authorizedBy: owner,
+        }),
+      ).rejects.toThrow("changed outside Interlock");
+      expect((await first.snapshotClaimState(ticket)).version).toBe(claimed.version);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
 });
 
 function required<T>(items: readonly T[], index: number): T {
