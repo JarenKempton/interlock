@@ -1,5 +1,6 @@
 import type { LaunchRequest } from "../domain/contracts.ts";
 import { HOST_CAPABILITIES, type Host, type HostSession } from "../domain/host.ts";
+import { ticketRefSchema } from "../domain/identifiers.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";
 
 export interface HostFixture {
@@ -41,11 +42,30 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
         repeated.id === launched.id && (await observe()).sessions.length === 1,
         "Retry duplicated a host session",
       );
-      await requireRejection(
-        () =>
-          adapter.launch({ ...request, workspace: { path: `${request.workspace.path}-other` } }),
-        "claim_collision",
-      );
+      for (const conflicting of [
+        {
+          ...request,
+          workspace: { ...request.workspace, path: `${request.workspace.path}-other` },
+        },
+        {
+          ...request,
+          ticket: { ...request.ticket, ref: ticketRefSchema.parse(`${request.ticket.ref}-other`) },
+        },
+        {
+          ...request,
+          workspace: {
+            ...request.workspace,
+            branch: `${request.workspace.branch ?? "task/conformance"}-other`,
+          },
+        },
+      ]) {
+        await requireRejection(() => adapter.launch(conflicting), "claim_collision");
+        await requireLaunch(fixture, request, launched);
+        requireBehavior(
+          (await observe()).sessions.length === 1,
+          "Refused retry created a host session",
+        );
+      }
     }),
     scenario("ambiguous_launch", async (fixture) => {
       const { adapter, request, observe, loseLaunchReadback, restoreReadback } = fixture;

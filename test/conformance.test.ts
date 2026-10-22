@@ -221,6 +221,56 @@ test("host conformance rejects delivery to the wrong session", async () => {
   });
 });
 
+test.each(["ticket", "branch"])(
+  "host conformance rejects a retry that ignores changed %s identity",
+  async (identity) => {
+    const report = await runConformance(
+      hostConformance(async () => {
+        const fixture = fakeHostFixture();
+        const launch = fixture.adapter.launch.bind(fixture.adapter);
+        fixture.adapter.launch = async (request) => {
+          const current = await fixture.adapter.locate(request.run);
+          if (
+            current &&
+            current.workspace.path === request.workspace.path &&
+            (identity === "ticket"
+              ? current.workspace.branch === request.workspace.branch
+              : current.ticket === request.ticket.ref)
+          )
+            return current;
+          return launch(request);
+        };
+        return fixture;
+      }),
+    );
+    expect(report.results.find((result) => result.name === "host.launch_and_locate")).toMatchObject(
+      { ok: false },
+    );
+  },
+);
+
+test("host conformance rejects a collision that mutates the original session", async () => {
+  const report = await runConformance(
+    hostConformance(async () => {
+      const fixture = fakeHostFixture();
+      const launch = fixture.adapter.launch.bind(fixture.adapter);
+      fixture.adapter.launch = async (request) => {
+        try {
+          return await launch(request);
+        } catch (error) {
+          const session = await fixture.adapter.locate(request.run);
+          if (session) await fixture.adapter.interrupt?.(session);
+          throw error;
+        }
+      };
+      return fixture;
+    }),
+  );
+  expect(report.results.find((result) => result.name === "host.launch_and_locate")).toMatchObject({
+    ok: false,
+  });
+});
+
 test.each(["initial", "retry"])(
   "host conformance rejects an incorrect %s launch receipt",
   async (phase) => {
