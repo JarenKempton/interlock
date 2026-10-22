@@ -163,6 +163,7 @@ export class GitClaimLock {
   }
 
   async #append(ticket: TicketRef, state: ClaimLockState, record: ClaimLockRecord): Promise<void> {
+    await this.#verifyRemote();
     const ref = await this.ref(ticket);
     const parent = state.version === ABSENT_LOCK_VERSION ? [] : ["-p", state.version];
     const commit = await this.#checked([
@@ -195,12 +196,63 @@ export class GitClaimLock {
   }
 
   async #remoteTip(ref: string): Promise<string | null> {
+    await this.#verifyRemote();
     const output = await this.#checked(["git", "ls-remote", this.#remote, ref]);
     const line = output
       .split(/\r?\n/)
       .map((item) => item.split("\t"))
       .find((item) => item[1] === ref);
     return line?.[0] || null;
+  }
+
+  async #verifyRemote(): Promise<void> {
+    const fetch = await this.#run(["git", "remote", "get-url", "--all", this.#remote]);
+    if (fetch.exitCode !== 0) {
+      const name = this.#remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const configured = await this.#run([
+        "git",
+        "config",
+        "--get-regexp",
+        `^remote\\.${name}\\.(url|pushurl)$`,
+      ]);
+      if (configured.exitCode !== 1)
+        throw new Error("Claim lock fetch destination cannot be verified");
+      await this.#verifyLiteralRemote();
+      return;
+    }
+    const fetchUrls = fetch.stdout.trim().split(/\r?\n/);
+    const pushUrls = (
+      await this.#checked(["git", "remote", "get-url", "--push", "--all", this.#remote])
+    ).split(/\r?\n/);
+    if (
+      fetchUrls.length !== 1 ||
+      !fetchUrls[0] ||
+      pushUrls.length !== 1 ||
+      fetchUrls[0] !== pushUrls[0]
+    )
+      throw new Error("Claim lock requires one identical fetch and push destination");
+  }
+
+  async #verifyLiteralRemote(): Promise<void> {
+    const expanded = await this.#checked(["git", "ls-remote", "--get-url", this.#remote]);
+    const rewrites = await this.#run([
+      "git",
+      "config",
+      "--null",
+      "--get-regexp",
+      "^url\\..*\\.pushinsteadof$",
+    ]);
+    if (rewrites.exitCode === 1) return;
+    if (rewrites.exitCode !== 0) throw new Error("Claim lock push rewrites cannot be verified");
+    for (const entry of rewrites.stdout.split("\0").filter(Boolean)) {
+      const separator = entry.indexOf("\n");
+      if (separator < 0) throw new Error("Claim lock push rewrites cannot be verified");
+      const prefix = entry.slice(separator + 1);
+      if (this.#remote.startsWith(prefix) || expanded.startsWith(prefix))
+        throw new Error(
+          "Claim lock literal remote has push rewriting; use a verified named remote",
+        );
+    }
   }
 
   async #record(ref: string, tip: string): Promise<ClaimLockRecord> {

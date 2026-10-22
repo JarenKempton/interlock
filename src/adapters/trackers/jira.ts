@@ -215,7 +215,10 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     const tickets = await this.listMapTickets(map);
     const found = tickets.find((item) => item.ref === ticket);
     if (!found) throw new Error(`Jira ticket is not a child of its reported map: ${ticket}`);
-    return found;
+    const current = await this.#issue(ticket);
+    if (current.fields.parent?.key !== parent)
+      throw new Error("Jira ticket changed maps during read; retry pickup");
+    return this.#normalize(current, ticket, map, found.order);
   }
 
   async listMapTickets(map: MapRef): Promise<Ticket[]> {
