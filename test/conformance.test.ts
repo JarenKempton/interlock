@@ -227,3 +227,28 @@ test.each(["initial", "retry"])(
     );
   },
 );
+
+test("fake tracker refuses an identity-changing replay without writes", async () => {
+  const fixture = fakeTrackerFixture();
+  await fixture.adapter.apply(fixture.claim);
+  const before = await fixture.observe();
+  await expect(
+    fixture.adapter.apply({ ...fixture.claim, run: "interlock-run:different" }),
+  ).rejects.toThrow();
+  expect(await fixture.observe()).toEqual(before);
+});
+
+test("tracker conformance rejects identity-changing replay acceptance", async () => {
+  const report = await runConformance(
+    trackerConformance(async () => {
+      const fixture = fakeTrackerFixture();
+      const apply = fixture.adapter.apply.bind(fixture.adapter);
+      fixture.adapter.apply = async (request) => {
+        if (request.claim === fixture.claim.claim && request.run !== fixture.claim.run) return;
+        await apply(request);
+      };
+      return fixture;
+    }),
+  );
+  expect(report.ok).toBe(false);
+});

@@ -60,14 +60,15 @@ export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"
     },
     async apply(request) {
       checkedRead();
-      if (
-        state.mirror?.claim === request.claim &&
+      const replay = state.mirror?.claim === request.claim;
+      const sameIdentity =
+        replay &&
+        state.mirror?.ticket === request.ticket &&
         state.mirror.run === request.run &&
         state.mirror.owner === request.owner &&
-        state.mirror.supersedes === request.supersedes &&
-        state.ticket.assignee === request.owner
-      )
-        return;
+        state.mirror.supersedes === request.supersedes;
+      if (replay && !sameIdentity) throw new ClaimCollisionError();
+      if (sameIdentity && state.ticket.assignee === request.owner) return;
       const replacing =
         fault !== "reject_successor" &&
         request.supersedes !== undefined &&

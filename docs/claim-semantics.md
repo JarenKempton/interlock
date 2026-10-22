@@ -124,10 +124,10 @@ ambiguous-failure behavior before enabling live writes. Verification must cover
 each restored field when assignment, metadata, and workflow status use separate
 operations. Concurrent human changes must not be overwritten.
 
-The CLI supplies the Git lock as the pickup claim authority. Its verified
-capability requirements are `conditional_update`, `claim_identity`, and
-`lease_metadata`; Jira need not advertise conditional writes, atomic assignment
-or comments. Tracker mirror snapshots and revisions do not imply conditional
+The CLI supplies the Git lock as the pickup claim authority and requires its
+`conditional_update` capability. The lock contract also requires claim identity
+and lease verification; Jira need not advertise conditional writes, atomic
+assignment or comments. Tracker mirror snapshots and revisions do not imply conditional
 write capability.
 [Tracker write policy](adr/0002-tracker-write-minimalism.md) keeps ownership in
 structured storage and makes resolution comments optional. Capability checks

@@ -62,13 +62,11 @@ export class ClaimCoordinator {
   }
 
   async verifyLease(request: RenewLeaseRequest): Promise<void> {
-    await this.#requireHeld(
+    const held = await this.#requireHeld(
       request.ticket,
       request.claim,
       (held) => held.leaseExpiresAt === request.leaseExpiresAt,
     );
-    const held = heldClaim(await this.lock.read(request.ticket));
-    if (!held) throw new AmbiguousTrackerResultError("Claim lock is no longer held");
     await this.tracker.verify({ ...held, state: "applied" });
   }
 
@@ -101,10 +99,11 @@ export class ClaimCoordinator {
     ticket: TicketRef,
     claim: ClaimRef,
     matches: (held: ClaimLockRecord) => boolean,
-  ): Promise<void> {
+  ): Promise<ClaimLockRecord> {
     const held = heldClaim(await this.lock.read(ticket));
     if (held?.claim !== claim || !matches(held))
       throw new AmbiguousTrackerResultError("Claim lock could not be verified");
+    return held;
   }
 
   async #requireNotHeld(ticket: TicketRef, claim: ClaimRef): Promise<void> {

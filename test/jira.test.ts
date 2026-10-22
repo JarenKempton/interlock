@@ -925,3 +925,50 @@ test("Jira mirror without read configuration cannot advertise or perform normali
   expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
   expect(api.requests[0]?.path).not.toContain("customfield");
 });
+
+test(
+  "renewal verification refuses a claim replaced between lock and mirror reads",
+  async () => {
+    const api = new FakeJira();
+    const { first, second } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const initial = claimRequest(owner, "initial", original.version);
+    await first.claim(initial);
+    const renew = {
+      ticket,
+      claim: initial.claim,
+      expectedVersion: (await first.lock.read(ticket)).version,
+      leaseExpiresAt: "2026-10-22T00:30:00.000Z",
+    };
+    await first.renewLease(renew);
+    const renewed = await first.lock.read(ticket);
+    const read = first.lock.read.bind(first.lock);
+    let replaced = false;
+    first.lock.read = async (ref) => {
+      const observed = await read(ref);
+      if (!replaced) {
+        replaced = true;
+        await second.releaseClaim({
+          ticket,
+          claim: initial.claim,
+          claimedOwner: owner,
+          originalSnapshot: original,
+          expectedVersion: renewed.version,
+          authorizedBy: owner,
+        });
+        await second.claim(
+          claimRequest(
+            actorRefSchema.parse("bob"),
+            "replacement",
+            (await second.lock.read(ticket)).version,
+          ),
+        );
+      }
+      return observed;
+    };
+    await expect(first.verifyLease(renew)).rejects.toThrow();
+    expect((await second.lock.read(ticket)).record?.claim).toBe("interlock-claim:replacement");
+    expect(api.mirror()).toMatchObject({ claim: { claim: "interlock-claim:replacement" } });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

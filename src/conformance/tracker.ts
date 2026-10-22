@@ -72,6 +72,18 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
         (await observe()).writes === applied.writes,
         "Repeated apply performed another write",
       );
+      for (const conflicting of [
+        { ...claim, run: "interlock-run:different" as const },
+        { ...claim, owner: fixture.otherOwner },
+        { ...claim, supersedes: claim.claim },
+      ]) {
+        await requireRejection(() => adapter.apply(conflicting), "claim_collision");
+        requireBehavior(
+          (await observe()).writes === applied.writes,
+          "Rejected replay mutated the mirror",
+        );
+        await adapter.verify({ ...claim, state: "applied" });
+      }
       const restore = restoration(fixture, original.snapshot);
       await requireRejection(
         () => adapter.verify({ ...restore, state: "restored" }),

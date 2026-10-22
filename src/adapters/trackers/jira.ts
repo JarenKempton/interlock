@@ -255,7 +255,9 @@ export class JiraTrackerAdapter implements Tracker {
     const issue = await this.#issue(request.ticket);
     const current = await this.#claimState(request.ticket, issue);
     const replacing =
-      request.supersedes !== undefined && current.claim?.claim === request.supersedes;
+      request.supersedes !== undefined &&
+      request.supersedes !== request.claim &&
+      current.claim?.claim === request.supersedes;
     if (this.#validateClaim && current.claim?.claim !== request.claim && !replacing) {
       const parent = issue.fields.parent?.key;
       if (!parent) throw new ClaimCollisionError("Jira ticket no longer has a parent map");
