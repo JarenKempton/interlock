@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   ABSENT_LOCK_VERSION,
   GitClaimLock,
@@ -286,6 +288,53 @@ describe("Git remote claim lock", () => {
     },
     GIT_TEST_TIMEOUT_MS,
   );
+
+  test(
+    "a failing pre-push hook blocks ordinary pushes but not the claim lock",
+    async () => {
+      const { fixture, alice: subject } = await setup();
+      const hook = join(fixture.alice, ".git", "hooks", "pre-push");
+      await writeFile(hook, "#!/bin/sh\necho 'pre-push hook: blocked' >&2\nexit 1\n");
+      await chmod(hook, 0o755);
+      const commit = await checkedGit(
+        fixture.git,
+        [
+          "-c",
+          "user.name=alice",
+          "-c",
+          "user.email=alice@invalid",
+          "commit-tree",
+          await checkedGit(fixture.git, ["mktree"], fixture.alice),
+          "-m",
+          "ordinary",
+        ],
+        fixture.alice,
+      );
+      const ordinary = await fixture.git.run(
+        ["git", "push", fixture.remote, `${commit}:refs/heads/ordinary`],
+        fixture.alice,
+      );
+      expect(ordinary.exitCode).not.toBe(0);
+      expect(ordinary.stderr).toContain("pre-push hook: blocked");
+      expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote], fixture.alice)).toBe("");
+
+      await subject.claim(claimRequest(alice, "a"));
+      expect(heldClaim(await subject.read(ticket))?.owner).toBe(alice);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  test("only the claim lock push skips client hooks", async () => {
+    const flag = ["--no", "verify"].join("-");
+    const root = join(import.meta.dir, "..", "src");
+    const files = await readdir(root, { recursive: true });
+    const callers: string[] = [];
+    for (const file of files.filter((name) => name.endsWith(".ts")).toSorted()) {
+      const occurrences = (await readFile(join(root, file), "utf8")).split(flag).length - 1;
+      for (let index = 0; index < occurrences; index += 1) callers.push(file.replaceAll("\\", "/"));
+    }
+    expect(callers).toEqual(["adapters/claims/git-lock.ts"]);
+  });
 
   test(
     "rejects unsafe keys, past leases and records for another ticket",

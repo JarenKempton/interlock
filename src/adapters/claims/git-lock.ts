@@ -175,7 +175,14 @@ export class GitClaimLock {
       "-m",
       JSON.stringify(lockRecordSchema.parse(record)),
     ]);
-    const push = await this.#run(["git", "push", "--porcelain", this.#remote, `${commit}:${ref}`]);
+    const push = await this.#run([
+      "git",
+      "push",
+      "--porcelain",
+      "--no-verify",
+      this.#remote,
+      `${commit}:${ref}`,
+    ]);
     let tip: string | null;
     try {
       tip = await this.#remoteTip(ref);
