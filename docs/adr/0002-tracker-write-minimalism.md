@@ -13,11 +13,13 @@ A comment is not an inherent resolution requirement. The protocol-stable
 organization policy governs enabling comments. Prompts do not independently
 authorize closure or tracker writes.
 
-Claim ownership belongs in tracker-native structured storage, not comments.
-Verification and guarded restoration must read that ownership record. An adapter
-without a safe structured mechanism must reject claiming. Structured storage
-alone does not prove atomic exclusion; conditional behavior still requires
-conformance evidence.
+Claim ownership belongs in structured storage, not comments. Verification and
+guarded restoration must read that ownership record. An adapter without a safe
+structured mechanism must reject claiming. Structured storage alone does not
+prove atomic exclusion; conditional behavior still requires conformance
+evidence. Where the tracker has no conditional write, the
+[Git-remote claim lock](../claim-semantics.md#git-remote-claim-lock) decides
+ownership and the tracker's structured storage mirrors it.
 
 ## Rationale
 

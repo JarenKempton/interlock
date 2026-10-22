@@ -541,6 +541,7 @@ describe("lifecycle coordinator", () => {
       await expect(coordinator.release(claim.ref, claim.humanOwner)).rejects.toThrow(
         "release failed",
       );
+      expect(tracker.released?.claimedOwner).toBe(claim.humanOwner);
       expect(item.store.run(run.ref).status).toBe("recovery_required");
       expect(item.store.claim(claim.ref).status).toBe("active");
     } finally {
