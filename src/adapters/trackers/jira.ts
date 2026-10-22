@@ -166,6 +166,7 @@ export interface JiraTrackerOptions {
   claimProperty?: string;
   pageSize?: number;
   validateClaim?: (ticket: Ticket) => void | Promise<void>;
+  journalWrite?: (pending: PendingJiraWrite) => () => void;
 }
 
 const MUTATION_CAPABILITIES = [
@@ -189,6 +190,8 @@ export class JiraTrackerAdapter implements Tracker {
   readonly #pageSize: number;
   readonly #validateClaim: JiraTrackerOptions["validateClaim"];
   readonly #pendingWrites = new Map<TicketRef, PendingJiraWrite>();
+  readonly #journalWrite: JiraTrackerOptions["journalWrite"];
+  readonly #completeWrites = new Map<TicketRef, () => void>();
 
   constructor(options: JiraTrackerOptions) {
     if (options.rankField !== undefined && !options.rankField)
@@ -207,6 +210,7 @@ export class JiraTrackerAdapter implements Tracker {
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
     this.#validateClaim = options.validateClaim;
+    this.#journalWrite = options.journalWrite;
   }
 
   async describe() {
@@ -551,7 +555,9 @@ export class JiraTrackerAdapter implements Tracker {
     pending: PendingJiraWrite,
   ): Promise<void> {
     await this.#settlePendingWrite(pending.ticket);
+    const complete = this.#journalWrite?.(structuredClone(pending));
     this.#pendingWrites.set(pending.ticket, pending);
+    if (complete) this.#completeWrites.set(pending.ticket, complete);
     let response: JiraResponse;
     try {
       response = await this.#transport.request(method, path, body);
@@ -559,11 +565,11 @@ export class JiraTrackerAdapter implements Tracker {
       throw new PendingJiraWriteError(pending);
     }
     if (response.status >= 200 && response.status < 300 && response.status !== 202) {
-      this.#pendingWrites.delete(pending.ticket);
+      this.#completeWrite(pending.ticket);
       return;
     }
     if ([400, 401, 403, 404, 405, 409, 415, 422, 429].includes(response.status)) {
-      this.#pendingWrites.delete(pending.ticket);
+      this.#completeWrite(pending.ticket);
       throw new Error(`Jira ${pending.operation} failed (${response.status})`);
     }
     throw new PendingJiraWriteError(pending);
@@ -589,6 +595,12 @@ export class JiraTrackerAdapter implements Tracker {
     const pending = this.#pendingWrites.get(ticket);
     if (!pending) return;
     await this.verifyPendingWrite(pending);
+    this.#completeWrite(ticket);
+  }
+
+  #completeWrite(ticket: TicketRef): void {
+    this.#completeWrites.get(ticket)?.();
+    this.#completeWrites.delete(ticket);
     this.#pendingWrites.delete(ticket);
   }
 
