@@ -158,64 +158,72 @@ test.each([
   GIT_TEST_TIMEOUT_MS,
 );
 
-test("write journal connections cannot replace pending intent or complete a successor", async () => {
-  const f = await pickupFixture();
-  try {
-    const picked = await createApplication(f.services).pickup.execute(f.input);
-    if (!("run" in picked)) throw new Error("Expected run");
-    const first = new StateStore(f.state);
-    const second = new StateStore(f.state);
+test(
+  "write journal connections cannot replace pending intent or complete a successor",
+  async () => {
+    const f = await pickupFixture();
     try {
-      const id = first.beginWrite(picked.run, { operation: "first" });
-      expect(() => second.beginWrite(picked.run, { operation: "competing" })).toThrow(
-        "unfinished write",
-      );
-      expect(second.pendingWrite(picked.run)).toEqual({ id, receipt: { operation: "first" } });
-      expect(() => second.completeWrite(picked.run, id + 1)).toThrow("Pending write changed");
-      first.completeWrite(picked.run, id);
-      const next = second.beginWrite(picked.run, { operation: "next" });
-      expect(() => first.completeWrite(picked.run, id)).toThrow("Pending write changed");
-      expect(first.pendingWrite(picked.run)?.id).toBe(next);
-      second.completeWrite(picked.run, next);
-      expect(first.pendingWrite(picked.run)).toBeUndefined();
+      const picked = await createApplication(f.services).pickup.execute(f.input);
+      if (!("run" in picked)) throw new Error("Expected run");
+      const first = new StateStore(f.state);
+      const second = new StateStore(f.state);
+      try {
+        const id = first.beginWrite(picked.run, { operation: "first" });
+        expect(() => second.beginWrite(picked.run, { operation: "competing" })).toThrow(
+          "unfinished write",
+        );
+        expect(second.pendingWrite(picked.run)).toEqual({ id, receipt: { operation: "first" } });
+        expect(() => second.completeWrite(picked.run, id + 1)).toThrow("Pending write changed");
+        first.completeWrite(picked.run, id);
+        const next = second.beginWrite(picked.run, { operation: "next" });
+        expect(() => first.completeWrite(picked.run, id)).toThrow("Pending write changed");
+        expect(first.pendingWrite(picked.run)?.id).toBe(next);
+        second.completeWrite(picked.run, next);
+        expect(first.pendingWrite(picked.run)).toBeUndefined();
+      } finally {
+        first.close();
+        second.close();
+      }
     } finally {
-      first.close();
-      second.close();
+      await f.dispose();
     }
-  } finally {
-    await f.dispose();
-  }
-});
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
 
-test("unfinished release without a write journal cannot silently retry", async () => {
-  const f = await pickupFixture();
-  try {
-    const picked = await createApplication(f.services).pickup.execute(f.input);
-    if (!("run" in picked)) throw new Error("Expected run");
-    const store = new StateStore(f.state);
+test(
+  "unfinished release without a write journal cannot silently retry",
+  async () => {
+    const f = await pickupFixture();
     try {
-      store.recordStep(picked.run, "releasing", { claim: picked.claim });
+      const picked = await createApplication(f.services).pickup.execute(f.input);
+      if (!("run" in picked)) throw new Error("Expected run");
+      const store = new StateStore(f.state);
+      try {
+        store.recordStep(picked.run, "releasing", { claim: picked.claim });
+      } finally {
+        store.close();
+      }
+      const calls = f.jira.calls.length;
+      await expect(
+        createApplication(f.services).claim.release.execute({ claim: picked.claim }),
+      ).rejects.toThrow("Unfinished legacy release requires recovery");
+      expect(
+        f.jira.calls.slice(calls).filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call)),
+      ).toEqual([]);
+      expect(
+        heldClaim(
+          await new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git }).read(
+            ticket,
+          ),
+        )?.claim,
+      ).toBe(picked.claim);
     } finally {
-      store.close();
+      await f.dispose();
     }
-    const calls = f.jira.calls.length;
-    await expect(
-      createApplication(f.services).claim.release.execute({ claim: picked.claim }),
-    ).rejects.toThrow("Unfinished legacy release requires recovery");
-    expect(
-      f.jira.calls.slice(calls).filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call)),
-    ).toEqual([]);
-    expect(
-      heldClaim(
-        await new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git }).read(
-          ticket,
-        ),
-      )?.claim,
-    ).toBe(picked.claim);
-  } finally {
-    await f.dispose();
-  }
-});
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
 
 test.each(["status", "assignee", "property"])(
   "a killed release preserves pending Jira %s intent and blocks retry until readback",
