@@ -33,10 +33,10 @@ import {
 import { parseRef } from "../../domain/reference.ts";
 import { evaluateFrontier, type FrontierScope } from "../../frontier/evaluate.ts";
 
-const FENCE = "wayfinder-tracker";
-const RENDERED_START = "<!-- wayfinder-rendered:start -->";
-const RENDERED_END = "<!-- wayfinder-rendered:end -->";
-const OPEN_FENCE = /^[ \t]{0,3}```wayfinder-tracker[ \t]*$/m;
+const FENCE = "interlock-tracker";
+const RENDERED_START = "<!-- interlock-rendered:start -->";
+const RENDERED_END = "<!-- interlock-rendered:end -->";
+const OPEN_FENCE = /^[ \t]{0,3}```interlock-tracker[ \t]*$/m;
 const CLOSE_FENCE = /^[ \t]{0,3}```[ \t]*$/m;
 
 export interface MarkdownTrackerClock {
@@ -70,7 +70,7 @@ export interface MarkdownTicketRecord extends Ticket {
 }
 
 export interface MarkdownTrackerDocument {
-  format: "wayfinder-markdown-tracker";
+  format: "interlock-markdown-tracker";
   version: number;
   workspace: WorkspaceRef;
   maps: MarkdownMapRecord[];
@@ -110,7 +110,7 @@ export class MarkdownTrackerValidationError extends Error {
     readonly path: string,
     message: string,
   ) {
-    super(`Invalid Wayfinder Markdown tracker at ${path}: ${message}`);
+    super(`Invalid Interlock Markdown tracker at ${path}: ${message}`);
     this.name = "MarkdownTrackerValidationError";
   }
 }
@@ -566,7 +566,7 @@ export function parseMarkdownTracker(source: string): MarkdownTrackerDocument {
 
 export function formatMarkdownTracker(document: MarkdownTrackerDocument): string {
   validateDocument(document);
-  return `# Wayfinder tracker\n\n${renderGenerated(document)}\n\n\`\`\`${FENCE}\n${JSON.stringify(document, null, 2)}\n\`\`\`\n`;
+  return `# Interlock tracker\n\n${renderGenerated(document)}\n\n\`\`\`${FENCE}\n${JSON.stringify(document, null, 2)}\n\`\`\`\n`;
 }
 
 /**
@@ -633,7 +633,7 @@ function renderGenerated(document: MarkdownTrackerDocument): string {
 }
 
 function safeRendered(value: string): string {
-  return value.replace(/^[ \t]{0,3}```wayfinder-tracker[ \t]*$/gm, "\\```wayfinder-tracker");
+  return value.replace(/^[ \t]{0,3}```interlock-tracker[ \t]*$/gm, "\\```interlock-tracker");
 }
 
 function locateStateBlock(source: string) {
@@ -659,7 +659,7 @@ function locateStateBlock(source: string) {
 function validateDocument(value: unknown): MarkdownTrackerDocument {
   const item = object(value, "document");
   exactKeys(item, ["format", "version", "workspace", "maps", "tickets"], "document");
-  equal(item.format, "wayfinder-markdown-tracker", "document.format");
+  equal(item.format, "interlock-markdown-tracker", "document.format");
   integer(item.version, "document.version", 0);
   const workspace = workspaceRefSchema.parse(string(item.workspace, "document.workspace"));
   const workspaceParts = qualifiedRef(workspace, "workspace", "document.workspace");
@@ -734,7 +734,7 @@ function validateDocument(value: unknown): MarkdownTrackerDocument {
     }
   }
   return {
-    format: "wayfinder-markdown-tracker",
+    format: "interlock-markdown-tracker",
     version: z.number().parse(item.version),
     workspace,
     maps,

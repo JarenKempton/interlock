@@ -1,6 +1,6 @@
-# Wayfinder CLI
+# Interlock
 
-A CLI for selecting work from Wayfinder maps and coordinating agent sessions.
+A CLI for selecting work from tracker maps and coordinating agent sessions.
 Built with TypeScript and Bun.
 
 **In development:** project configuration and offline work selection are usable.
@@ -17,7 +17,7 @@ bun run src/cli.ts init
 bun run src/cli.ts config show
 ```
 
-`init` creates a commented `wayfinder.toml` without replacing an existing file.
+`init` creates a commented `interlock.toml` without replacing an existing file.
 Edit its placeholder tracker and add your repository and map. Keep credentials
 out of this file.
 
@@ -26,7 +26,7 @@ Help and shell completion derive from registered actions and their supplied serv
 
 ## Configuration
 
-Project defaults and requirements live in `wayfinder.toml`. Explicit personal
+Project defaults and requirements live in `interlock.toml`. Explicit personal
 choices live in local SQLite. Requirements reject conflicting personal choices.
 
 ```sh
@@ -56,7 +56,7 @@ bun run check
 bun run build
 ```
 
-The build writes a standalone executable to `dist/wayfinder`.
+The build writes a standalone executable to `dist/interlock`.
 [Release packaging](.github/workflows/release.yml) supplies version and update metadata.
 
 [MIT license](LICENSE) · [Attribution](NOTICE.md)

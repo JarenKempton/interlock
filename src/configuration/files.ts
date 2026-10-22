@@ -5,7 +5,7 @@ import { type ProjectConfiguration, validateProjectConfiguration } from "./schem
 export function configurationVersion(content: string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
-export function projectConfigPath(cwd: string, path = "wayfinder.toml"): string {
+export function projectConfigPath(cwd: string, path = "interlock.toml"): string {
   const requested = resolve(cwd, path);
   try {
     return realpathSync(requested);

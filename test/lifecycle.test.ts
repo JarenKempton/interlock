@@ -64,10 +64,10 @@ class Tracker implements TrackerAdapter {
 }
 
 function fixture() {
-  const directory = mkdtempSync(join(tmpdir(), "wayfinder-lifecycle-"));
+  const directory = mkdtempSync(join(tmpdir(), "interlock-lifecycle-"));
   const store = new StateStore(join(directory, "state.db"));
   const makeRun = (id: string): Run => ({
-    ref: `wayfinder-run:${id}`,
+    ref: `interlock-run:${id}`,
     ticket: ticketRefSchema.parse(`jira:x:W:ticket:${id}`),
     harness: adapterRefSchema.parse("fake"),
     workspace: { path: `/kept/${id}` },
@@ -80,7 +80,7 @@ function fixture() {
   const add = (id: string, claimStatus: Claim["status"] = "active") => {
     const run = makeRun(id);
     const claim: Claim = {
-      ref: `wayfinder-claim:${id}`,
+      ref: `interlock-claim:${id}`,
       ticket: run.ticket,
       humanOwner: actorRefSchema.parse("human"),
       run: run.ref,
@@ -233,7 +233,7 @@ describe("supervisor", () => {
     const { claim } = item.add("a");
     const reclaimed: Claim = {
       ...claim,
-      ref: "wayfinder-claim:reclaimed",
+      ref: "interlock-claim:reclaimed",
       claimedAt: "2026-08-10T12:19:00.000Z",
       leaseExpiresAt: "2026-08-10T12:30:00.000Z",
       currentVersion: "4",
@@ -314,7 +314,7 @@ describe("supervisor", () => {
     try {
       await supervisor(item.store, new Tracker()).tick();
       expect(item.store.supervisorStatus()).toBeUndefined();
-      const run = item.store.run("wayfinder-run:a");
+      const run = item.store.run("interlock-run:a");
       run.status = "active";
       item.store.saveRun(run);
       await supervisor(item.store, new Tracker(), () =>
@@ -608,11 +608,11 @@ describe("lifecycle coordinator", () => {
   });
 
   test("standalone CLI does not advertise or execute unwired lifecycle commands", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "wayfinder-cli-recovery-"));
+    const directory = mkdtempSync(join(tmpdir(), "interlock-recovery-"));
     const statePath = join(directory, "state.db");
     const store = new StateStore(statePath);
     const run: Run = {
-      ref: "wayfinder-run:cli",
+      ref: "interlock-run:cli",
       ticket: ticketRefSchema.parse("jira:x:W:ticket:CLI"),
       harness: adapterRefSchema.parse("fake"),
       workspace: { path: "/kept" },
@@ -626,8 +626,8 @@ describe("lifecycle coordinator", () => {
     try {
       const output: string[] = [];
       await runCli(["help"], (line) => output.push(line), { statePath });
-      expect(output.join("\n")).not.toContain("wayfinder recover");
-      expect(output.join("\n")).not.toContain("wayfinder stop");
+      expect(output.join("\n")).not.toContain("interlock recover");
+      expect(output.join("\n")).not.toContain("interlock stop");
       await expect(
         runCli(["recover", run.ref, "--evidence", "{}"], () => {}, { statePath }),
       ).rejects.toThrow("no recovery verifier is composed");

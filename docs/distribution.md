@@ -7,24 +7,24 @@ native runtime acceptance on the target platform.
 
 ## Install
 
-Select a published version from [GitHub Releases](https://github.com/JarenKempton/wayfinder-cli/releases).
+Select a published version from [GitHub Releases](https://github.com/JarenKempton/interlock/releases).
 Replace `<version-without-v>` below with that version. Prereleases require an
 explicit version because GitHub's latest-release route excludes them.
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/JarenKempton/wayfinder-cli/main/scripts/install.sh | \
-  WAYFINDER_VERSION='<version-without-v>' sh
+  https://raw.githubusercontent.com/JarenKempton/interlock/main/scripts/install.sh | \
+  INTERLOCK_VERSION='<version-without-v>' sh
 ```
 
 ```powershell
-$env:WAYFINDER_VERSION = '<version-without-v>'
-irm https://raw.githubusercontent.com/JarenKempton/wayfinder-cli/main/scripts/install.ps1 | iex
+$env:INTERLOCK_VERSION = '<version-without-v>'
+irm https://raw.githubusercontent.com/JarenKempton/interlock/main/scripts/install.ps1 | iex
 ```
 
 The [POSIX](../scripts/install.sh) and [PowerShell](../scripts/install.ps1)
 installers select the platform asset and verify its SHA-256 checksum before
-replacement. Set `WAYFINDER_INSTALL_DIR` to choose the destination.
+replacement. Set `INTERLOCK_INSTALL_DIR` to choose the destination.
 Unsupported platforms, missing checksums, and digest mismatches leave an
 existing executable intact.
 
@@ -33,19 +33,19 @@ existing executable intact.
 Generate completion definitions from the executable:
 
 ```sh
-wayfinder completions bash > ~/.local/share/bash-completion/completions/wayfinder
-wayfinder completions zsh > "${fpath[1]}/_wayfinder"
-wayfinder completions fish > ~/.config/fish/completions/wayfinder.fish
+interlock completions bash > ~/.local/share/bash-completion/completions/interlock
+interlock completions zsh > "${fpath[1]}/_interlock"
+interlock completions fish > ~/.config/fish/completions/interlock.fish
 ```
 
-View the manual with `wayfinder man | man -l -`. Help, completion, and manual
+View the manual with `interlock man | man -l -`. Help, completion, and manual
 content derive from the action registrations.
 
 ## Updates and publishing
 
 Build metadata identifies the release source. Interactive update checks write
 notices to stderr and never replace the executable. Set
-`WAYFINDER_NO_UPDATE_CHECK=1` to disable them. An unconfigured source build
+`INTERLOCK_NO_UPDATE_CHECK=1` to disable them. An unconfigured source build
 does not make an implicit release lookup; network failure never fails the
 requested command.
 

@@ -508,7 +508,7 @@ test.each(["projected-stopped", "unverified", "missing", "unavailable"])(
       savedReceipt.t3.worktreePath = directory;
       present(f.snapshot.threads[0]).worktreePath = directory;
       const run: Run = {
-        ref: "wayfinder-run:t3",
+        ref: "interlock-run:t3",
         ticket: ticketRefSchema.parse("jira:fixture"),
         harness: adapterRefSchema.parse("t3"),
         workspace: { path: directory, branch: receipt.t3.branch },
@@ -519,7 +519,7 @@ test.each(["projected-stopped", "unverified", "missing", "unavailable"])(
         execution: savedReceipt,
       };
       const claim: Claim = {
-        ref: "wayfinder-claim:t3",
+        ref: "interlock-claim:t3",
         ticket: run.ticket,
         humanOwner: actorRefSchema.parse("jaren"),
         run: run.ref,

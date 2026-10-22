@@ -26,7 +26,7 @@ if (import.meta.main) {
       }),
     )
     .catch((error: unknown) => {
-      console.error(`wayfinder: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`interlock: ${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;
     });
 }

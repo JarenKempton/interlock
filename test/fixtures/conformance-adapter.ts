@@ -4,7 +4,7 @@ import { z } from "zod";
 const request = z
   .object({ id: z.string(), method: z.string() })
   .parse(JSON.parse(await Bun.stdin.text()));
-const scenario = Bun.env.WAYFINDER_CONFORMANCE_SCENARIO ?? "normal";
+const scenario = Bun.env.INTERLOCK_CONFORMANCE_SCENARIO ?? "normal";
 
 if (scenario === "hang") {
   await new Promise(() => {});
@@ -14,7 +14,7 @@ if (scenario === "hang") {
   respond(request.id, { payload: "x".repeat(1024) });
 } else if (scenario === "credential") {
   respond(request.id, {
-    handle: Bun.env.WAYFINDER_CREDENTIAL_HANDLE,
+    handle: Bun.env.INTERLOCK_CREDENTIAL_HANDLE,
     argv: process.argv,
   });
 } else if (request.method !== "adapter.initialize") {

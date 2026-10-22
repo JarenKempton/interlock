@@ -13,11 +13,11 @@ export type WorkspaceEntityKind = "workspace" | "group" | "map" | "ticket";
 
 export function parseRef(input: string): ParsedRef {
   const raw = input.trim();
-  if (raw.startsWith("wayfinder-run:")) {
-    return terminalRef(raw, "wayfinder-run:", "run");
+  if (raw.startsWith("interlock-run:")) {
+    return terminalRef(raw, "interlock-run:", "run");
   }
-  if (raw.startsWith("wayfinder-claim:")) {
-    return terminalRef(raw, "wayfinder-claim:", "claim");
+  if (raw.startsWith("interlock-claim:")) {
+    return terminalRef(raw, "interlock-claim:", "claim");
   }
   if (raw.startsWith("nav-run:") || raw.startsWith("nav-claim:")) {
     throw new Error("Pre-release nav run and claim references are no longer supported");

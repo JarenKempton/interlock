@@ -82,9 +82,9 @@ test("auth is memory-only, all HTTP disallows redirects, revocation is explicit"
     "--ttl",
     "2m",
     "--label",
-    "wayfinder",
+    "interlock",
     "--subject",
-    "wayfinder",
+    "interlock",
     "--base-dir",
     "/fixture/.t3",
   ]);

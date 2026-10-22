@@ -7,7 +7,7 @@ separate. A session host may own several agent providers; it must not become
 synonymous with one agent or model. Command invocations and structured host
 requests need not share an argv-shaped interface.
 
-Durable execution identity belongs to Wayfinder's ledger and tracker claims.
+Durable execution identity belongs to Interlock's ledger and tracker claims.
 An orchestrator conversation or UI is a control surface, not a coordination
 store. Closing a surface must not erase execution identity. Unattended progress
 may use a supervisor; persistence must not depend on a daemon remaining alive.

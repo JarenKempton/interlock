@@ -2,7 +2,7 @@ import { z } from "zod";
 import { configText, personalSettingsSchema } from "./schema.ts";
 
 const path = configText
-  .describe("Project configuration file; defaults to wayfinder.toml in the current directory.")
+  .describe("Project configuration file; defaults to interlock.toml in the current directory.")
   .meta({ metavar: "FILE" });
 const setting = personalSettingsSchema
   .keyof()

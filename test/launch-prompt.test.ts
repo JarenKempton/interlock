@@ -133,7 +133,7 @@ test("ADF description preserves paragraph, list, code, hard break and link conte
 test("configured instruction paths are loaded read-only, versioned, and used in the prompt", () => {
   const cwd = mkdtempSync(join(tmpdir(), "wf-instructions-"));
   try {
-    const path = join(cwd, "wayfinder.toml");
+    const path = join(cwd, "interlock.toml");
     const content = `${INITIAL_CONFIGURATION}\n[instructions]\nruntime_contract = "contract.md"\n[instructions.role_templates]\ntask = "task.md"`;
     writeFileSync(path, content);
     writeFileSync(join(cwd, "contract.md"), "Runtime guidance");
@@ -177,7 +177,7 @@ test("T3 planning uses selected-host provider availability, independent of stand
       INITIAL_CONFIGURATION.replace('provider = "codex"', 'provider = "host-managed-provider"'),
     ),
     {},
-    { path: "wayfinder.toml", version: "test" },
+    { path: "interlock.toml", version: "test" },
   );
   const plan = planConfiguredLaunch({
     ticket: fakePlanningTicket,

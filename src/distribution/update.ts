@@ -45,7 +45,7 @@ export async function checkForUpdate(
     !options.interactive ||
     options.json ||
     isEnabled(environment.CI) ||
-    isEnabled(environment.WAYFINDER_NO_UPDATE_CHECK)
+    isEnabled(environment.INTERLOCK_NO_UPDATE_CHECK)
   ) {
     return undefined;
   }
@@ -53,7 +53,7 @@ export async function checkForUpdate(
   if (!current) return undefined;
   if (current.prerelease[0] === "dev") return undefined;
 
-  const releasesUrl = environment.WAYFINDER_UPDATE_URL ?? RELEASES_URL;
+  const releasesUrl = environment.INTERLOCK_UPDATE_URL ?? RELEASES_URL;
   if (!releasesUrl) return undefined;
 
   const now = options.now?.() ?? new Date();
@@ -68,7 +68,7 @@ export async function checkForUpdate(
   await writeCache(cachePath, { checkedAt: now.toISOString() });
 
   const response = await (options.fetch ?? globalThis.fetch)(releasesUrl, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "wayfinder-cli" },
+    headers: { Accept: "application/vnd.github+json", "User-Agent": "interlock" },
     signal: (options.timeoutSignal ?? AbortSignal.timeout)(options.timeoutMs ?? 2_000),
   });
   if (!response.ok) throw new Error(`release check returned HTTP ${response.status}`);
@@ -99,7 +99,7 @@ export async function notifyAboutUpdate(options: UpdateCheckOptions): Promise<vo
     const update = await checkForUpdate(options);
     if (update) {
       (options.writeError ?? console.error)(
-        `Wayfinder ${update.latestVersion} is available (current ${update.currentVersion}).\n` +
+        `Interlock ${update.latestVersion} is available (current ${update.currentVersion}).\n` +
           `Install the new release from ${update.url}`,
       );
     }

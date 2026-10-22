@@ -22,7 +22,7 @@ const CREDENTIAL_HANDLE = "credential-provider:conformance";
 
 /**
  * Exercise the subprocess safety contract against an adapter
- * fixture that selects deliberate failure behavior with WAYFINDER_CONFORMANCE_SCENARIO.
+ * fixture that selects deliberate failure behavior with INTERLOCK_CONFORMANCE_SCENARIO.
  */
 export async function runAdapterConformance(
   executable: string,
@@ -66,7 +66,7 @@ export async function runAdapterConformance(
   checks.push(await deterministicCancellationCheck(executable));
 
   const credential = await client(executable, "credential", {
-    environment: { WAYFINDER_CREDENTIAL_HANDLE: CREDENTIAL_HANDLE },
+    environment: { INTERLOCK_CREDENTIAL_HANDLE: CREDENTIAL_HANDLE },
   }).call(
     "conformance.probe",
     undefined,
@@ -106,7 +106,7 @@ function client(
   const command = executable.endsWith(".ts") ? [process.execPath, executable] : executable;
   return new AdapterClient(command, {
     ...options,
-    environment: { ...options.environment, WAYFINDER_CONFORMANCE_SCENARIO: scenario },
+    environment: { ...options.environment, INTERLOCK_CONFORMANCE_SCENARIO: scenario },
   });
 }
 

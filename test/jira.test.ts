@@ -102,7 +102,7 @@ function snapshot(): TrackerSnapshot {
 function restoreRequest(claimedOwner: ActorRef | null = owner): RestoreClaimRequest {
   return {
     ticket,
-    claim: claimRefSchema.parse("wayfinder-claim:c"),
+    claim: claimRefSchema.parse("interlock-claim:c"),
     ...(claimedOwner ? { claimedOwner } : {}),
     originalSnapshot: snapshot(),
   };
@@ -205,8 +205,8 @@ describe("Jira tracker read adapter", () => {
     const api = new FakeJira();
     api.issues = [issue("JWB-288", { assignee: owner })];
     api.claimProperty = {
-      claim: "wayfinder-claim:c",
-      run: "wayfinder-run:r",
+      claim: "interlock-claim:c",
+      run: "interlock-run:r",
       owner,
       leaseExpiresAt: "2026-08-11T12:15:00.000Z",
       originalSnapshot: snapshot(),
@@ -226,8 +226,8 @@ describe("Jira tracker read adapter", () => {
     const subject = adapter(api);
     const claim = {
       ticket,
-      claim: claimRefSchema.parse("wayfinder-claim:c"),
-      run: runRefSchema.parse("wayfinder-run:r"),
+      claim: claimRefSchema.parse("interlock-claim:c"),
+      run: runRefSchema.parse("interlock-run:r"),
       owner,
       leaseExpiresAt: "2026-08-11T12:15:00.000Z",
       expectedVersion: "v1",

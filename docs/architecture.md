@@ -1,6 +1,6 @@
 # Architecture
 
-Wayfinder separates portable coordination from tracker, workspace, environment,
+Interlock separates portable coordination from tracker, workspace, environment,
 and agent mechanics. TypeScript domain logic lives behind adapters; Bun-specific
 filesystem, SQLite, subprocess, and executable behavior stays at platform boundaries.
 

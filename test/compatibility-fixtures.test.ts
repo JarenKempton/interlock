@@ -430,8 +430,8 @@ function pickupSubject(value: PickupFixture) {
     harness,
     ledger,
     ids: {
-      run: () => runRefSchema.parse("wayfinder-run:fixture"),
-      claim: () => claimRefSchema.parse("wayfinder-claim:fixture"),
+      run: () => runRefSchema.parse("interlock-run:fixture"),
+      claim: () => claimRefSchema.parse("interlock-claim:fixture"),
     },
     clock: { now: () => new Date(value.clock) },
   });

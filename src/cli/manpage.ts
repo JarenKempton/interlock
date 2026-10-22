@@ -15,8 +15,8 @@ export function manPage(version: string, tree: ActionTree): string {
   }));
   const operational: Record<string, Record<string, string>> = {
     ENVIRONMENT: {
-      WAYFINDER_NO_UPDATE_CHECK: "Set to 1 to disable update notifications.",
-      WAYFINDER_UPDATE_URL:
+      INTERLOCK_NO_UPDATE_CHECK: "Set to 1 to disable update notifications.",
+      INTERLOCK_UPDATE_URL:
         "Override the release metadata endpoint for controlled installations and tests.",
       "VISUAL / EDITOR":
         "Editor executable used by config edit when --editor is omitted; arguments are not shell-expanded.",
@@ -24,17 +24,17 @@ export function manPage(version: string, tree: ActionTree): string {
         "Select the platform-specific state directory described under FILES.",
     },
     FILES: {
-      "wayfinder.toml":
+      "interlock.toml":
         "Project defaults, requirements and instruction/setup references. Secrets must not be placed in ordinary configuration, command arguments, logs, or receipts.",
-      "wayfinder.db":
-        "Local state and personal choices: $XDG_STATE_HOME/wayfinder (or $HOME/.local/state/wayfinder) on Linux; $HOME/Library/Application Support/wayfinder on macOS; %LOCALAPPDATA%/Wayfinder CLI on Windows.",
-      "update-check.json": "Update-check timestamp, stored beside wayfinder.db.",
+      "interlock.db":
+        "Local state and personal choices: $XDG_STATE_HOME/interlock (or $HOME/.local/state/interlock) on Linux; $HOME/Library/Application Support/interlock on macOS; %LOCALAPPDATA%/Interlock on Windows.",
+      "update-check.json": "Update-check timestamp, stored beside interlock.db.",
     },
     "EXIT STATUS": {
       "0 / non-zero":
         "Zero on success; non-zero when input, capability, safety or verification checks fail.",
     },
-    "SEE ALSO": { "Project documentation": "https://github.com/JarenKempton/wayfinder-cli" },
+    "SEE ALSO": { "Project documentation": "https://github.com/JarenKempton/interlock" },
   };
   sections.push(
     ...Object.entries(operational).map(([title, entries]) => ({
@@ -45,5 +45,5 @@ export function manPage(version: string, tree: ActionTree): string {
       }),
     })),
   );
-  return formatDocPageAsMan({ sections }, { name: "wayfinder", section: 1, version });
+  return formatDocPageAsMan({ sections }, { name: "interlock", section: 1, version });
 }

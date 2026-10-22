@@ -1,11 +1,11 @@
 {
-  "name": "@jarenkempton/wayfinder-cli",
+  "name": "@jarenkempton/interlock",
   "version": "0.1.0-dev",
   "private": true,
-  "description": "Portable work orchestration for Wayfinder maps across trackers, agent harnesses, and models.",
+  "description": "Portable work orchestration for Interlock maps across trackers, agent harnesses, and models.",
   "type": "module",
   "bin": {
-    "wayfinder": "./src/cli.ts"
+    "interlock": "./src/cli.ts"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "format": "biome format --write .",
-    "build": "bun build ./src/cli.ts --compile --outfile ./dist/wayfinder",
+    "build": "bun build ./src/cli.ts --compile --outfile ./dist/interlock",
     "completions": "bun run ./src/cli.ts completions",
     "man": "bun run ./src/cli.ts man"
   },

@@ -1,6 +1,6 @@
-# Wayfinder Adapter Protocol 1.0
+# Interlock Adapter Protocol 1.0
 
-External adapters are executables named `wayfinder-adapter-<name>`. They exchange one
+External adapters are executables named `interlock-adapter-<name>`. They exchange one
 JSON-RPC 2.0 object per line over stdin/stdout. Stdout is reserved for protocol
 messages; structured diagnostics go to stderr.
 
@@ -38,11 +38,11 @@ The adapter responds with its identity and exact capabilities:
 
 ## Conformance runner
 
-`wayfinder adapter test <executable>` is a non-destructive initialization
-smoke test for ordinary adapters. `wayfinder adapter conformance <fixture>` runs
+`interlock adapter test <executable>` is a non-destructive initialization
+smoke test for ordinary adapters. `interlock adapter conformance <fixture>` runs
 the subprocess checks against a purpose-built fixture; it must not be
 used against an ordinary adapter. The fixture selects its deliberate behavior from the scoped
-`WAYFINDER_CONFORMANCE_SCENARIO` environment variable. The runner verifies 1.x
+`INTERLOCK_CONFORMANCE_SCENARIO` environment variable. The runner verifies 1.x
 negotiation, the standard unknown-method error, deadline and explicit
 cancellation termination, incremental response-size enforcement, crash
 isolation, fresh-process recovery, and credential-provider handles passed only
@@ -60,7 +60,7 @@ The canonical JSON Schemas live under [`schemas/`](../schemas/).
 ## Markdown reference tracker
 
 The bundled Markdown adapter is the credential-free reference implementation for tracker
-conformance. Its fenced, line-anchored `wayfinder-tracker` JSON state block is the authoritative
+conformance. Its fenced, line-anchored `interlock-tracker` JSON state block is the authoritative
 hand-editable state. A tagged rendered index is generated from that state; prose outside both
 tagged regions is preserved. Guarded mutations validate the complete document, use a monotonically
 increasing version and adjacent exclusive lock, then validate again before atomic replacement.

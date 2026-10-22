@@ -170,7 +170,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
     return prepared(canonical);
   }
 
-  /** Destruction requires the exact Wayfinder-owned record returned by prepare. */
+  /** Destruction requires the exact Interlock-owned record returned by prepare. */
   async delete(workspace: PreparedGitWorkspace): Promise<void> {
     const canonical = canonicalPlan(this.#repository, workspace.ticket);
     requireCanonicalPlan(workspace, canonical);
@@ -220,7 +220,7 @@ function canonicalPlan(repository: RepositorySpec, ticket: TicketRef): Workspace
   return {
     ticket,
     path: resolve(repository.worktreeRoot, identity),
-    branch: `wayfinder/${identity}`,
+    branch: `interlock/${identity}`,
   };
 }
 

@@ -1,6 +1,6 @@
 # Notice and attribution
 
-Wayfinder CLI is an independent implementation of and extension to the
+Interlock is an independent implementation of and extension to the
 map-based **Wayfinder** workflow created by Matt Pocock. The upstream skill is
 published in the MIT-licensed
 [`mattpocock/skills`](https://github.com/mattpocock/skills) repository. This
@@ -12,7 +12,7 @@ claim-before-work coordination is the philosophical foundation shared with the
 MCP tool definitions. This repository is specifically the portable CLI
 orchestration runtime; it does not own Product Pipeline or MCP product state.
 
-Wayfinder CLI is not presented as Matt Pocock's software, and Matt Pocock has not
+Interlock is not presented as Matt Pocock's software, and Matt Pocock has not
 endorsed this repository. The implementation, adapter protocol, transaction
 model, and code in this repository are maintained independently under the MIT
 License.

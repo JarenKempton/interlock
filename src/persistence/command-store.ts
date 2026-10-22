@@ -39,11 +39,11 @@ export async function withAsyncStore<T>(
   }
 }
 export function runRef(value: string): RunRef {
-  return runRefSchema.parse(value.startsWith("wayfinder-run:") ? value : `wayfinder-run:${value}`);
+  return runRefSchema.parse(value.startsWith("interlock-run:") ? value : `interlock-run:${value}`);
 }
 export function claimRef(value: string): ClaimRef {
   return claimRefSchema.parse(
-    value.startsWith("wayfinder-claim:") ? value : `wayfinder-claim:${value}`,
+    value.startsWith("interlock-claim:") ? value : `interlock-claim:${value}`,
   );
 }
 export function parseScope(raw: string | undefined): FrontierScope {

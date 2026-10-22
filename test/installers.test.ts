@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "wayfinder-install-"));
+  const root = mkdtempSync(join(tmpdir(), "interlock-install-"));
   roots.push(root);
   const downloads = join(root, "downloads");
   const bin = join(root, "mock-bin");
@@ -32,10 +32,10 @@ function runInstaller(f: ReturnType<typeof fixture>, extra: Record<string, strin
       HOME: f.root,
       DOWNLOADS: f.downloads,
       CURL_LOG: join(f.root, "curl.log"),
-      WAYFINDER_INSTALL_DIR: f.install,
-      WAYFINDER_BASE_URL: "https://fixtures.invalid/release",
-      WAYFINDER_OS: "Linux",
-      WAYFINDER_ARCH: "x86_64",
+      INTERLOCK_INSTALL_DIR: f.install,
+      INTERLOCK_BASE_URL: "https://fixtures.invalid/release",
+      INTERLOCK_OS: "Linux",
+      INTERLOCK_ARCH: "x86_64",
       ...extra,
     },
     stdout: "pipe",
@@ -48,41 +48,41 @@ const describePosix = process.platform === "win32" ? describe.skip : describe;
 describePosix("POSIX installer", () => {
   test("requires an explicit prerelease version without a fixture base URL", () => {
     const f = fixture();
-    const result = runInstaller(f, { WAYFINDER_BASE_URL: "", WAYFINDER_VERSION: "" });
+    const result = runInstaller(f, { INTERLOCK_BASE_URL: "", INTERLOCK_VERSION: "" });
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("WAYFINDER_VERSION is required");
+    expect(result.stderr.toString()).toContain("INTERLOCK_VERSION is required");
     expect(existsSync(join(f.root, "curl.log"))).toBeFalse();
   });
 
   test("selects the platform asset, verifies it, and installs atomically", () => {
     const f = fixture();
-    const asset = "wayfinder-linux-x64";
+    const asset = "interlock-linux-x64";
     writeFileSync(join(f.downloads, asset), "new binary");
     const hash = new Bun.CryptoHasher("sha256").update("new binary").digest("hex");
     writeFileSync(join(f.downloads, "checksums.txt"), `${hash}  ${asset}\n`);
 
     const result = runInstaller(f);
     expect(result.exitCode).toBe(0);
-    expect(readFileSync(join(f.install, "wayfinder"), "utf8")).toBe("new binary");
+    expect(readFileSync(join(f.install, "interlock"), "utf8")).toBe("new binary");
     expect(readFileSync(join(f.root, "curl.log"), "utf8")).toContain(`/release/${asset}`);
   });
 
   test("preserves the installed binary when checksum verification fails", () => {
     const f = fixture();
-    const asset = "wayfinder-linux-arm64";
-    writeFileSync(join(f.install, "wayfinder"), "previous binary");
+    const asset = "interlock-linux-arm64";
+    writeFileSync(join(f.install, "interlock"), "previous binary");
     writeFileSync(join(f.downloads, asset), "corrupt download");
     writeFileSync(join(f.downloads, "checksums.txt"), `${"0".repeat(64)}  ${asset}\n`);
 
-    const result = runInstaller(f, { WAYFINDER_ARCH: "aarch64" });
+    const result = runInstaller(f, { INTERLOCK_ARCH: "aarch64" });
     expect(result.exitCode).not.toBe(0);
-    expect(readFileSync(join(f.install, "wayfinder"), "utf8")).toBe("previous binary");
+    expect(readFileSync(join(f.install, "interlock"), "utf8")).toBe("previous binary");
     expect(result.stderr.toString()).toContain("checksum verification failed");
   });
 
   test("fails before downloading an unsupported platform", () => {
     const f = fixture();
-    const result = runInstaller(f, { WAYFINDER_OS: "FreeBSD" });
+    const result = runInstaller(f, { INTERLOCK_OS: "FreeBSD" });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("unsupported operating system");
   });

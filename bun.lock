@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@jarenkempton/wayfinder-cli",
+      "name": "@jarenkempton/interlock",
       "dependencies": {
         "@optique/core": "1.2.6",
         "@optique/man": "1.2.6",

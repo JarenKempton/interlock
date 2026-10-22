@@ -1,26 +1,26 @@
 [CmdletBinding()]
 param(
-    [string]$Version = $env:WAYFINDER_VERSION,
-    [string]$InstallDir = $env:WAYFINDER_INSTALL_DIR,
-    [string]$Repository = $env:WAYFINDER_REPOSITORY,
-    [string]$BaseUrl = $env:WAYFINDER_BASE_URL
+    [string]$Version = $env:INTERLOCK_VERSION,
+    [string]$InstallDir = $env:INTERLOCK_INSTALL_DIR,
+    [string]$Repository = $env:INTERLOCK_REPOSITORY,
+    [string]$BaseUrl = $env:INTERLOCK_BASE_URL
 )
 
 $ErrorActionPreference = 'Stop'
-if (-not $Repository) { $Repository = 'JarenKempton/wayfinder-cli' }
-if (-not $InstallDir) { $InstallDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\Wayfinder\bin' }
+if (-not $Repository) { $Repository = 'JarenKempton/interlock' }
+if (-not $InstallDir) { $InstallDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\Interlock\bin' }
 
-$architecture = if ($env:WAYFINDER_ARCH) { $env:WAYFINDER_ARCH } else { [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
+$architecture = if ($env:INTERLOCK_ARCH) { $env:INTERLOCK_ARCH } else { [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
 switch ($architecture.ToLowerInvariant()) {
     { $_ -in 'x64', 'amd64', 'x86_64' } { $machine = 'x64'; break }
     { $_ -in 'arm64', 'aarch64' } { $machine = 'arm64'; break }
-    default { throw "wayfinder: unsupported architecture: $architecture" }
+    default { throw "interlock: unsupported architecture: $architecture" }
 }
 
-$asset = "wayfinder-windows-$machine.exe"
+$asset = "interlock-windows-$machine.exe"
 if (-not $BaseUrl) {
     if ((-not $Version) -or ($Version -eq 'latest')) {
-        throw 'wayfinder: WAYFINDER_VERSION is required for prerelease installation'
+        throw 'interlock: INTERLOCK_VERSION is required for prerelease installation'
     }
     $tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
     $BaseUrl = "https://github.com/$Repository/releases/download/$tag"
@@ -28,19 +28,19 @@ if (-not $BaseUrl) {
 $BaseUrl = $BaseUrl.TrimEnd('/')
 
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-$destination = Join-Path $InstallDir 'wayfinder.exe'
-$temporary = Join-Path $InstallDir ('.wayfinder.' + [Guid]::NewGuid().ToString('N') + '.exe')
-$backup = Join-Path $InstallDir ('.wayfinder-backup.' + [Guid]::NewGuid().ToString('N') + '.exe')
-$checksums = Join-Path ([IO.Path]::GetTempPath()) ('wayfinder-checksums.' + [Guid]::NewGuid().ToString('N'))
+$destination = Join-Path $InstallDir 'interlock.exe'
+$temporary = Join-Path $InstallDir ('.interlock.' + [Guid]::NewGuid().ToString('N') + '.exe')
+$backup = Join-Path $InstallDir ('.interlock-backup.' + [Guid]::NewGuid().ToString('N') + '.exe')
+$checksums = Join-Path ([IO.Path]::GetTempPath()) ('interlock-checksums.' + [Guid]::NewGuid().ToString('N'))
 
 try {
     Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/$asset" -OutFile $temporary
     Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/checksums.txt" -OutFile $checksums
     $line = Get-Content -LiteralPath $checksums | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s+\*?$([regex]::Escape($asset))$" } | Select-Object -First 1
-    if (-not $line) { throw "wayfinder: checksums.txt has no entry for $asset" }
+    if (-not $line) { throw "interlock: checksums.txt has no entry for $asset" }
     $expected = ($line -split '\s+')[0].ToLowerInvariant()
     $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $temporary).Hash.ToLowerInvariant()
-    if ($actual -ne $expected) { throw "wayfinder: checksum verification failed for $asset" }
+    if ($actual -ne $expected) { throw "interlock: checksum verification failed for $asset" }
 
     if (Test-Path -LiteralPath $destination) {
         try {
@@ -61,7 +61,7 @@ try {
     Remove-Item -LiteralPath $checksums -Force -ErrorAction SilentlyContinue
 }
 
-Write-Host "Installed wayfinder to $destination"
+Write-Host "Installed interlock to $destination"
 $pathEntries = $env:PATH -split [IO.Path]::PathSeparator
 if ($InstallDir -notin $pathEntries) {
     Write-Warning "$InstallDir is not on PATH. Add it to your user PATH, then open a new terminal."

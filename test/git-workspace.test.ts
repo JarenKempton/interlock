@@ -75,7 +75,7 @@ const ticket: Ticket = {
 };
 const identity = ticketIdentity(ticket.ref);
 const worktreePath = resolve(repository.worktreeRoot, identity);
-const branch = `wayfinder/${identity}`;
+const branch = `interlock/${identity}`;
 
 function ok(stdout: string) {
   return { exitCode: 0, stdout, stderr: "" };
@@ -231,7 +231,7 @@ describe("Git workspace adapter", () => {
       candidate.workspace.delete({ ...canonical, path: resolve("/unrelated/worktree") }),
     ).rejects.toBeInstanceOf(WorkspaceConflictError);
     await expect(
-      candidate.workspace.delete({ ...canonical, branch: "wayfinder/unrelated" }),
+      candidate.workspace.delete({ ...canonical, branch: "interlock/unrelated" }),
     ).rejects.toBeInstanceOf(WorkspaceConflictError);
     expect(candidate.git.calls).toHaveLength(0);
   });
@@ -268,7 +268,7 @@ describe("Git workspace adapter", () => {
   });
 
   test("parses CRLF porcelain output and retains prunable metadata", () => {
-    const nativePath = "C:\\Users\\Jaren\\Wayfinder Worktrees\\ABC-123";
+    const nativePath = "C:\\Users\\Jaren\\Interlock Worktrees\\ABC-123";
     expect(
       parseWorktrees(
         `worktree ${nativePath}\r\nbranch refs/heads/${branch}\r\nprunable stale gitdir\r\n`,
