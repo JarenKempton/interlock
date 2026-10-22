@@ -150,6 +150,7 @@ export interface JiraTrackerOptions {
   priorityOrder: readonly string[];
   claimProperty?: string;
   pageSize?: number;
+  validateClaim?: (ticket: Ticket) => void;
 }
 
 const MUTATION_CAPABILITIES = [
@@ -175,6 +176,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   readonly #priorityOrder: readonly string[];
   readonly #rankField: string;
   readonly #pageSize: number;
+  readonly #validateClaim: JiraTrackerOptions["validateClaim"];
 
   constructor(options: JiraTrackerOptions) {
     if (!options.rankField) throw new Error("Jira Rank field id is required");
@@ -190,6 +192,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     this.#priorityOrder = options.priorityOrder;
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
+    this.#validateClaim = options.validateClaim;
   }
 
   async describe() {
@@ -197,7 +200,8 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   }
 
   async preflight(ticket: TicketRef): Promise<void> {
-    await this.getTicket(ticket);
+    const current = await this.getTicket(ticket);
+    this.#validateClaim?.(current);
   }
 
   async getTicket(ticket: TicketRef): Promise<Ticket> {
@@ -245,7 +249,20 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   }
 
   async claim(request: ClaimRequest): Promise<void> {
-    const current = await this.#claimState(request.ticket);
+    const issue = await this.#issue(request.ticket);
+    const current = await this.#claimState(request.ticket, issue);
+    if (this.#validateClaim) {
+      const parent = issue.fields.parent?.key;
+      if (!parent) throw new ClaimCollisionError("Jira ticket no longer has a parent map");
+      this.#validateClaim(
+        this.#normalize(
+          issue,
+          request.ticket,
+          mapRefSchema.parse(`${this.#prefix}:map:${parent}`),
+          0,
+        ),
+      );
+    }
     if (
       (current.assignee !== null && current.assignee !== request.owner) ||
       (current.claim !== null && current.claim.claim !== request.claim)

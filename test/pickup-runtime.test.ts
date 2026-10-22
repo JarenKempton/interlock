@@ -406,3 +406,73 @@ test(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test(
+  "a ticket completed during tracker preflight is never claimed or reopened",
+  async () => {
+    const f = await fixture();
+    let searches = 0;
+    f.jira.fail = (method, path, after) => {
+      if (!after && method === "POST" && path.endsWith("/search/jql") && ++searches === 3) {
+        f.jira.issue.fields.status = { name: "Done", statusCategory: { key: "done" } };
+      }
+    };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "not available",
+    );
+    expect(f.jira.issue.fields.status.name).toBe("Done");
+    expect(f.jira.property).toBeNull();
+    expect((await lock(f).read(ref)).version).toBe("absent");
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a ticket completed on the final mirror read is preserved and the held lock compensates",
+  async () => {
+    const f = await fixture();
+    const git = f.git;
+    let locked = false;
+    f.services.execution = {
+      ...f.services.execution,
+      git: {
+        async run(argv, cwd) {
+          const result = await git.run(argv, cwd);
+          if (argv[1] === "push") locked = true;
+          return result;
+        },
+      },
+    };
+    f.jira.fail = (method, path, after) => {
+      if (locked && !after && method === "GET" && path.includes("/issue/TEST-492?")) {
+        f.jira.issue.fields.status = { name: "Done", statusCategory: { key: "done" } };
+      }
+    };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+      receipt: { state: "compensated" },
+    });
+    expect(f.jira.issue.fields.status.name).toBe("Done");
+    expect(f.jira.property).toBeNull();
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "release uses the recorded repository when configured roots overlap",
+  async () => {
+    const f = await fixture();
+    await writeFile(
+      f.config,
+      `${await readFile(f.config, "utf8")}\n[repositories.other]\ngithub = "other/repo"\npath = "bob"\nworktree_root = "worktrees"\nbase_branch = "main"\n`,
+    );
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

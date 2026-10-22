@@ -103,14 +103,14 @@ export async function executionTracker(
   const priorities = await read("priority", z.array(z.object({ name: z.string() })).min(1));
   const myself = await read("myself", z.object({ accountId: actorRefSchema }));
   const instance = site.hostname.replace(/\.atlassian\.net$/, "");
-  const tracker = new JiraTrackerAdapter({
+  const options = {
     instance,
     workspace,
     transport,
     rankField: ranks[0].id,
     priorityOrder: priorities.map((p) => p.name),
-  });
-  return { tracker, owner: myself.accountId, instance };
+  };
+  return { tracker: new JiraTrackerAdapter(options), owner: myself.accountId, instance, options };
 }
 
 export function lockedTracker(
@@ -164,6 +164,8 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       !map.available_statuses.includes(current.status)
     )
       throw new Error("Ticket is not available in the configured map");
+    if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
+      throw new Error("Ticket changed during planning; retry pickup");
   };
   eligible(ticket);
   const repository = repositorySpec(configuration, map.repository);
@@ -180,6 +182,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   });
   const plan = {
     version: 1,
+    repository: map.repository,
     ticket: ref,
     worktree: worktree.path,
     branch: worktree.branch,
@@ -208,13 +211,12 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   };
   validateT3Catalog(catalog, clock.now());
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" };
-  const { tracker, claimLock } = lockedTracker(repository, jira.tracker, services);
+  const mirror = new JiraTrackerAdapter({ ...jira.options, validateClaim: eligible });
+  const { tracker, claimLock } = lockedTracker(repository, mirror, services);
   const getTicket = tracker.getTicket.bind(tracker);
   tracker.getTicket = async (ref: TicketRef) => {
     const current = await getTicket(ref);
     eligible(current);
-    if (JSON.stringify(current) !== JSON.stringify(ticket))
-      throw new Error("Ticket changed during planning; retry pickup");
     validateT3Catalog(catalog, clock.now());
     return current;
   };
