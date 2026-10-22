@@ -90,11 +90,12 @@ export function planT3Models(configuration: ResolvedConfiguration, input: T3Cata
         throw new Error(`T3 cannot verify ${setting} for ${role}`);
       if (
         project.required[setting] &&
-        options[descriptor.id] !== undefined &&
-        options[descriptor.id] !== value
+        selection.options?.[descriptor.id] !== undefined &&
+        selection.options[descriptor.id] !== value
       )
         throw new Error(`Role ${role} conflicts with required ${setting}`);
-      options[descriptor.id] = value;
+      if (project.required[setting] || selection.options?.[descriptor.id] === undefined)
+        options[descriptor.id] = value;
     }
     for (const [key, value] of Object.entries(options)) {
       const descriptors = (model.options ?? []).filter((o) => o.id === key);
