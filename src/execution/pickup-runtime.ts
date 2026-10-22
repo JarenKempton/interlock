@@ -267,8 +267,13 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       commitRun: (run, state, receipt) => store.commitRun(run, state, { receipt, plan }),
       recordStep: (run, state, receipt, error) =>
         store.recordStep(run, state, { receipt, plan }, error),
-      saveRecoveryRequired: (run, receipt, error, evidence) =>
-        store.saveRecoveryRequired(run, receipt, error, evidence),
+      saveRecoveryRequired: (run, receipt, error, evidence) => {
+        const pendingJiraWrite = mirror.pendingWrite(ref);
+        store.saveRecoveryRequired(run, receipt, error, {
+          ...z.record(z.string(), z.unknown()).parse(evidence),
+          ...(pendingJiraWrite ? { pendingJiraWrite } : {}),
+        });
+      },
     };
     const receipt = await new PickupCoordinator({
       tracker,

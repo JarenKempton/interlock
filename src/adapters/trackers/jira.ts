@@ -130,6 +130,22 @@ const claimSnapshotSchema = z.object({
   status: z.string(),
   claim: claimPropertySchema.nullable(),
 });
+export const pendingJiraWriteSchema = z.object({
+  ticket: ticketRefSchema,
+  operation: z.string(),
+  expected: z.discriminatedUnion("field", [
+    z.object({ field: z.literal("claim"), value: claimPropertySchema.nullable() }),
+    z.object({ field: z.literal("assignee"), value: z.string().nullable() }),
+    z.object({ field: z.literal("status"), value: z.string() }),
+  ]),
+});
+type PendingJiraWrite = z.infer<typeof pendingJiraWriteSchema>;
+
+export class PendingJiraWriteError extends AmbiguousTrackerResultError {
+  constructor(readonly pendingWrite: PendingJiraWrite) {
+    super(`Jira ${pendingWrite.operation} outcome is unknown: ${JSON.stringify(pendingWrite)}`);
+  }
+}
 const transitionsSchema = z.object({
   transitions: z.array(z.object({ id: z.string(), to: z.object({ name: z.string() }) })),
 });
@@ -177,6 +193,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   readonly #rankField: string | undefined;
   readonly #pageSize: number;
   readonly #validateClaim: JiraTrackerOptions["validateClaim"];
+  readonly #pendingWrites = new Map<TicketRef, PendingJiraWrite>();
 
   constructor(options: JiraTrackerOptions) {
     if (options.rankField !== undefined && !options.rankField)
@@ -297,6 +314,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   async restoreClaimState(request: RestoreClaimRequest): Promise<void> {
     const owner = requireClaimedOwner(request.claimedOwner);
     const original = originalClaimState(request);
+    await this.#settlePendingWrite(request.ticket);
     const current = await this.#claimState(request.ticket);
     if (current.claim?.claim !== request.claim) return;
     if (
@@ -308,13 +326,17 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     if (current.assignee !== original.assignee)
       await this.#assign(request.ticket, original.assignee);
     const path = this.#propertyPath(request.ticket);
-    if (original.claim) await this.#write("PUT", path, original.claim, "restore claim property");
-    else await this.#write("DELETE", path, undefined, "delete claim property");
+    await this.#write(original.claim ? "PUT" : "DELETE", path, original.claim ?? undefined, {
+      ticket: request.ticket,
+      operation: "restore claim property",
+      expected: { field: "claim", value: original.claim },
+    });
   }
 
   async verifyRestored(request: RestoreClaimRequest): Promise<void> {
     const owner = requireClaimedOwner(request.claimedOwner);
     const original = originalClaimState(request);
+    await this.#settlePendingWrite(request.ticket);
     const current = await this.#claimState(request.ticket);
     if (
       current.claim?.claim === request.claim ||
@@ -450,7 +472,11 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     property: JiraClaimProperty,
     current: JiraClaimSnapshot,
   ): Promise<void> {
-    await this.#write("PUT", this.#propertyPath(ticket), property, "set claim property");
+    await this.#write("PUT", this.#propertyPath(ticket), property, {
+      ticket,
+      operation: "set claim property",
+      expected: { field: "claim", value: property },
+    });
     const installed = await this.#readClaim(ticket);
     if (
       installed?.claim !== property.claim ||
@@ -468,7 +494,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
       "PUT",
       `/rest/api/3/issue/${this.#ticketKey(ticket)}/assignee`,
       { accountId },
-      "assign issue",
+      { ticket, operation: "assign issue", expected: { field: "assignee", value: accountId } },
     );
     if ((await this.#claimState(ticket)).assignee !== accountId)
       throw new AmbiguousTrackerResultError("Jira assignment was not verified");
@@ -485,15 +511,66 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     );
     const transition = transitions.find((item) => item.to.name === status);
     if (!transition) throw new Error(`Jira has no transition to ${status}`);
-    await this.#write("POST", path, { transition: { id: transition.id } }, "transition issue");
+    await this.#write(
+      "POST",
+      path,
+      { transition: { id: transition.id } },
+      {
+        ticket,
+        operation: "transition issue",
+        expected: { field: "status", value: status },
+      },
+    );
     if ((await this.#claimState(ticket)).status !== status)
       throw new AmbiguousTrackerResultError("Jira transition was not verified");
   }
 
-  async #write(method: string, path: string, body: unknown, operation: string): Promise<void> {
-    const response = await this.#transport.request(method, path, body);
-    if (response.status < 200 || response.status >= 300)
-      throw new Error(`Jira ${operation} failed (${response.status})`);
+  async #write(
+    method: string,
+    path: string,
+    body: unknown,
+    pending: PendingJiraWrite,
+  ): Promise<void> {
+    await this.#settlePendingWrite(pending.ticket);
+    this.#pendingWrites.set(pending.ticket, pending);
+    let response: JiraResponse;
+    try {
+      response = await this.#transport.request(method, path, body);
+    } catch {
+      throw new PendingJiraWriteError(pending);
+    }
+    if (response.status >= 200 && response.status < 300 && response.status !== 202) {
+      this.#pendingWrites.delete(pending.ticket);
+      return;
+    }
+    if ([400, 401, 403, 404, 405, 409, 415, 422, 429].includes(response.status)) {
+      this.#pendingWrites.delete(pending.ticket);
+      throw new Error(`Jira ${pending.operation} failed (${response.status})`);
+    }
+    throw new PendingJiraWriteError(pending);
+  }
+
+  async verifyPendingWrite(pending: PendingJiraWrite): Promise<void> {
+    let current: JiraClaimSnapshot;
+    try {
+      current = await this.#claimState(pending.ticket);
+    } catch {
+      throw new PendingJiraWriteError(pending);
+    }
+    if (JSON.stringify(current[pending.expected.field]) !== JSON.stringify(pending.expected.value))
+      throw new PendingJiraWriteError(pending);
+  }
+
+  pendingWrite(ticket: TicketRef): PendingJiraWrite | undefined {
+    const pending = this.#pendingWrites.get(ticket);
+    return pending ? structuredClone(pending) : undefined;
+  }
+
+  async #settlePendingWrite(ticket: TicketRef): Promise<void> {
+    const pending = this.#pendingWrites.get(ticket);
+    if (!pending) return;
+    await this.verifyPendingWrite(pending);
+    this.#pendingWrites.delete(ticket);
   }
 
   #propertyPath(ticket: TicketRef): string {
