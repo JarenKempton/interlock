@@ -1,3 +1,4 @@
+import type { RecoverableClaimLock } from "../domain/claim-lock.ts";
 import type {
   Clock,
   HarnessAdapter,
@@ -5,7 +6,6 @@ import type {
   LaunchReceipt,
   Ledger,
   PickupRequest,
-  TrackerAdapter,
   WorkspaceAdapter,
 } from "../domain/contracts.ts";
 import { ClaimCollisionError, HarnessLaunchError } from "../domain/contracts.ts";
@@ -17,13 +17,11 @@ import {
   type Run,
   type RunRef,
   requireCapabilities,
+  type Ticket,
+  type TrackerSnapshot,
 } from "../domain/model.ts";
-
-const MUTATING_PICKUP_TRACKER_CAPABILITIES = capabilities(
-  "conditional_update",
-  "claim_identity",
-  "lease_metadata",
-);
+import type { Tracker } from "../domain/tracker.ts";
+import { ClaimCoordinator } from "./claims.ts";
 
 export type PickupState =
   | "planning"
@@ -59,8 +57,10 @@ export class PickupResultError extends Error {
 }
 
 export interface PickupCoordinatorOptions {
-  tracker: TrackerAdapter;
-  claimLock?: { describe(): Promise<CapabilitySet> };
+  tracker: Tracker;
+  claimLock: RecoverableClaimLock;
+  validateTicket?: (ticket: Ticket) => void;
+  beforeClaim?: () => void;
   workspace: WorkspaceAdapter;
   harness?: HarnessAdapter;
   ledger: Ledger;
@@ -71,9 +71,11 @@ export interface PickupCoordinatorOptions {
 
 export class PickupCoordinator {
   readonly #options: PickupCoordinatorOptions;
+  readonly #claims: ClaimCoordinator;
 
   constructor(options: PickupCoordinatorOptions) {
     this.#options = options;
+    this.#claims = new ClaimCoordinator(options.claimLock, options.tracker);
   }
 
   async execute(request: PickupRequest): Promise<PickupReceipt> {
@@ -109,13 +111,15 @@ export class PickupCoordinator {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
-    const ticket = await this.#options.tracker.getTicket(request.ticket);
+    const ticket = (await this.#options.tracker.read(request.ticket)).ticket;
+    this.#options.validateTicket?.(ticket);
     if (ticket.state !== "open" || ticket.assignee !== undefined) {
       throw new Error("Ticket is not claimable");
     }
-    const trackerCapabilities = await (this.#options.claimLock ?? this.#options.tracker).describe();
-    requireCapabilities(trackerCapabilities, MUTATING_PICKUP_TRACKER_CAPABILITIES);
-    await this.#options.tracker.preflight(request.ticket);
+    requireCapabilities(
+      await this.#options.claimLock.describe(),
+      capabilities("conditional_update"),
+    );
     await this.#options.workspace.preflight(ticket);
     const plan = await this.#options.workspace.plan(ticket);
     const harnessCapabilities = harness ? await harness.describe() : capabilities();
@@ -129,7 +133,7 @@ export class PickupCoordinator {
       ...(request.context ? { context: request.context } : {}),
     });
 
-    const snapshot = await this.#options.tracker.snapshotClaimState(request.ticket);
+    const snapshot = await this.#claims.snapshotClaimState(request.ticket);
     run.workspace = { path: plan.path, branch: plan.branch };
     await this.#options.ledger.saveRun(run);
     await this.#options.ledger.recordStep(runRef, "planning", receipt);
@@ -151,7 +155,8 @@ export class PickupCoordinator {
     });
     try {
       try {
-        await this.#options.tracker.claim(claimRequest);
+        this.#options.beforeClaim?.();
+        await this.#claims.claim(claimRequest);
       } catch (error) {
         if (error instanceof ClaimCollisionError) {
           receipt.state = "collision";
@@ -161,8 +166,8 @@ export class PickupCoordinator {
         }
         return this.#compensate(run, receipt, snapshot, request.owner, error);
       }
-      await this.#options.tracker.verifyClaim(claimRequest);
-      const verifiedSnapshot = await this.#options.tracker.snapshotClaimState(request.ticket);
+      await this.#claims.verifyClaim(claimRequest);
+      const verifiedSnapshot = await this.#claims.snapshotClaimState(request.ticket);
       const claim: Claim = {
         ref: claimRef,
         ticket: request.ticket,
@@ -231,7 +236,7 @@ export class PickupCoordinator {
   async #compensate(
     run: Run,
     receipt: PickupReceipt,
-    snapshot: Awaited<ReturnType<TrackerAdapter["snapshotClaimState"]>>,
+    snapshot: TrackerSnapshot,
     claimedOwner: PickupRequest["owner"],
     cause: unknown,
   ): Promise<never> {
@@ -263,8 +268,8 @@ export class PickupCoordinator {
       originalSnapshot: snapshot,
     };
     try {
-      await this.#options.tracker.restoreClaimState(restoreRequest);
-      await this.#options.tracker.verifyRestored(restoreRequest);
+      await this.#claims.restoreClaimState(restoreRequest);
+      await this.#claims.verifyRestored(restoreRequest);
       trackerEvidence = "restored_verified";
     } catch (error) {
       recoveryErrors.push(error);

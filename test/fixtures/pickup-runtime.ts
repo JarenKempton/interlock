@@ -47,6 +47,7 @@ export class PickupJira implements JiraTransport {
       response = { status: 200, body: { accountId: this.owner } };
     else if (path === "/rest/api/3/search/jql")
       response = { status: 200, body: { issues: [this.issue], isLast: true } };
+    else if (path.endsWith("/remotelink") && method === "GET") response = { status: 200, body: [] };
     else if (path.includes("/properties/")) {
       if (method === "PUT") this.property = body;
       if (method === "DELETE") this.property = null;

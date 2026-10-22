@@ -3,7 +3,6 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { GitClaimLock } from "../adapters/claims/git-lock.ts";
-import { GitLockedTrackerAdapter } from "../adapters/claims/locked-tracker.ts";
 import {
   JiraTrackerAdapter,
   type JiraTransport,
@@ -15,11 +14,12 @@ import { configurationOperations } from "../configuration/project-files.ts";
 import type { ResolvedConfiguration } from "../configuration/schema.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
-import type { RepositorySpec, Ticket, TicketRef } from "../domain/model.ts";
+import type { RepositorySpec, Ticket } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
+import { ClaimCoordinator } from "./claims.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
 import { PickupCoordinator } from "./pickup.ts";
 import { planT3Models, validateT3Catalog } from "./t3-plan.ts";
@@ -113,7 +113,7 @@ export async function executionTracker(
   return { tracker, owner: myself.accountId, instance };
 }
 
-export function lockedTracker(
+export function claimCoordination(
   repository: RepositorySpec,
   tracker: JiraTrackerAdapter,
   services: RuntimeServices,
@@ -124,7 +124,7 @@ export function lockedTracker(
     ...(services.execution?.git ? { git: services.execution.git } : {}),
     ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
   });
-  return { claimLock, tracker: new GitLockedTrackerAdapter(claimLock, tracker) };
+  return { claimLock, claims: new ClaimCoordinator(claimLock, tracker) };
 }
 
 export async function pickup(services: RuntimeServices, input: PickupInput) {
@@ -151,7 +151,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   const ref = ticketRefSchema.parse(
     `jira:${jira.instance}:${input.key.slice(0, input.key.lastIndexOf("-"))}:ticket:${input.key}`,
   );
-  const ticket = await jira.tracker.getTicket(ref);
+  const ticket = (await jira.tracker.read(ref)).ticket;
   const map = configuration.project.maps[parseRef(ticket.map).nativeId ?? ""];
   if (!map) throw new Error("Ticket map is not configured");
   if (map.claim_status !== "In Progress")
@@ -208,20 +208,12 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   };
   validateT3Catalog(catalog, clock.now());
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" };
-  const { tracker, claimLock } = lockedTracker(repository, jira.tracker, services);
-  const getTicket = tracker.getTicket.bind(tracker);
-  tracker.getTicket = async (ref: TicketRef) => {
-    const current = await getTicket(ref);
+  const { claimLock } = claimCoordination(repository, jira.tracker, services);
+  const validateTicket = (current: Ticket) => {
     eligible(current);
     if (JSON.stringify(current) !== JSON.stringify(ticket))
       throw new Error("Ticket changed during planning; retry pickup");
     validateT3Catalog(catalog, clock.now());
-    return current;
-  };
-  const claim = tracker.claim.bind(tracker);
-  tracker.claim = async (request) => {
-    validateT3Catalog(catalog, clock.now());
-    await claim(request);
   };
   return withExecutionStore(services, statePath, async (store) => {
     const ledger: Ledger = {
@@ -239,8 +231,12 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
         store.saveRecoveryRequired(run, receipt, error, evidence),
     };
     const receipt = await new PickupCoordinator({
-      tracker,
+      tracker: jira.tracker,
       claimLock,
+      validateTicket,
+      beforeClaim: () => {
+        validateT3Catalog(catalog, clock.now());
+      },
       workspace,
       ledger,
       clock,

@@ -20,13 +20,7 @@ test(
             git,
             clock: fixture.clock,
           });
-          return {
-            describe: async () => ({ conditional_update: true }),
-            read: lock.read.bind(lock),
-            claim: lock.claim.bind(lock),
-            renew: lock.renew.bind(lock),
-            release: lock.release.bind(lock),
-          };
+          return lock;
         }
         return {
           adapter: adapter(fixture.alice, scripted),

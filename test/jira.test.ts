@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { ABSENT_LOCK_VERSION, GitClaimLock } from "../src/adapters/claims/git-lock.ts";
-import { GitLockedTrackerAdapter } from "../src/adapters/claims/locked-tracker.ts";
 import { builtInAdapters } from "../src/adapters/registry.ts";
 import type { HttpRequest, HttpTransport } from "../src/adapters/trackers/http.ts";
 import {
@@ -30,6 +29,8 @@ import {
   type TrackerSnapshot,
   UnsupportedCapabilityError,
 } from "../src/domain/model.ts";
+import type { MirrorRestore } from "../src/domain/tracker.ts";
+import { ClaimCoordinator } from "../src/execution/claims.ts";
 import { evaluateFrontier, selectFrontierTicket } from "../src/frontier/evaluate.ts";
 import {
   GIT_TEST_TIMEOUT_MS,
@@ -85,6 +86,7 @@ class FakeJira implements JiraTransport {
     const key = decodeURIComponent(path.match(/\/issue\/([^/?]+)/)?.[1] ?? "");
     const found = this.issues.find((item) => item.key === key);
     if (!found) return { status: 404 };
+    if (path.endsWith("/remotelink") && method === "GET") return { status: 200, body: [] };
     if (path.includes("/properties/")) {
       if (method === "PUT") this.claimProperty = body;
       if (method === "DELETE") this.claimProperty = null;
@@ -143,11 +145,11 @@ function snapshot(): TrackerSnapshot {
   return { version: "v1", payload: { assignee: null, status: "To Do", claim: null } };
 }
 
-function restoreRequest(claimedOwner: ActorRef | null = owner): RestoreClaimRequest {
+function restoreRequest(): MirrorRestore {
   return {
     ticket,
     claim: claimRefSchema.parse("interlock-claim:c"),
-    ...(claimedOwner ? { claimedOwner } : {}),
+    claimedOwner: owner,
     originalSnapshot: snapshot(),
   };
 }
@@ -165,7 +167,7 @@ describe("Jira tracker read adapter", () => {
         priority: { id: "9000", name: "Highest" },
       }),
     ];
-    const tickets = await adapter(api).listMapTickets(map);
+    const tickets = await adapter(api).list_work(map);
     expect(tickets.map((item) => [String(item.ref), item.order, item.metadata?.rank])).toEqual([
       ["jira:responsibid:JWB:ticket:JWB-HIGH", 0, "0|aaaaa:"],
       ["jira:responsibid:JWB:ticket:JWB-LOW", 1, "0|zzzzz:"],
@@ -193,7 +195,7 @@ describe("Jira tracker read adapter", () => {
         ],
       }),
     ];
-    const tickets = await adapter(api).listMapTickets(map);
+    const tickets = await adapter(api).list_work(map);
     const current = required(tickets, 1);
     expect(current.dependencies).toEqual([
       {
@@ -212,10 +214,10 @@ describe("Jira tracker read adapter", () => {
     ).not.toThrow();
   });
 
-  test("getTicket derives its stable order from the complete parent map", async () => {
+  test("read derives its stable order from the complete parent map", async () => {
     const api = new FakeJira();
     api.issues = [issue("JWB-OTHER", { rank: "0|aaaaa:" }), issue("JWB-288", { rank: "0|bbbbb:" })];
-    expect(await adapter(api).getTicket(ticket)).toMatchObject({ ref: ticket, map, order: 1 });
+    expect((await adapter(api).read(ticket)).ticket).toMatchObject({ ref: ticket, map, order: 1 });
   });
 
   test("advertises only implemented read capabilities and remains registry-unavailable", async () => {
@@ -234,9 +236,9 @@ describe("Jira tracker read adapter", () => {
     ).toThrow(UnsupportedCapabilityError);
   });
 
-  test("preflight reads the ticket without mutation", async () => {
+  test("read reads the ticket without mutation", async () => {
     const api = new FakeJira();
-    await adapter(api).preflight(ticket);
+    await adapter(api).read(ticket);
     expect(api.mutationCount()).toBe(0);
   });
 
@@ -248,7 +250,7 @@ describe("Jira tracker read adapter", () => {
       run: "interlock-run:r",
       owner,
     };
-    expect(await adapter(api).snapshotClaimState(ticket)).toEqual({
+    expect((await adapter(api).read(ticket)).snapshot).toEqual({
       version: "2026-08-11T00:00:00.000Z",
       payload: {
         assignee: owner,
@@ -261,9 +263,9 @@ describe("Jira tracker read adapter", () => {
   test("restoration requires the persisted owner; comments and resolution still fail closed", async () => {
     const api = new FakeJira();
     const subject = adapter(api);
-    await expect(subject.restoreClaimState(restoreRequest(null))).rejects.toThrow(
-      "Persisted claimed owner is required",
-    );
+    await expect(
+      subject.restore(Object.assign(restoreRequest(), { claimedOwner: undefined })),
+    ).rejects.toThrow("Persisted claimed owner is required");
     await expect(subject.addComment(ticket, "x")).rejects.toBeInstanceOf(
       UnsupportedCapabilityError,
     );
@@ -275,16 +277,16 @@ describe("Jira tracker read adapter", () => {
     const api = new FakeJira();
     const subject = adapter(api);
     const request = claimRequest(owner, "c", "v1");
-    await subject.claim(request);
-    await subject.verifyClaim(request);
+    await subject.apply(request);
+    await subject.verify({ ...request, state: "applied" });
     expect(api.requests.filter((item) => item.method !== "GET").map((item) => item.method)).toEqual(
       ["PUT", "PUT", "POST"],
     );
     expect(api.requests.find((item) => item.method === "PUT")?.path).toContain(
       "/properties/interlock.claim",
     );
-    await subject.restoreClaimState(restoreRequest());
-    await subject.verifyRestored(restoreRequest());
+    await subject.restore(restoreRequest());
+    await subject.verify({ ...restoreRequest(), state: "restored" });
     const writes = api.requests.filter((item) => item.method !== "GET");
     expect(writes.at(-1)).toMatchObject({ method: "DELETE" });
     expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
@@ -294,19 +296,17 @@ describe("Jira tracker read adapter", () => {
     const api = new FakeJira();
     const subject = adapter(api);
     api.issues = [issue("JWB-288", { assignee: "human" })];
-    await expect(subject.claim(claimRequest(owner, "c", "v1"))).rejects.toBeInstanceOf(
+    await expect(subject.apply(claimRequest(owner, "c", "v1"))).rejects.toBeInstanceOf(
       ClaimCollisionError,
     );
     expect(api.mutationCount()).toBe(0);
 
     api.issues = [issue("JWB-288")];
-    await subject.claim(claimRequest(owner, "c", "v1"));
+    await subject.apply(claimRequest(owner, "c", "v1"));
     const marked = api.mutationCount();
     reassign(api, "human");
-    await expect(subject.restoreClaimState(restoreRequest())).rejects.toThrow(
-      "changed outside Interlock",
-    );
-    await expect(subject.verifyRestored(restoreRequest())).rejects.toThrow(
+    await expect(subject.restore(restoreRequest())).rejects.toThrow("changed outside Interlock");
+    await expect(subject.verify({ ...restoreRequest(), state: "restored" })).rejects.toThrow(
       "Jira restored state could not be verified",
     );
     expect(api.mutationCount()).toBe(marked);
@@ -340,7 +340,7 @@ async function lockedJira(api: FakeJira) {
   const fixture = await gitRemoteFixture();
   remotes.push(fixture);
   const locked = (repository: string) =>
-    new GitLockedTrackerAdapter(
+    new ClaimCoordinator(
       new GitClaimLock({
         repository,
         remote: fixture.remote,
@@ -354,15 +354,13 @@ async function lockedJira(api: FakeJira) {
 
 describe("Jira mirror behind the Git claim lock", () => {
   test(
-    "only the Git-locked adapter advertises conditional ownership",
+    "only the claim lock advertises conditional ownership",
     async () => {
       const { first } = await lockedJira(new FakeJira());
-      const described = await first.describe();
-      expect(described).toMatchObject(
-        capabilities("native_maps", "conditional_update", "claim_identity", "lease_metadata"),
-      );
-      expect(described.atomic_assignment).toBeUndefined();
-      expect((await adapter(new FakeJira()).describe()).conditional_update).toBeUndefined();
+      const described = await first.lock.describe();
+      expect(described).toMatchObject(capabilities("conditional_update"));
+      expect(described).not.toHaveProperty("atomic_assignment");
+      expect(await adapter(new FakeJira()).describe()).not.toHaveProperty("conditional_update");
     },
     GIT_TEST_TIMEOUT_MS,
   );
@@ -534,7 +532,7 @@ test("Jira requests and normalizes summary and ADF acceptance context without mu
       ],
     },
   });
-  const result = await adapter(api).getTicket(ticket);
+  const result = (await adapter(api).read(ticket)).ticket;
   expect(result.title).toBe("Implement context");
   expect(result.description).toContain("Acceptance Criteria\nPreserve all ticket context.");
   expect(api.requests[0]?.path).toContain("summary,description");
@@ -588,12 +586,11 @@ describe("Jira basic-auth transport", () => {
       rankField: "customfield_rank",
       priorityOrder: ["Highest", "High", "Medium", "Low", "Lowest"],
     });
-    const result = await subject.getTicket(ticket);
+    const result = (await subject.read(ticket)).ticket;
     expect(result).toMatchObject({ title: "Live summary", description: "Live description" });
-    expect(calls.map((call) => new URL(call.url).origin)).toEqual([
-      "https://responsibid.atlassian.net",
-      "https://responsibid.atlassian.net",
-    ]);
+    expect(new Set(calls.map((call) => new URL(call.url).origin))).toEqual(
+      new Set(["https://responsibid.atlassian.net"]),
+    );
     for (const call of calls)
       expect(call.request.headers).toMatchObject({
         Authorization: `Basic ${btoa("lane@example.com:token-value")}`,

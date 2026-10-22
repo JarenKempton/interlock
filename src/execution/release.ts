@@ -1,13 +1,12 @@
 import { resolve } from "node:path";
-import { z } from "zod";
 import { GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { parseRef } from "../domain/reference.ts";
 import { claimRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import {
+  claimCoordination,
   executionStatePath,
   executionTracker,
-  lockedTracker,
   repositorySpec,
   withExecutionStore,
 } from "./pickup-runtime.ts";
@@ -37,9 +36,9 @@ export async function releaseClaim(
       throw new Error("Only the recorded claim owner can release it");
     if (!claim.currentVersion)
       throw new Error("Claim has no verified lock version; inspect recovery evidence");
-    const { tracker } = lockedTracker(repository, jira.tracker, services);
+    const { claims, claimLock } = claimCoordination(repository, jira.tracker, services);
     await new GitWorkspaceAdapter(repository, services.execution?.git).preflight(
-      await tracker.getTicket(claim.ticket),
+      (await jira.tracker.read(claim.ticket)).ticket,
     );
     const request = {
       claim: claim.ref,
@@ -49,21 +48,12 @@ export async function releaseClaim(
       expectedVersion: claim.currentVersion,
       authorizedBy: jira.owner,
     };
-    const before = await tracker.snapshotClaimState(claim.ticket);
-    const lock = z
-      .object({
-        lock: z.object({
-          record: z
-            .object({ action: z.string(), claim: z.string(), run: z.string(), owner: z.string() })
-            .nullable(),
-        }),
-      })
-      .parse(before.payload);
+    const before = await claimLock.read(claim.ticket);
     const released =
-      lock.lock.record?.action === "release" &&
-      lock.lock.record.claim === claim.ref &&
-      lock.lock.record.run === run.ref &&
-      lock.lock.record.owner === claim.humanOwner;
+      before.record?.action === "release" &&
+      before.record.claim === claim.ref &&
+      before.record.run === run.ref &&
+      before.record.owner === claim.humanOwner;
     if (!released && (claim.status !== "active" || before.version !== claim.currentVersion))
       throw new Error("Claim lock changed; release refused");
     store.recordStep(run.ref, "releasing", {
@@ -71,9 +61,9 @@ export async function releaseClaim(
       expectedVersion: claim.currentVersion,
     });
     try {
-      if (!released) await tracker.releaseClaim(request);
-      await tracker.verifyReleased(request);
-      const verified = await tracker.snapshotClaimState(claim.ticket);
+      if (!released) await claims.releaseClaim(request);
+      await claims.verifyReleased(request);
+      const verified = await claims.snapshotClaimState(claim.ticket);
       claim.status = "released";
       claim.currentVersion = verified.version;
       run.status = "released";

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import type { RecoverableClaimLock } from "../src/domain/claim-lock.ts";
 import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
@@ -13,9 +14,7 @@ import {
   type Ledger,
   type ReclaimRequest,
   type ReleaseClaimRequest,
-  type RenewLeaseRequest,
   type RestoreClaimRequest,
-  type TrackerAdapter,
   type WorkspaceAdapter,
 } from "../src/domain/contracts.ts";
 import {
@@ -32,10 +31,11 @@ import {
   type RunRef,
   type Ticket,
   type TicketRef,
-  type TrackerSnapshot,
 } from "../src/domain/model.ts";
+import type { MirrorClaim, MirrorRestore, Tracker } from "../src/domain/tracker.ts";
 import { PickupCoordinator, PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
+import { fakeLockFixture } from "./fixtures/portable-lock.ts";
 
 class FailingCompensatedStateStore extends StateStore {
   readonly compensatedStepError = new Error("cannot persist compensated step");
@@ -79,20 +79,13 @@ class FakeLedger implements Ledger {
   }
 }
 
-class FakeTracker implements TrackerAdapter {
-  describedCapabilities = capabilities(
-    "atomic_assignment",
-    "conditional_update",
-    "claim_comments",
-    "claim_identity",
-    "lease_metadata",
-  );
-  claimError?: Error;
+class FakeTracker implements Tracker {
+  describedCapabilities = capabilities("native_maps", "native_dependencies");
   preflightError?: Error;
   restoreError?: Error;
   verifyClaimError?: Error;
   verifyRestoreError?: Error;
-  claimRequest?: ClaimRequest;
+  claimRequest?: MirrorClaim;
   restoreRequest?: RestoreClaimRequest;
   claimCalls = 0;
   restoreCalls = 0;
@@ -101,8 +94,20 @@ class FakeTracker implements TrackerAdapter {
   async describe() {
     return this.describedCapabilities;
   }
-  async preflight(_ticket: TicketRef) {
+  async list_work() {
+    return [];
+  }
+  async read(ticket: TicketRef) {
     if (this.preflightError) throw this.preflightError;
+    this.snapshotCalls += 1;
+    return {
+      ticket: await this.getTicket(ticket),
+      snapshot:
+        this.claimCalls === 0
+          ? { version: "1", payload: { assignee: null, status: "To Do" } }
+          : { version: "2", payload: { assignee: "human", status: "In Progress" } },
+      artifacts: [],
+    };
   }
   async getTicket(ticket: TicketRef): Promise<Ticket> {
     return {
@@ -114,34 +119,59 @@ class FakeTracker implements TrackerAdapter {
       order: 0,
     };
   }
-  async snapshotClaimState(_ticket: TicketRef): Promise<TrackerSnapshot> {
-    this.snapshotCalls += 1;
-    return this.claimCalls === 0
-      ? { version: "1", payload: { assignee: null, status: "To Do" } }
-      : { version: "2", payload: { assignee: "human", status: "In Progress" } };
-  }
-  async claim(request: ClaimRequest) {
+  async apply(request: MirrorClaim) {
     this.claimCalls += 1;
     this.claimRequest = request;
-    if (this.claimError) throw this.claimError;
   }
-  async verifyClaim(_request: ClaimRequest) {
-    if (this.verifyClaimError) throw this.verifyClaimError;
+  async verify(request: import("../src/domain/tracker.ts").MirrorExpectation) {
+    if (request.state === "applied" && this.verifyClaimError) throw this.verifyClaimError;
+    if (request.state === "restored" && this.verifyRestoreError) throw this.verifyRestoreError;
   }
-  async restoreClaimState(request: RestoreClaimRequest) {
+  async restore(request: MirrorRestore) {
     this.restoreCalls += 1;
     this.restoreRequest = request;
     if (this.restoreError) throw this.restoreError;
   }
-  async verifyRestored(_request: RestoreClaimRequest) {
-    if (this.verifyRestoreError) throw this.verifyRestoreError;
+}
+
+class FakeLock implements RecoverableClaimLock {
+  readonly core = fakeLockFixture().adapter;
+  claimError?: Error;
+  claimRequest?: ClaimRequest;
+  describe = this.core.describe.bind(this.core);
+  read = this.core.read.bind(this.core);
+  renew = this.core.renew.bind(this.core);
+  release = this.core.release.bind(this.core);
+  async claim(request: ClaimRequest) {
+    this.claimRequest = request;
+    if (this.claimError instanceof ClaimCollisionError) throw this.claimError;
+    await this.core.claim(request);
+    if (this.claimError) throw this.claimError;
   }
-  async renewLease(_request: RenewLeaseRequest) {}
-  async verifyLease(_request: RenewLeaseRequest) {}
-  async releaseClaim(_request: ReleaseClaimRequest) {}
-  async verifyReleased(_request: ReleaseClaimRequest) {}
-  async reclaim(_request: ReclaimRequest) {}
-  async verifyReclaimed(_request: ReclaimRequest) {}
+  async releasable(request: ReleaseClaimRequest) {
+    const state = await this.read(request.ticket);
+    if (
+      state.version !== request.expectedVersion ||
+      state.record?.claim !== request.claim ||
+      state.record.owner !== request.authorizedBy
+    )
+      throw new ClaimCollisionError();
+    return state;
+  }
+  async restore(ticket: TicketRef, claim: import("../src/domain/model.ts").ClaimRef) {
+    const state = await this.read(ticket);
+    if (state.record?.claim === claim && state.record.action !== "release")
+      await this.release({
+        ticket,
+        claim,
+        expectedVersion: state.version,
+        authorizedBy: state.record.owner,
+        originalSnapshot: { version: "opaque", payload: null },
+      });
+  }
+  async reclaim(_request: ReclaimRequest): Promise<void> {
+    throw new Error("Reclaim is not used by pickup");
+  }
 }
 
 class FakeWorkspace implements WorkspaceAdapter {
@@ -192,13 +222,16 @@ function coordinator(
   harness = new FakeHarness(),
 ) {
   const ledger = new FakeLedger();
+  const claimLock = new FakeLock();
   return {
+    claimLock,
     tracker,
     workspace,
     harness,
     ledger,
     coordinator: new PickupCoordinator({
       tracker,
+      claimLock,
       workspace,
       harness,
       ledger,
@@ -223,19 +256,25 @@ async function failure(subject: PickupCoordinator): Promise<PickupResultError> {
 
 describe("pickup coordinator", () => {
   test("commits a verified pickup with a default 15-minute lease", async () => {
-    const { coordinator: subject, tracker, ledger } = coordinator();
+    const { coordinator: subject, ledger, claimLock } = coordinator();
     expect(await subject.execute(request)).toMatchObject({ ok: true, state: "committed" });
-    expect(tracker.claimRequest?.leaseExpiresAt).toBe("2026-08-10T12:15:00.000Z");
+    expect(claimLock.claimRequest?.leaseExpiresAt).toBe("2026-08-10T12:15:00.000Z");
     expect(ledger.committedClaim).toEqual({
       ref: claimRefSchema.parse("interlock-claim:test"),
       ticket: request.ticket,
       humanOwner: request.owner,
       run: runRefSchema.parse("interlock-run:test"),
-      previousState: { version: "1", payload: { assignee: null, status: "To Do" } },
+      previousState: {
+        version: "absent",
+        payload: {
+          lock: { version: "absent", record: null },
+          tracker: { version: "1", payload: { assignee: null, status: "To Do" } },
+        },
+      },
       claimedAt: "2026-08-10T12:00:00.000Z",
       leaseExpiresAt: "2026-08-10T12:15:00.000Z",
       status: "active",
-      currentVersion: "2",
+      currentVersion: "1",
     });
     expect(ledger.steps).toEqual([
       "planning",
@@ -256,15 +295,20 @@ describe("pickup coordinator", () => {
     expect(tracker.restoreCalls).toBe(0);
   });
 
-  test("hosted-style weak tracker capabilities fail before snapshot or mutation", async () => {
-    const tracker = new FakeTracker();
-    tracker.describedCapabilities = capabilities("native_maps", "native_dependencies");
-    const { coordinator: subject } = coordinator(tracker);
-    await expect(subject.execute(request)).rejects.toThrow(
-      "Unsupported capabilities: conditional_update, claim_identity, lease_metadata",
+  test("tracker without conditional assignment or comments uses only the claim lock capability", async () => {
+    const item = coordinator();
+    expect(await item.coordinator.execute(request)).toMatchObject({ ok: true, state: "committed" });
+    expect(item.tracker.claimCalls).toBe(1);
+  });
+
+  test("an unverified lock capability fails before any write", async () => {
+    const item = coordinator();
+    Object.assign(item.claimLock, { describe: async () => ({}) });
+    await expect(item.coordinator.execute(request)).rejects.toThrow(
+      "Unsupported capabilities: conditional_update",
     );
-    expect(tracker.snapshotCalls).toBe(0);
-    expect(tracker.claimCalls).toBe(0);
+    expect(item.tracker.claimCalls).toBe(0);
+    expect(item.claimLock.claimRequest).toBeUndefined();
   });
 
   test("requested routing capabilities are rejected before claim", async () => {
@@ -330,8 +374,8 @@ describe("pickup coordinator", () => {
 
   test("definite claim collision does not compensate", async () => {
     const tracker = new FakeTracker();
-    tracker.claimError = new ClaimCollisionError();
-    const { coordinator: subject, ledger } = coordinator(tracker);
+    const { coordinator: subject, ledger, claimLock } = coordinator(tracker);
+    claimLock.claimError = new ClaimCollisionError();
     expect((await failure(subject)).receipt.state).toBe("collision");
     expect(tracker.restoreCalls).toBe(0);
     expect(ledger.steps).toEqual(["planning", "claiming", "collision"]);
@@ -339,8 +383,8 @@ describe("pickup coordinator", () => {
 
   test("ambiguous claim failure compensates the exact snapshot", async () => {
     const tracker = new FakeTracker();
-    tracker.claimError = new AmbiguousTrackerResultError();
-    const { coordinator: subject } = coordinator(tracker);
+    const { coordinator: subject, claimLock } = coordinator(tracker);
+    claimLock.claimError = new AmbiguousTrackerResultError();
     expect((await failure(subject)).receipt.state).toBe("compensated");
     expect(tracker.restoreRequest).toEqual({
       ticket: request.ticket,
@@ -388,6 +432,7 @@ describe("pickup coordinator", () => {
     workspace.prepareError = new Error("prepare failed");
     const subject = new PickupCoordinator({
       tracker,
+      claimLock: new FakeLock(),
       workspace,
       harness: new FakeHarness(),
       ledger: store,

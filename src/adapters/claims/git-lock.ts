@@ -1,4 +1,9 @@
 import { z } from "zod";
+import type {
+  ClaimLockRecord,
+  ClaimLockState,
+  RecoverableClaimLock,
+} from "../../domain/claim-lock.ts";
 import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
@@ -14,7 +19,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../domain/identifiers.ts";
-import { type ClaimRef, capabilities, type TicketRef } from "../../domain/model.ts";
+import type { ClaimRef, TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
 import {
   BunGitCommandExecutor,
@@ -35,12 +40,8 @@ const lockRecordSchema = z.strictObject({
   supersedes: claimRefSchema.optional(),
   authorizedBy: actorRefSchema.optional(),
 });
-export type ClaimLockRecord = z.infer<typeof lockRecordSchema>;
 
-export interface ClaimLockState {
-  version: string;
-  record: ClaimLockRecord | null;
-}
+export type { ClaimLockRecord, ClaimLockState } from "../../domain/claim-lock.ts";
 
 export interface GitClaimLockOptions {
   repository: string;
@@ -49,7 +50,7 @@ export interface GitClaimLockOptions {
   clock?: Clock;
 }
 
-export class GitClaimLock {
+export class GitClaimLock implements RecoverableClaimLock {
   readonly #repository: string;
   readonly #remote: string;
   readonly #git: GitCommandExecutor;
@@ -65,8 +66,8 @@ export class GitClaimLock {
     this.#clock = options.clock ?? { now: () => new Date() };
   }
 
-  async describe() {
-    return capabilities("conditional_update", "claim_identity", "lease_metadata");
+  async describe(): Promise<{ conditional_update: true }> {
+    return { conditional_update: true };
   }
 
   async ref(ticket: TicketRef): Promise<string> {
@@ -209,7 +210,17 @@ export class GitClaimLock {
     const commit = await this.#checked(["git", "cat-file", "commit", tip]);
     const message = commit.slice(commit.indexOf("\n\n") + 2);
     try {
-      return lockRecordSchema.parse(JSON.parse(message.slice(message.indexOf("\n\n") + 2)));
+      const record = lockRecordSchema.parse(JSON.parse(message.slice(message.indexOf("\n\n") + 2)));
+      return {
+        action: record.action,
+        ticket: record.ticket,
+        claim: record.claim,
+        run: record.run,
+        owner: record.owner,
+        leaseExpiresAt: record.leaseExpiresAt,
+        ...(record.supersedes ? { supersedes: record.supersedes } : {}),
+        ...(record.authorizedBy ? { authorizedBy: record.authorizedBy } : {}),
+      };
     } catch {
       throw new Error(`Invalid claim lock record at ${ref} ${tip}`);
     }

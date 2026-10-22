@@ -1,89 +1,59 @@
 import { z } from "zod";
+import type { ClaimLockRecord, RecoverableClaimLock } from "../domain/claim-lock.ts";
 import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
   type ClaimRequest,
-  type FrontierTrackerAdapter,
   type ReclaimRequest,
   type ReleaseClaimRequest,
   type RenewLeaseRequest,
   type RestoreClaimRequest,
-} from "../../domain/contracts.ts";
-import {
-  type CapabilitySet,
-  type ClaimRef,
-  capabilities,
-  type MapRef,
-  type Ticket,
-  type TicketRef,
-  type TrackerSnapshot,
-} from "../../domain/model.ts";
-import { type ClaimLockRecord, type GitClaimLock, heldClaim } from "./git-lock.ts";
+} from "../domain/contracts.ts";
+import type { ClaimRef, TicketRef, TrackerSnapshot } from "../domain/model.ts";
+import type { Tracker } from "../domain/tracker.ts";
 
 const lockedPayloadSchema = z.object({
   tracker: z.object({ version: z.string(), payload: z.unknown() }),
 });
 
-/** The Git lock decides ownership; the wrapped tracker only mirrors a lock that is already held. */
-export class GitLockedTrackerAdapter implements FrontierTrackerAdapter {
-  readonly #lock: GitClaimLock;
-  readonly #tracker: FrontierTrackerAdapter;
-
-  constructor(lock: GitClaimLock, tracker: FrontierTrackerAdapter) {
-    this.#lock = lock;
-    this.#tracker = tracker;
-  }
-
-  async describe(): Promise<CapabilitySet> {
-    return {
-      ...(await this.#tracker.describe()),
-      ...capabilities("conditional_update", "claim_identity", "lease_metadata"),
-    };
-  }
-
-  async preflight(ticket: TicketRef): Promise<void> {
-    await this.#tracker.preflight(ticket);
-    await this.#lock.read(ticket);
-  }
-
-  getTicket(ticket: TicketRef): Promise<Ticket> {
-    return this.#tracker.getTicket(ticket);
-  }
-
-  listMapTickets(map: MapRef): Promise<Ticket[]> {
-    return this.#tracker.listMapTickets(map);
-  }
+export class ClaimCoordinator {
+  constructor(
+    readonly lock: RecoverableClaimLock,
+    readonly tracker: Tracker,
+  ) {}
 
   async snapshotClaimState(ticket: TicketRef): Promise<TrackerSnapshot> {
-    const tracker = await this.#tracker.snapshotClaimState(ticket);
-    const lock = await this.#lock.read(ticket);
+    const tracker = (await this.tracker.read(ticket)).snapshot;
+    const lock = await this.lock.read(ticket);
     return { version: lock.version, payload: { lock, tracker } };
   }
 
   async claim(request: ClaimRequest): Promise<void> {
-    await this.#lock.claim(request);
-    await mirrorHeldLock(() => this.#tracker.claim(request));
+    await this.lock.claim(request);
+    await mirrorHeldLock(() => this.tracker.apply(request));
   }
 
   async verifyClaim(request: ClaimRequest): Promise<void> {
     await this.#requireHeld(request.ticket, request.claim, (held) =>
       sameHolder(held, request, undefined),
     );
-    await this.#tracker.verifyClaim(request);
+    await this.tracker.verify({ ...request, state: "applied" });
   }
 
   async restoreClaimState(request: RestoreClaimRequest): Promise<void> {
-    await this.#tracker.restoreClaimState(trackerRequest(request));
-    await this.#lock.restore(request.ticket, request.claim);
+    const restore = trackerRequest(request);
+    await this.tracker.restore(restore);
+    await this.tracker.verify({ ...restore, state: "restored" });
+    await this.lock.restore(request.ticket, request.claim);
   }
 
   async verifyRestored(request: RestoreClaimRequest): Promise<void> {
-    await this.#tracker.verifyRestored(trackerRequest(request));
+    await this.tracker.verify({ ...trackerRequest(request), state: "restored" });
     await this.#requireNotHeld(request.ticket, request.claim);
   }
 
   async renewLease(request: RenewLeaseRequest): Promise<void> {
-    await this.#lock.renew(request);
+    await this.lock.renew(request);
   }
 
   async verifyLease(request: RenewLeaseRequest): Promise<void> {
@@ -92,30 +62,34 @@ export class GitLockedTrackerAdapter implements FrontierTrackerAdapter {
       request.claim,
       (held) => held.leaseExpiresAt === request.leaseExpiresAt,
     );
-    await this.#tracker.verifyLease(request);
+    const held = heldClaim(await this.lock.read(request.ticket));
+    if (!held) throw new AmbiguousTrackerResultError("Claim lock is no longer held");
+    await this.tracker.verify({ ...held, state: "applied" });
   }
 
   async releaseClaim(request: ReleaseClaimRequest): Promise<void> {
-    await this.#lock.releasable(request);
-    await this.#tracker.releaseClaim(trackerRequest(request));
-    await this.#lock.release(request);
+    await this.lock.releasable(request);
+    const restore = trackerRequest(request);
+    await this.tracker.restore(restore);
+    await this.tracker.verify({ ...restore, state: "restored" });
+    await this.lock.release(request);
   }
 
   async verifyReleased(request: ReleaseClaimRequest): Promise<void> {
-    await this.#tracker.verifyReleased(trackerRequest(request));
+    await this.tracker.verify({ ...trackerRequest(request), state: "restored" });
     await this.#requireNotHeld(request.ticket, request.claim);
   }
 
   async reclaim(request: ReclaimRequest): Promise<void> {
-    await this.#lock.reclaim(request);
-    await mirrorHeldLock(() => this.#tracker.reclaim(trackerRequest(request)));
+    await this.lock.reclaim(request);
+    await mirrorHeldLock(() => this.tracker.apply({ ...request, supersedes: request.staleClaim }));
   }
 
   async verifyReclaimed(request: ReclaimRequest): Promise<void> {
     await this.#requireHeld(request.ticket, request.claim, (held) =>
       sameHolder(held, request, request.staleClaim),
     );
-    await this.#tracker.verifyReclaimed(trackerRequest(request));
+    await this.tracker.verify({ ...request, supersedes: request.staleClaim, state: "applied" });
   }
 
   async #requireHeld(
@@ -123,18 +97,17 @@ export class GitLockedTrackerAdapter implements FrontierTrackerAdapter {
     claim: ClaimRef,
     matches: (held: ClaimLockRecord) => boolean,
   ): Promise<void> {
-    const held = heldClaim(await this.#lock.read(ticket));
+    const held = heldClaim(await this.lock.read(ticket));
     if (held?.claim !== claim || !matches(held))
       throw new AmbiguousTrackerResultError("Claim lock could not be verified");
   }
 
   async #requireNotHeld(ticket: TicketRef, claim: ClaimRef): Promise<void> {
-    if (heldClaim(await this.#lock.read(ticket))?.claim === claim)
+    if (heldClaim(await this.lock.read(ticket))?.claim === claim)
       throw new AmbiguousTrackerResultError("Claim lock is still held");
   }
 }
 
-/** Once the lock is held, a mirror conflict must compensate rather than end as a plain collision. */
 async function mirrorHeldLock(write: () => Promise<void>): Promise<void> {
   try {
     await write();
@@ -158,8 +131,15 @@ function sameHolder(
   );
 }
 
-function trackerRequest<T extends { originalSnapshot: TrackerSnapshot }>(request: T): T {
+function trackerRequest<T extends RestoreClaimRequest>(
+  request: T,
+): T & { claimedOwner: NonNullable<T["claimedOwner"]> } {
+  if (!request.claimedOwner) throw new Error("Persisted claimed owner is required");
   const parsed = lockedPayloadSchema.safeParse(request.originalSnapshot.payload);
   if (!parsed.success) throw new Error("Original snapshot was not taken through the claim lock");
-  return { ...request, originalSnapshot: parsed.data.tracker };
+  return { ...request, claimedOwner: request.claimedOwner, originalSnapshot: parsed.data.tracker };
+}
+
+function heldClaim(state: import("../domain/claim-lock.ts").ClaimLockState) {
+  return state.record && state.record.action !== "release" ? state.record : undefined;
 }
