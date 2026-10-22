@@ -60,6 +60,39 @@ describe("portable adapter conformance", () => {
     ).toMatchObject({ ok: false });
   });
 
+  test.each(["claim_version", "release_identity"])(
+    "rejects a lock that ignores %s",
+    async (fault) => {
+      const report = await runConformance(
+        claimLockConformance(async () => {
+          const fixture = fakeLockFixture();
+          for (const adapter of [fixture.adapter, fixture.contender]) {
+            if (fault === "claim_version") {
+              const claim = adapter.claim.bind(adapter);
+              adapter.claim = async (request) =>
+                claim({
+                  ...request,
+                  expectedVersion: (await adapter.read(request.ticket)).version,
+                });
+            } else {
+              const release = adapter.release.bind(adapter);
+              adapter.release = async (request) =>
+                release({
+                  ...request,
+                  claim: (await adapter.read(request.ticket)).record?.claim ?? request.claim,
+                });
+            }
+          }
+          return fixture;
+        }),
+      );
+      const scenario = fault === "claim_version" ? "stale_version" : "authority";
+      expect(
+        report.results.find((result) => result.name === `claim_lock.${scenario}`),
+      ).toMatchObject({ ok: false });
+    },
+  );
+
   test.each(["drop_artifacts", "reject_successor"] as const)(
     "rejects tracker %s regression",
     async (fault) => {

@@ -1,4 +1,4 @@
-import type { ClaimLock, ClaimLockRecord } from "../domain/claim-lock.ts";
+import type { ClaimLock, ClaimLockRecord, ClaimLockState } from "../domain/claim-lock.ts";
 import type { ClaimRequest, ReleaseClaimRequest } from "../domain/contracts.ts";
 import type { ActorRef } from "../domain/model.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";
@@ -85,14 +85,12 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
         expectedVersion: initial.version,
       };
       await requireRejection(() => adapter.renew(renew), "claim_collision");
+      requireUnchanged(await adapter.read(request.ticket), held);
       await requireRejection(
         () => adapter.release(release(fixture, initial.version)),
         "claim_collision",
       );
-      requireBehavior(
-        (await adapter.read(request.ticket)).version === held.version,
-        "Stale writes changed the lock",
-      );
+      requireUnchanged(await adapter.read(request.ticket), held);
       await adapter.renew({ ...renew, expectedVersion: held.version });
       const renewed = await adapter.read(request.ticket);
       requireBehavior(renewed.version !== held.version, "Renewal did not change the version");
@@ -116,6 +114,17 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
         leaseExpiresAt: renew.leaseExpiresAt,
         authorizedBy: request.owner,
       });
+      await requireRejection(
+        () =>
+          adapter.claim({
+            ...request,
+            claim: "interlock-claim:stale",
+            run: "interlock-run:stale",
+            expectedVersion: initial.version,
+          }),
+        "claim_collision",
+      );
+      requireUnchanged(await adapter.read(request.ticket), released);
     }),
     scenario("authority", async (fixture) => {
       const { adapter, request, otherOwner } = fixture;
@@ -125,6 +134,13 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
         () => adapter.release({ ...release(fixture, held.version), authorizedBy: otherOwner }),
         "claim_collision",
       );
+      requireUnchanged(await adapter.read(request.ticket), held);
+      await requireRejection(
+        () =>
+          adapter.release({ ...release(fixture, held.version), claim: "interlock-claim:other" }),
+        "claim_collision",
+      );
+      requireUnchanged(await adapter.read(request.ticket), held);
       await requireRejection(
         () =>
           adapter.renew({
@@ -135,10 +151,7 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
           }),
         "claim_collision",
       );
-      requireBehavior(
-        (await adapter.read(request.ticket)).version === held.version,
-        "Wrong authority changed the lock",
-      );
+      requireUnchanged(await adapter.read(request.ticket), held);
     }),
     scenario("expiry_is_observational", async ({ adapter, request, expireLease }) => {
       await adapter.claim(request);
@@ -209,4 +222,10 @@ function requireRecord(actual: ClaimLockRecord | null, expected: ClaimLockRecord
       actual.authorizedBy === expected.authorizedBy,
     "Lock record does not preserve the exact identity and lease",
   );
+}
+
+function requireUnchanged(actual: ClaimLockState, expected: ClaimLockState) {
+  requireBehavior(actual.version === expected.version, "Refused write changed the lock version");
+  if (expected.record) requireRecord(actual.record, expected.record);
+  else requireBehavior(actual.record === null, "Refused write created a lock record");
 }
