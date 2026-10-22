@@ -47,6 +47,7 @@ export interface GitClaimLockOptions {
   remote: string;
   git?: GitCommandExecutor;
   clock?: Clock;
+  beforeClaimWrite?: () => void;
 }
 
 export class GitClaimLock {
@@ -54,6 +55,8 @@ export class GitClaimLock {
   readonly #remote: string;
   readonly #git: GitCommandExecutor;
   readonly #clock: Clock;
+  readonly #beforeClaimWrite: (() => void) | undefined;
+  readonly #pendingWrites = new Map<TicketRef, { version: string; commit: string }>();
   #emptyTree?: string;
 
   constructor(options: GitClaimLockOptions) {
@@ -63,6 +66,7 @@ export class GitClaimLock {
     this.#remote = options.remote;
     this.#git = options.git ?? new BunGitCommandExecutor();
     this.#clock = options.clock ?? { now: () => new Date() };
+    this.#beforeClaimWrite = options.beforeClaimWrite;
   }
 
   async describe() {
@@ -84,6 +88,11 @@ export class GitClaimLock {
   async read(ticket: TicketRef): Promise<ClaimLockState> {
     const ref = await this.ref(ticket);
     const tip = await this.#remoteTip(ref);
+    const pending = this.#pendingWrites.get(ticket);
+    if (pending) {
+      if (!tip || tip === pending.version) throw this.#unknownPush(ticket);
+      this.#pendingWrites.delete(ticket);
+    }
     if (!tip) return { version: ABSENT_LOCK_VERSION, record: null };
     const record = await this.#record(ref, tip);
     if (record.ticket !== ticket) throw new Error(`Claim lock ${ref} belongs to ${record.ticket}`);
@@ -180,19 +189,41 @@ export class GitClaimLock {
       "-m",
       JSON.stringify(lockRecordSchema.parse(record)),
     ]);
-    const push = await this.#run(["git", "push", "--porcelain", this.#remote, `${commit}:${ref}`]);
+    if (record.action === "claim") this.#beforeClaimWrite?.();
+    this.#pendingWrites.set(ticket, { version: state.version, commit });
+    let push: CommandResult | undefined;
+    try {
+      push = await this.#run(["git", "push", "--porcelain", this.#remote, `${commit}:${ref}`]);
+    } catch {
+      push = undefined;
+    }
     let tip: string | null;
     try {
       tip = await this.#remoteTip(ref);
-    } catch (error) {
-      throw new AmbiguousTrackerResultError(`Claim lock push outcome is unknown: ${String(error)}`);
+    } catch {
+      throw this.#unknownPush(ticket);
     }
-    if (tip === commit) return;
-    if ((tip ?? ABSENT_LOCK_VERSION) !== state.version)
+    if (tip === commit) {
+      this.#pendingWrites.delete(ticket);
+      return;
+    }
+    if (tip && tip !== state.version) {
+      this.#pendingWrites.delete(ticket);
       throw new ClaimCollisionError("Claim lock was written concurrently");
-    const rejected = push.exitCode === 0 ? undefined : /^!\t.*$/m.exec(push.stdout)?.[0];
-    if (rejected) throw new Error(`Claim lock push was rejected: ${rejected.trim()}`);
-    throw new AmbiguousTrackerResultError("Claim lock push outcome is unknown");
+    }
+    const rejected = !push || push.exitCode === 0 ? undefined : /^!\t.*$/m.exec(push.stdout)?.[0];
+    if (rejected) {
+      this.#pendingWrites.delete(ticket);
+      throw new Error(`Claim lock push was rejected: ${rejected.trim()}`);
+    }
+    throw this.#unknownPush(ticket);
+  }
+
+  #unknownPush(ticket: TicketRef): AmbiguousTrackerResultError {
+    const pending = this.#pendingWrites.get(ticket);
+    return new AmbiguousTrackerResultError(
+      `Claim lock push outcome is unknown: ${pending?.commit} from ${pending?.version}; unchanged readback cannot rule out a pending write`,
+    );
   }
 
   async #remoteTip(ref: string): Promise<string | null> {

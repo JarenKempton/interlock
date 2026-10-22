@@ -33,6 +33,9 @@ It supplies the returned catalog as `{ "host": "t3", "observedAt": "<UTC ISO tim
 catalog and its age (at most 60 seconds), not an independently authenticated T3
 connection. Missing, stale, future-dated, disabled or ambiguous selections fail
 before claiming. The caller must query again after a failure or delay.
+The catalog age is checked again synchronously at claim-push dispatch, after
+remote reads and local commit preparation. An expired catalog prevents that
+push; this does not guarantee availability during the subsequent network call.
 
 `pickup KEY --dry-run --json --t3-catalog PATH` reads configuration and Jira and
 returns a plan without creating a ledger, workspace or claim. A mutating pickup

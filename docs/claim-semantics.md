@@ -93,6 +93,13 @@ by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
   `git ls-remote` and the tip's record: our commit means it landed; a different
   tip means a collision; an unchanged tip or an unreadable remote remains
   `AmbiguousTrackerResultError`.
+- An uncertain push retains its candidate commit and previous tip. Further
+  reads through that lock cannot treat an absent or unchanged tip as proof of
+  restoration: an accepted receive may still complete. Compensation leaves
+  `recovery_required`, with the candidate and original snapshot in the run's
+  export, until readback proves the write landed or a competing tip fenced it.
+  Restarting the CLI does not resolve that recovery evidence or authorize a
+  manual lock deletion.
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
   property first, then assignee and `In Progress`, each read back. Restoration
   removes the property last, so a property that no longer names the claim means
