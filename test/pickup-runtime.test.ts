@@ -314,3 +314,95 @@ function first<T>(values: T[]): T {
   if (value === undefined) throw new Error("Missing fixture value");
   return value;
 }
+
+test(
+  "catalog expiry during preflight prevents the first remote claim write",
+  async () => {
+    const f = await fixture();
+    const envelope = catalogEnvelope();
+    await writeFile(f.t3Catalog, JSON.stringify(envelope));
+    let now = Date.parse(envelope.observedAt);
+    const git = f.git;
+    f.services.execution = {
+      ...f.services.execution,
+      clock: { now: () => new Date(now) },
+      git: {
+        async run(argv, cwd) {
+          const result = await git.run(argv, cwd);
+          if (argv[1] === "ls-remote") now += 60_001;
+          return result;
+        },
+      },
+    };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "catalog is stale",
+    );
+    expect((await lock(f).read(ref)).version).toBe("absent");
+    expect(f.jira.property).toBeNull();
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "claim-ledger failure restores both remote authorities before workspace preparation",
+  async () => {
+    const f = await fixture();
+    class FailingStore extends StateStore {
+      override commitClaim() {
+        throw new Error("claim commit failed");
+      }
+    }
+    f.services.execution = { ...f.services.execution, openStore: (path) => new FailingStore(path) };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+      receipt: { state: "compensated" },
+    });
+    expect((await lock(f).read(ref)).record?.action).toBe("release");
+    expect(f.jira.property).toBeNull();
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "release mirror failure retains lock and can be retried after readback",
+  async () => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    let failed = false;
+    f.jira.fail = (method, path, after) => {
+      if (!failed && after && method === "DELETE" && path.includes("/properties/")) {
+        failed = true;
+        throw new Error("release response lost");
+      }
+    };
+    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+      "requires recovery",
+    );
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(picked.claim);
+    expect(inspect(f, (s) => s.run(picked.run)).status).toBe("recovery_required");
+    expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(existsSync(f.worktree)).toBe(true);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "an unavailable requested host fails before Jira, Git or state access",
+  async () => {
+    const f = await fixture();
+    await writeFile(
+      f.config,
+      `${await readFile(f.config, "utf8")}\n[defaults]\nhost = "unavailable"\n`,
+    );
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "Requested host is unavailable",
+    );
+    expect(f.jira.calls).toEqual([]);
+    expect(existsSync(f.state)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
