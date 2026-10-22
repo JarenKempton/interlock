@@ -70,6 +70,38 @@ be connected to generic pickup without a recovery path that retains ownership
 and prevents duplicate launch. The [T3 contract](session-hosts/t3-adapter.md)
 describes this boundary.
 
+## Git-remote claim lock
+
+Trackers without a conditional write, such as Jira Cloud, claim through an
+append-only lock ref on the repository's Git remote:
+[`GitClaimLock`](../src/adapters/claims/git-lock.ts), composed with the tracker
+by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
+
+- The ref is `refs/interlock/claims/<KEY>`. If a host rejects that namespace,
+  configure the fallback `refs/heads/interlock/claims/<KEY>`.
+- Claim, renew, release and reclaim each append one commit whose message holds
+  the claim record, built on the observed tip and sent with an ordinary
+  fast-forward push. The remote applies it only while the ref is still at that
+  tip, and claim creates the ref only while it is absent. A losing writer gets
+  `ClaimCollisionError`. Forced pushes and ref deletion are never used.
+- The lock version is the tip commit, or `absent`. It is the snapshot version
+  that claim, renewal and release must match.
+- A push that fails without a definite rejection is resolved with
+  `git ls-remote` and the tip's record: our commit means it landed; a different
+  tip means a collision; an unchanged tip or an unreadable remote remains
+  `AmbiguousTrackerResultError`.
+- The tracker only mirrors a held lock. Jira writes the `interlock.claim`
+  property, assignee and `In Progress`, each read back. Restoration requires the
+  property to still name the claim, refuses assignee or status changes made
+  outside Interlock, and restores status, assignee, then the property. Release
+  restores the mirror before appending the release commit.
+- A mirror conflict after the lock is held is reported as an ordinary failure so
+  compensation releases the lock. Jira itself never advertises
+  `conditional_update` or `atomic_assignment`.
+
+[Lock tests](../test/git-claim-lock.test.ts) run against a real local bare
+remote; [Jira tests](../test/jira.test.ts) cover the mirror and composition.
+
 ## Tracker guarantees
 
 Restoration concerns owned fields and metadata, not the tracker's revision

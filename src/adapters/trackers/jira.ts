@@ -1,11 +1,13 @@
 import { z } from "zod";
-import type {
-  ClaimRequest,
-  FrontierTrackerAdapter,
-  ReclaimRequest,
-  ReleaseClaimRequest,
-  RenewLeaseRequest,
-  RestoreClaimRequest,
+import {
+  AmbiguousTrackerResultError,
+  ClaimCollisionError,
+  type ClaimRequest,
+  type FrontierTrackerAdapter,
+  type ReclaimRequest,
+  type ReleaseClaimRequest,
+  type RenewLeaseRequest,
+  type RestoreClaimRequest,
 } from "../../domain/contracts.ts";
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "../../domain/identifiers.ts";
 import {
@@ -121,21 +123,24 @@ const claimPropertySchema = z.object({
   claim: z.string(),
   run: z.string(),
   owner: z.string(),
-  leaseExpiresAt: z.string(),
-  originalSnapshot: z.object({ version: z.string(), payload: z.unknown() }),
   supersedes: z.string().optional(),
 });
 type JiraClaimProperty = z.infer<typeof claimPropertySchema>;
+const claimSnapshotSchema = z.object({
+  assignee: z.string().nullable(),
+  status: z.string(),
+  claim: claimPropertySchema.nullable(),
+});
+const transitionsSchema = z.object({
+  transitions: z.array(z.object({ id: z.string(), to: z.object({ name: z.string() }) })),
+});
+const CLAIMED_STATUS = "In Progress";
 const searchPageSchema = z.object({
   issues: z.array(issueSchema).optional(),
   nextPageToken: z.string().optional(),
   isLast: z.boolean().optional(),
 });
-interface JiraClaimSnapshot {
-  assignee: string | null;
-  status: string;
-  claim: JiraClaimProperty | null;
-}
+type JiraClaimSnapshot = z.infer<typeof claimSnapshotSchema>;
 export interface JiraTrackerOptions {
   instance: string;
   workspace: string;
@@ -161,8 +166,8 @@ export function jiraCapabilities() {
 }
 
 /**
- * Jira Cloud read adapter. Mutating claim methods intentionally fail closed because Jira's
- * assignment, transition, and property APIs do not expose one atomic conditional transaction.
+ * Jira Cloud adapter. Jira has no conditional write, so claim methods only mirror ownership that a
+ * GitLockedTrackerAdapter already holds; they never advertise conditional capabilities.
  */
 export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   readonly #transport: JiraTransport;
@@ -194,8 +199,6 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
 
   async preflight(ticket: TicketRef): Promise<void> {
     await this.getTicket(ticket);
-    // Decline before the mutation window: neither a claim CAS nor exact restoration CAS exists.
-    this.#mutationUnavailable();
   }
 
   async getTicket(ticket: TicketRef): Promise<Ticket> {
@@ -239,58 +242,103 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
 
   async snapshotClaimState(ticket: TicketRef): Promise<TrackerSnapshot> {
     const issue = await this.#issue(ticket);
-    return {
-      version: issue.fields.updated,
-      payload: {
-        assignee: issue.fields.assignee?.accountId ?? null,
-        status: issue.fields.status.name,
-        claim: await this.#readClaim(ticket),
-      } satisfies JiraClaimSnapshot,
-    };
+    return { version: issue.fields.updated, payload: await this.#claimState(ticket, issue) };
   }
 
-  async claim(_request: ClaimRequest): Promise<void> {
-    this.#mutationUnavailable();
+  async claim(request: ClaimRequest): Promise<void> {
+    const current = await this.#claimState(request.ticket);
+    if (
+      (current.assignee !== null && current.assignee !== request.owner) ||
+      (current.claim !== null && current.claim.claim !== request.claim)
+    )
+      throw new ClaimCollisionError("Jira ticket is assigned or marked by another claim");
+    await this.#mirror(
+      request.ticket,
+      { claim: request.claim, run: request.run, owner: request.owner },
+      current,
+    );
   }
 
-  async verifyClaim(_request: ClaimRequest): Promise<void> {
-    this.#mutationUnavailable();
+  async verifyClaim(request: ClaimRequest): Promise<void> {
+    const current = await this.#claimState(request.ticket);
+    if (
+      current.assignee !== request.owner ||
+      current.status !== CLAIMED_STATUS ||
+      current.claim?.claim !== request.claim ||
+      current.claim.run !== request.run ||
+      current.claim.owner !== request.owner
+    )
+      throw new AmbiguousTrackerResultError("Jira claim mirror could not be verified");
   }
 
   async restoreClaimState(request: RestoreClaimRequest): Promise<void> {
-    requireClaimedOwner(request.claimedOwner);
-    this.#mutationUnavailable();
+    const owner = requireClaimedOwner(request.claimedOwner);
+    const original = originalClaimState(request);
+    const current = await this.#claimState(request.ticket);
+    if (sameClaimState(current, original)) return;
+    if (current.claim?.claim !== request.claim)
+      throw new ClaimCollisionError("Jira ticket is not marked by this claim");
+    if (
+      (current.assignee !== owner && current.assignee !== original.assignee) ||
+      (current.status !== CLAIMED_STATUS && current.status !== original.status)
+    )
+      throw new ClaimCollisionError("Jira claim mirror was changed outside Interlock");
+    if (current.status !== original.status) await this.#transition(request.ticket, original.status);
+    if (current.assignee !== original.assignee)
+      await this.#assign(request.ticket, original.assignee);
+    const path = this.#propertyPath(request.ticket);
+    if (original.claim) await this.#write("PUT", path, original.claim, "restore claim property");
+    else await this.#write("DELETE", path, undefined, "delete claim property");
   }
 
   async verifyRestored(request: RestoreClaimRequest): Promise<void> {
     requireClaimedOwner(request.claimedOwner);
-    this.#mutationUnavailable();
+    if (!sameClaimState(await this.#claimState(request.ticket), originalClaimState(request)))
+      throw new AmbiguousTrackerResultError("Jira restored state could not be verified");
   }
 
-  async renewLease(_request: RenewLeaseRequest): Promise<void> {
-    this.#mutationUnavailable();
+  async renewLease(request: RenewLeaseRequest): Promise<void> {
+    await this.verifyLease(request);
   }
 
-  async verifyLease(_request: RenewLeaseRequest): Promise<void> {
-    this.#mutationUnavailable();
+  async verifyLease(request: RenewLeaseRequest): Promise<void> {
+    if ((await this.#claimState(request.ticket)).claim?.claim !== request.claim)
+      throw new AmbiguousTrackerResultError("Jira ticket is no longer marked by this claim");
   }
 
   async releaseClaim(request: ReleaseClaimRequest): Promise<void> {
-    requireClaimedOwner(request.claimedOwner);
-    this.#mutationUnavailable();
+    await this.restoreClaimState(request);
   }
 
   async verifyReleased(request: ReleaseClaimRequest): Promise<void> {
-    requireClaimedOwner(request.claimedOwner);
-    this.#mutationUnavailable();
+    await this.verifyRestored(request);
   }
 
-  async reclaim(_request: ReclaimRequest): Promise<void> {
-    this.#mutationUnavailable();
+  async reclaim(request: ReclaimRequest): Promise<void> {
+    const current = await this.#claimState(request.ticket);
+    if (current.claim?.claim !== request.staleClaim && current.claim?.claim !== request.claim)
+      throw new ClaimCollisionError("Jira ticket is not marked by the stale claim");
+    await this.#mirror(
+      request.ticket,
+      {
+        claim: request.claim,
+        run: request.run,
+        owner: request.owner,
+        supersedes: request.staleClaim,
+      },
+      current,
+    );
   }
 
-  async verifyReclaimed(_request: ReclaimRequest): Promise<void> {
-    this.#mutationUnavailable();
+  async verifyReclaimed(request: ReclaimRequest): Promise<void> {
+    const current = await this.#claimState(request.ticket);
+    if (
+      current.assignee !== request.owner ||
+      current.status !== CLAIMED_STATUS ||
+      current.claim?.claim !== request.claim ||
+      current.claim.supersedes !== request.staleClaim
+    )
+      throw new AmbiguousTrackerResultError("Jira reclaim mirror could not be verified");
   }
 
   async addComment(_ticket: TicketRef, _text: string): Promise<void> {
@@ -354,11 +402,60 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     );
   }
 
-  async #readClaim(ticket: TicketRef): Promise<JiraClaimProperty | null> {
-    const property = await this.#transport.request(
-      "GET",
-      `/rest/api/3/issue/${this.#ticketKey(ticket)}/properties/${encodeURIComponent(this.#claimProperty)}`,
+  async #claimState(ticket: TicketRef, read?: JiraIssue): Promise<JiraClaimSnapshot> {
+    const issue = read ?? (await this.#issue(ticket));
+    return {
+      assignee: issue.fields.assignee?.accountId ?? null,
+      status: issue.fields.status.name,
+      claim: await this.#readClaim(ticket),
+    };
+  }
+
+  async #mirror(
+    ticket: TicketRef,
+    property: JiraClaimProperty,
+    current: JiraClaimSnapshot,
+  ): Promise<void> {
+    await this.#write("PUT", this.#propertyPath(ticket), property, "set claim property");
+    if (current.assignee !== property.owner) await this.#assign(ticket, property.owner);
+    if (current.status !== CLAIMED_STATUS) await this.#transition(ticket, CLAIMED_STATUS);
+  }
+
+  async #assign(ticket: TicketRef, accountId: string | null): Promise<void> {
+    await this.#write(
+      "PUT",
+      `/rest/api/3/issue/${this.#ticketKey(ticket)}/assignee`,
+      { accountId },
+      "assign issue",
     );
+  }
+
+  async #transition(ticket: TicketRef, status: string): Promise<void> {
+    const path = `/rest/api/3/issue/${this.#ticketKey(ticket)}/transitions`;
+    const { transitions } = await this.#required(
+      "GET",
+      path,
+      undefined,
+      "read transitions",
+      transitionsSchema,
+    );
+    const transition = transitions.find((item) => item.to.name === status);
+    if (!transition) throw new Error(`Jira has no transition to ${status}`);
+    await this.#write("POST", path, { transition: { id: transition.id } }, "transition issue");
+  }
+
+  async #write(method: string, path: string, body: unknown, operation: string): Promise<void> {
+    const response = await this.#transport.request(method, path, body);
+    if (response.status < 200 || response.status >= 300)
+      throw new Error(`Jira ${operation} failed (${response.status})`);
+  }
+
+  #propertyPath(ticket: TicketRef): string {
+    return `/rest/api/3/issue/${this.#ticketKey(ticket)}/properties/${encodeURIComponent(this.#claimProperty)}`;
+  }
+
+  async #readClaim(ticket: TicketRef): Promise<JiraClaimProperty | null> {
+    const property = await this.#transport.request("GET", this.#propertyPath(ticket));
     if (property.status !== 200 && property.status !== 404)
       throw new Error(`Jira property read failed (${property.status})`);
     if (property.status === 404) return null;
@@ -430,6 +527,20 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   #mutationUnavailable(): never {
     throw new UnsupportedCapabilityError(MUTATION_CAPABILITIES);
   }
+}
+
+function originalClaimState(request: RestoreClaimRequest): JiraClaimSnapshot {
+  const parsed = claimSnapshotSchema.safeParse(request.originalSnapshot.payload);
+  if (!parsed.success) throw new Error("Invalid Jira original claim snapshot");
+  return parsed.data;
+}
+
+function sameClaimState(left: JiraClaimSnapshot, right: JiraClaimSnapshot): boolean {
+  return (
+    left.assignee === right.assignee &&
+    left.status === right.status &&
+    JSON.stringify(left.claim) === JSON.stringify(right.claim)
+  );
 }
 
 function requireClaimedOwner(owner: ActorRef | undefined): ActorRef {

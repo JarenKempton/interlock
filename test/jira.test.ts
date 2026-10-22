@@ -1,5 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
+import { ABSENT_LOCK_VERSION, GitClaimLock } from "../src/adapters/claims/git-lock.ts";
+import { GitLockedTrackerAdapter } from "../src/adapters/claims/locked-tracker.ts";
 import { builtInAdapters } from "../src/adapters/registry.ts";
 import type { HttpRequest, HttpTransport } from "../src/adapters/trackers/http.ts";
 import {
@@ -8,7 +10,12 @@ import {
   type JiraTransport,
   jiraBasicAuthTransport,
 } from "../src/adapters/trackers/jira.ts";
-import type { ReleaseClaimRequest, RestoreClaimRequest } from "../src/domain/contracts.ts";
+import {
+  ClaimCollisionError,
+  type ClaimRequest,
+  type ReleaseClaimRequest,
+  type RestoreClaimRequest,
+} from "../src/domain/contracts.ts";
 import {
   actorRefSchema,
   claimRefSchema,
@@ -24,6 +31,7 @@ import {
   UnsupportedCapabilityError,
 } from "../src/domain/model.ts";
 import { evaluateFrontier, selectFrontierTicket } from "../src/frontier/evaluate.ts";
+import { type GitRemoteFixture, gitRemoteFixture } from "./fixtures/git-remote.ts";
 
 const ticket = ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-288");
 const map = mapRefSchema.parse("jira:responsibid:JWB:map:JWB-274");
@@ -58,25 +66,42 @@ class FakeJira implements JiraTransport {
   issues = [issue("JWB-288")];
   claimProperty: unknown = null;
   requests: Array<{ method: string; path: string; body?: unknown }> = [];
+  fail: (method: string, path: string) => number | undefined = () => undefined;
 
   async request(method: string, path: string, body?: unknown): Promise<JiraResponse> {
     this.requests.push({ method, path, ...(body === undefined ? {} : { body }) });
-    if (method === "GET" && path.includes("/properties/")) {
-      return this.claimProperty === null
-        ? { status: 404 }
-        : { status: 200, body: { value: this.claimProperty } };
-    }
-    if (method === "GET" && path.includes("/issue/")) {
-      const key = decodeURIComponent(path.match(/\/issue\/([^?]+)/)?.[1] ?? "");
-      const found = this.issues.find((item) => item.key === key);
-      return found ? { status: 200, body: found } : { status: 404 };
-    }
+    const failure = this.fail(method, path);
+    if (failure) return { status: failure };
     if (method === "POST" && path === "/rest/api/3/search/jql") {
       const sorted = this.issues.toSorted((left, right) =>
         left.fields.customfield_rank.localeCompare(right.fields.customfield_rank),
       );
       return { status: 200, body: { issues: sorted, isLast: true } };
     }
+    const key = decodeURIComponent(path.match(/\/issue\/([^/?]+)/)?.[1] ?? "");
+    const found = this.issues.find((item) => item.key === key);
+    if (!found) return { status: 404 };
+    if (path.includes("/properties/")) {
+      if (method === "PUT") this.claimProperty = body;
+      if (method === "DELETE") this.claimProperty = null;
+      if (method !== "GET") return { status: 204 };
+      return this.claimProperty === null
+        ? { status: 404 }
+        : { status: 200, body: { value: this.claimProperty } };
+    }
+    if (path.endsWith("/assignee") && method === "PUT") {
+      const accountId = z.object({ accountId: z.string().nullable() }).parse(body).accountId;
+      found.fields.assignee = accountId ? { accountId } : null;
+      return { status: 204 };
+    }
+    if (path.endsWith("/transitions")) {
+      if (method === "GET") return { status: 200, body: { transitions: TRANSITIONS } };
+      const id = z.object({ transition: z.object({ id: z.string() }) }).parse(body).transition.id;
+      const name = TRANSITIONS.find((item) => item.id === id)?.to.name ?? "";
+      found.fields.status = { name, statusCategory: { key: "new" } };
+      return { status: 204 };
+    }
+    if (method === "GET") return { status: 200, body: found };
     return { status: 500 };
   }
 
@@ -85,7 +110,20 @@ class FakeJira implements JiraTransport {
       (request) => request.method !== "GET" && request.path !== "/rest/api/3/search/jql",
     ).length;
   }
+
+  mirror() {
+    return {
+      assignee: this.issues[0]?.fields.assignee?.accountId ?? null,
+      status: this.issues[0]?.fields.status.name,
+      claim: this.claimProperty,
+    };
+  }
 }
+
+const TRANSITIONS = [
+  { id: "11", to: { name: "To Do" } },
+  { id: "21", to: { name: "In Progress" } },
+];
 
 function adapter(api: FakeJira) {
   return new JiraTrackerAdapter({
@@ -192,15 +230,10 @@ describe("Jira tracker read adapter", () => {
     ).toThrow(UnsupportedCapabilityError);
   });
 
-  test("preflight declines pickup before mutation for symmetric and asymmetric workflows", async () => {
-    for (const workflow of ["symmetric", "asymmetric"]) {
-      const api = new FakeJira();
-      await expect(adapter(api).preflight(ticket)).rejects.toBeInstanceOf(
-        UnsupportedCapabilityError,
-      );
-      expect(api.mutationCount()).toBe(0);
-      expect(workflow).toBeString();
-    }
+  test("preflight reads the ticket without mutation", async () => {
+    const api = new FakeJira();
+    await adapter(api).preflight(ticket);
+    expect(api.mutationCount()).toBe(0);
   });
 
   test("snapshot preserves native owner and claim identity for recovery evidence", async () => {
@@ -210,8 +243,6 @@ describe("Jira tracker read adapter", () => {
       claim: "interlock-claim:c",
       run: "interlock-run:r",
       owner,
-      leaseExpiresAt: "2026-08-11T12:15:00.000Z",
-      originalSnapshot: snapshot(),
     };
     expect(await adapter(api).snapshotClaimState(ticket)).toEqual({
       version: "2026-08-11T00:00:00.000Z",
@@ -223,35 +254,217 @@ describe("Jira tracker read adapter", () => {
     });
   });
 
-  test("all mutation entry points fail closed and ownership-guard recovery inputs are required", async () => {
+  test("restoration requires the persisted owner; comments and resolution still fail closed", async () => {
     const api = new FakeJira();
     const subject = adapter(api);
-    const claim = {
-      ticket,
-      claim: claimRefSchema.parse("interlock-claim:c"),
-      run: runRefSchema.parse("interlock-run:r"),
-      owner,
-      leaseExpiresAt: "2026-08-11T12:15:00.000Z",
-      expectedVersion: "v1",
-    };
-    await expect(subject.claim(claim)).rejects.toBeInstanceOf(UnsupportedCapabilityError);
-    await expect(subject.verifyClaim(claim)).rejects.toBeInstanceOf(UnsupportedCapabilityError);
     await expect(subject.restoreClaimState(restoreRequest(null))).rejects.toThrow(
       "Persisted claimed owner is required",
     );
-    await expect(subject.restoreClaimState(restoreRequest())).rejects.toBeInstanceOf(
+    await expect(subject.addComment(ticket, "x")).rejects.toBeInstanceOf(
       UnsupportedCapabilityError,
     );
-    const release: ReleaseClaimRequest = {
-      ...restoreRequest(),
-      expectedVersion: "v1",
-      authorizedBy: owner,
-    };
-    await expect(subject.releaseClaim(release)).rejects.toBeInstanceOf(UnsupportedCapabilityError);
-    await expect(subject.verifyReleased(release)).rejects.toBeInstanceOf(
-      UnsupportedCapabilityError,
+    await expect(subject.resolve(ticket)).rejects.toBeInstanceOf(UnsupportedCapabilityError);
+    expect(api.mutationCount()).toBe(0);
+  });
+
+  test("mirror writes the property first and restores it last, read back each time", async () => {
+    const api = new FakeJira();
+    const subject = adapter(api);
+    const request = claimRequest(owner, "c", "v1");
+    await subject.claim(request);
+    await subject.verifyClaim(request);
+    expect(api.requests.filter((item) => item.method !== "GET").map((item) => item.method)).toEqual(
+      ["PUT", "PUT", "POST"],
+    );
+    expect(api.requests.find((item) => item.method === "PUT")?.path).toContain(
+      "/properties/interlock.claim",
+    );
+    await subject.restoreClaimState(restoreRequest());
+    await subject.verifyRestored(restoreRequest());
+    const writes = api.requests.filter((item) => item.method !== "GET");
+    expect(writes.at(-1)).toMatchObject({ method: "DELETE" });
+    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+  });
+
+  test("mirror refuses tickets marked by another claim and human changes before restoring", async () => {
+    const api = new FakeJira();
+    const subject = adapter(api);
+    api.issues = [issue("JWB-288", { assignee: "human" })];
+    await expect(subject.claim(claimRequest(owner, "c", "v1"))).rejects.toBeInstanceOf(
+      ClaimCollisionError,
     );
     expect(api.mutationCount()).toBe(0);
+
+    api.issues = [issue("JWB-288")];
+    await subject.claim(claimRequest(owner, "c", "v1"));
+    const marked = api.mutationCount();
+    reassign(api, "human");
+    await expect(subject.restoreClaimState(restoreRequest())).rejects.toThrow(
+      "changed outside Interlock",
+    );
+    await expect(subject.verifyRestored(restoreRequest())).rejects.toThrow(
+      "Jira restored state could not be verified",
+    );
+    expect(api.mutationCount()).toBe(marked);
+  });
+});
+
+const now = { value: new Date("2026-10-22T00:00:00.000Z") };
+const clock = { now: () => now.value };
+let remotes: GitRemoteFixture[] = [];
+afterEach(async () => {
+  await Promise.all(remotes.map((fixture) => fixture.dispose()));
+  remotes = [];
+});
+
+function reassign(api: FakeJira, accountId: string): void {
+  const fields = api.issues[0]?.fields;
+  if (!fields) throw new Error("Missing fake issue");
+  fields.assignee = { accountId };
+}
+
+function claimRequest(claimOwner: ActorRef, id: string, expectedVersion: string): ClaimRequest {
+  return {
+    ticket,
+    claim: claimRefSchema.parse(`interlock-claim:${id}`),
+    run: runRefSchema.parse(`interlock-run:${id}`),
+    owner: claimOwner,
+    leaseExpiresAt: "2026-10-22T00:15:00.000Z",
+    expectedVersion,
+  };
+}
+
+async function lockedJira(api: FakeJira) {
+  const fixture = await gitRemoteFixture();
+  remotes.push(fixture);
+  const locked = (repository: string) =>
+    new GitLockedTrackerAdapter(
+      new GitClaimLock({ repository, remote: fixture.remote, clock }),
+      adapter(api),
+    );
+  return { first: locked(fixture.alice), second: locked(fixture.bob) };
+}
+
+describe("Jira mirror behind the Git claim lock", () => {
+  test("only the Git-locked adapter advertises conditional ownership", async () => {
+    const { first } = await lockedJira(new FakeJira());
+    const described = await first.describe();
+    expect(described).toMatchObject(
+      capabilities("native_maps", "conditional_update", "claim_identity", "lease_metadata"),
+    );
+    expect(described.atomic_assignment).toBeUndefined();
+    expect((await adapter(new FakeJira()).describe()).conditional_update).toBeUndefined();
+  });
+
+  test("claim -> verify -> renew -> release restores Jira and releases the lock", async () => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    expect(original.version).toBe(ABSENT_LOCK_VERSION);
+    const request = claimRequest(owner, "c", original.version);
+    await first.claim(request);
+    await first.verifyClaim(request);
+    expect(api.mirror()).toEqual({
+      assignee: owner,
+      status: "In Progress",
+      claim: { claim: request.claim, run: request.run, owner },
+    });
+    const claimed = await first.snapshotClaimState(ticket);
+    const renew = {
+      claim: request.claim,
+      ticket,
+      leaseExpiresAt: "2026-10-22T00:30:00.000Z",
+      expectedVersion: claimed.version,
+    };
+    await first.renewLease(renew);
+    await first.verifyLease(renew);
+    const renewed = await first.snapshotClaimState(ticket);
+    const release: ReleaseClaimRequest = {
+      ticket,
+      claim: request.claim,
+      claimedOwner: owner,
+      originalSnapshot: original,
+      expectedVersion: renewed.version,
+      authorizedBy: owner,
+    };
+    await first.releaseClaim(release);
+    await first.verifyReleased(release);
+    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+    const released = await first.snapshotClaimState(ticket);
+    expect(released.payload).toMatchObject({ lock: { record: { action: "release" } } });
+  });
+
+  test("a concurrent second claim is rejected before it writes to Jira", async () => {
+    const api = new FakeJira();
+    const { first, second } = await lockedJira(api);
+    const results = await Promise.allSettled([
+      first.claim(claimRequest(owner, "a", ABSENT_LOCK_VERSION)),
+      second.claim(claimRequest(actorRefSchema.parse("other"), "b", ABSENT_LOCK_VERSION)),
+    ]);
+    const rejected = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toBeInstanceOf(ClaimCollisionError);
+    const winner = results[0]?.status === "fulfilled" ? owner : "other";
+    expect(
+      api.requests.filter((item) => item.path.includes("/properties/") && item.method === "PUT"),
+    ).toHaveLength(1);
+    expect(api.mirror().assignee).toBe(winner);
+  });
+
+  test("a mirror failure after the lock is held compensates Jira and the lock", async () => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "c", original.version);
+    api.fail = (method, path) => (method === "PUT" && path.endsWith("/assignee") ? 500 : undefined);
+    const failure = first.claim(request);
+    await expect(failure).rejects.toThrow("Jira assign issue failed (500)");
+    await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+    api.fail = () => undefined;
+    const restore: RestoreClaimRequest = {
+      ticket,
+      claim: request.claim,
+      claimedOwner: owner,
+      originalSnapshot: original,
+    };
+    await first.restoreClaimState(restore);
+    await first.verifyRestored(restore);
+    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+    expect((await first.snapshotClaimState(ticket)).payload).toMatchObject({
+      lock: { record: { action: "release", claim: request.claim } },
+    });
+  });
+
+  test("a mirror conflict after the lock is held surfaces for compensation, not as a collision", async () => {
+    const api = new FakeJira();
+    api.issues = [issue("JWB-288", { assignee: "human" })];
+    const { first } = await lockedJira(api);
+    const failure = first.claim(claimRequest(owner, "c", ABSENT_LOCK_VERSION));
+    await expect(failure).rejects.toThrow("Tracker mirror conflicts with the held claim lock");
+    await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+  });
+
+  test("release refuses a human Jira change and keeps the lock held", async () => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "c", original.version);
+    await first.claim(request);
+    const claimed = await first.snapshotClaimState(ticket);
+    reassign(api, "human");
+    await expect(
+      first.releaseClaim({
+        ticket,
+        claim: request.claim,
+        claimedOwner: owner,
+        originalSnapshot: original,
+        expectedVersion: claimed.version,
+        authorizedBy: owner,
+      }),
+    ).rejects.toThrow("changed outside Interlock");
+    expect((await first.snapshotClaimState(ticket)).version).toBe(claimed.version);
   });
 });
 
