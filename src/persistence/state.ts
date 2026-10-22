@@ -204,6 +204,13 @@ export class StateStore {
     });
   }
 
+  commitRelease(run: Run, claim: Claim, receipt: unknown): void {
+    this.#transaction(() => {
+      this.saveClaim(claim);
+      this.commitRun(run, "released", receipt);
+    });
+  }
+
   claim(ref: ClaimRef): Claim {
     const row = this.#database
       .query<ClaimRow, [string]>("SELECT * FROM claims WHERE ref=?")

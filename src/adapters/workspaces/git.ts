@@ -178,7 +178,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
       this.#fileSystem.realpath(this.#repository.worktreeRoot),
       this.#fileSystem.realpath(canonical.path),
     ]);
-    const expectedTarget = resolve(root, ticketIdentity(workspace.ticket));
+    const expectedTarget = resolve(root, workspaceIdentity(this.#repository, workspace.ticket));
     if (target !== expectedTarget) {
       throw new WorkspaceConflictError(
         `Workspace resolves outside its canonical ownership boundary: ${canonical.path}`,
@@ -216,12 +216,20 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
 }
 
 function canonicalPlan(repository: RepositorySpec, ticket: TicketRef): WorkspacePlan {
-  const identity = ticketIdentity(ticket);
+  const identity = workspaceIdentity(repository, ticket);
   return {
     ticket,
     path: resolve(repository.worktreeRoot, identity),
-    branch: `interlock/${identity}`,
+    branch: `${repository.ticketKeyWorkspaces ? "task" : "interlock"}/${identity}`,
   };
+}
+
+function workspaceIdentity(repository: RepositorySpec, ticket: TicketRef): string {
+  if (!repository.ticketKeyWorkspaces) return ticketIdentity(ticket);
+  const key = parseRef(ticket).nativeId;
+  if (!key || !/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(key))
+    throw new WorkspaceConflictError("Workspace requires a canonical ticket key");
+  return key;
 }
 
 function prepared(plan: WorkspacePlan): PreparedGitWorkspace {

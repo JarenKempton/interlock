@@ -20,9 +20,7 @@ import {
 } from "../domain/model.ts";
 
 const MUTATING_PICKUP_TRACKER_CAPABILITIES = capabilities(
-  "atomic_assignment",
   "conditional_update",
-  "claim_comments",
   "claim_identity",
   "lease_metadata",
 );
@@ -62,8 +60,9 @@ export class PickupResultError extends Error {
 
 export interface PickupCoordinatorOptions {
   tracker: TrackerAdapter;
+  claimLock?: { describe(): Promise<CapabilitySet> };
   workspace: WorkspaceAdapter;
-  harness: HarnessAdapter;
+  harness?: HarnessAdapter;
   ledger: Ledger;
   ids: IdFactory;
   clock: Clock;
@@ -78,6 +77,15 @@ export class PickupCoordinator {
   }
 
   async execute(request: PickupRequest): Promise<PickupReceipt> {
+    if (!this.#options.harness) throw new Error("No launch harness is composed");
+    return this.#execute(request, this.#options.harness);
+  }
+
+  async prepare(request: PickupRequest): Promise<PickupReceipt> {
+    return this.#execute(request);
+  }
+
+  async #execute(request: PickupRequest, harness?: HarnessAdapter): Promise<PickupReceipt> {
     if (!request.ticket || !request.owner || !request.harness) {
       throw new Error("Ticket, owner, and harness are required");
     }
@@ -101,21 +109,18 @@ export class PickupCoordinator {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
-    await this.#options.ledger.saveRun(run);
-    await this.#options.ledger.recordStep(runRef, "planning", receipt);
-
     const ticket = await this.#options.tracker.getTicket(request.ticket);
     if (ticket.state !== "open" || ticket.assignee !== undefined) {
       throw new Error("Ticket is not claimable");
     }
-    const trackerCapabilities = await this.#options.tracker.describe();
+    const trackerCapabilities = await (this.#options.claimLock ?? this.#options.tracker).describe();
     requireCapabilities(trackerCapabilities, MUTATING_PICKUP_TRACKER_CAPABILITIES);
     await this.#options.tracker.preflight(request.ticket);
     await this.#options.workspace.preflight(ticket);
     const plan = await this.#options.workspace.plan(ticket);
-    const harnessCapabilities = await this.#options.harness.describe();
-    validateExecutionRoute(request, harnessCapabilities);
-    await this.#options.harness.preflight({
+    const harnessCapabilities = harness ? await harness.describe() : capabilities();
+    if (harness) validateExecutionRoute(request, harnessCapabilities);
+    await harness?.preflight({
       run: runRef,
       ticket,
       workspace: { path: plan.path, branch: plan.branch },
@@ -125,6 +130,9 @@ export class PickupCoordinator {
     });
 
     const snapshot = await this.#options.tracker.snapshotClaimState(request.ticket);
+    run.workspace = { path: plan.path, branch: plan.branch };
+    await this.#options.ledger.saveRun(run);
+    await this.#options.ledger.recordStep(runRef, "planning", receipt);
     const claimRequest = {
       claim: claimRef,
       run: runRef,
@@ -136,14 +144,19 @@ export class PickupCoordinator {
       expectedVersion: snapshot.version,
     };
     receipt.state = "claiming";
-    await this.#options.ledger.recordStep(runRef, "claiming", receipt);
+    await this.#options.ledger.recordStep(runRef, "claiming", {
+      ...receipt,
+      snapshot,
+      owner: request.owner,
+    });
     try {
       try {
         await this.#options.tracker.claim(claimRequest);
       } catch (error) {
         if (error instanceof ClaimCollisionError) {
           receipt.state = "collision";
-          await this.#options.ledger.recordStep(runRef, "collision", receipt, error);
+          run.status = "collision";
+          await this.#options.ledger.commitRun(run, "collision", receipt);
           throw new PickupResultError(receipt, error);
         }
         return this.#compensate(run, receipt, snapshot, request.owner, error);
@@ -169,6 +182,18 @@ export class PickupCoordinator {
       receipt.workspace = prepared;
       await this.#options.ledger.recordStep(runRef, "workspace_prepared", receipt);
 
+      run.workspace = prepared;
+      run.status = "claimed";
+      run.updatedAt = this.#options.clock.now().toISOString();
+      if (request.model) run.model = request.model;
+      if (request.effort) run.effort = request.effort;
+      if (request.context) run.context = request.context;
+      if (!harness) {
+        receipt.ok = true;
+        await this.#options.ledger.commitRun(run, "prepared", receipt);
+        return receipt;
+      }
+
       const launchRequest = {
         run: runRef,
         ticket,
@@ -177,7 +202,7 @@ export class PickupCoordinator {
         ...(request.effort ? { effort: request.effort } : {}),
         ...(request.context ? { context: request.context } : {}),
       };
-      const launch = await this.#options.harness.launch(launchRequest);
+      const launch = await harness.launch(launchRequest);
       receipt.state = "launched";
       receipt.launch = launch;
       await this.#options.ledger.recordStep(runRef, "launched", receipt);
@@ -219,13 +244,12 @@ export class PickupCoordinator {
     try {
       await this.#options.ledger.recordStep(receipt.run, "compensating", receipt, cause);
     } catch (error) {
-      // A local persistence failure must never prevent best-effort reversal of
-      // remote side effects that may already have happened.
       recoveryErrors.push(error);
       ledgerEvidence = "compensating_step_persistence_failed";
     }
     if (receipt.launch?.sessionId !== undefined || receipt.launch?.pid !== undefined) {
       try {
+        if (!this.#options.harness) throw new Error("Launch harness is unavailable for recovery");
         await this.#options.harness.stop(receipt.launch);
         sessionEvidence = "stopped_verified";
       } catch (error) {
@@ -249,6 +273,18 @@ export class PickupCoordinator {
       receipt.state = "compensated";
       try {
         await this.#options.ledger.recordStep(receipt.run, "compensated", receipt, cause);
+        await this.#options.ledger.saveClaim({
+          ref: receipt.claim,
+          ticket: receipt.ticket,
+          humanOwner: claimedOwner,
+          run: receipt.run,
+          previousState: snapshot,
+          claimedAt: run.createdAt,
+          leaseExpiresAt: run.createdAt,
+          status: "released",
+        });
+        run.status = "compensated";
+        await this.#options.ledger.saveRun(run);
       } catch (error) {
         recoveryErrors.push(error);
         ledgerEvidence = "compensated_step_persistence_failed";

@@ -14,7 +14,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../domain/identifiers.ts";
-import type { ClaimRef, TicketRef } from "../../domain/model.ts";
+import { type ClaimRef, capabilities, type TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
 import {
   BunGitCommandExecutor,
@@ -63,6 +63,10 @@ export class GitClaimLock {
     this.#remote = options.remote;
     this.#git = options.git ?? new BunGitCommandExecutor();
     this.#clock = options.clock ?? { now: () => new Date() };
+  }
+
+  async describe() {
+    return capabilities("conditional_update", "claim_identity", "lease_metadata");
   }
 
   async ref(ticket: TicketRef): Promise<string> {
@@ -175,14 +179,7 @@ export class GitClaimLock {
       "-m",
       JSON.stringify(lockRecordSchema.parse(record)),
     ]);
-    const push = await this.#run([
-      "git",
-      "push",
-      "--porcelain",
-      "--no-verify",
-      this.#remote,
-      `${commit}:${ref}`,
-    ]);
+    const push = await this.#run(["git", "push", "--porcelain", this.#remote, `${commit}:${ref}`]);
     let tip: string | null;
     try {
       tip = await this.#remoteTip(ref);

@@ -61,6 +61,7 @@ export interface RepositorySpec {
   path: string;
   worktreeRoot: string;
   baseBranch: string;
+  ticketKeyWorkspaces?: boolean;
 }
 
 export type PolicySet = Record<string, unknown>;
@@ -133,7 +134,14 @@ export function claimStatusAt(claim: Claim, at: Date): ClaimStatus {
   return at.getTime() >= Date.parse(claim.leaseExpiresAt) ? "stale" : "active";
 }
 
-export type RunStatus = "planning" | "active" | "recovery_required";
+export type RunStatus =
+  | "planning"
+  | "claimed"
+  | "active"
+  | "compensated"
+  | "collision"
+  | "released"
+  | "recovery_required";
 
 export interface PreparedWorkspace {
   path: string;

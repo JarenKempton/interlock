@@ -41,6 +41,14 @@ assertion is not itself proof of the remote outcome.
 
 Pickup persists each transition before beginning the next side effect:
 
+The executable T3 pickup stops after workspace preparation and records the run
+as `claimed`, with launch arguments in its plan. It does not connect T3 to the
+generic launch/stop path below. Preflights are read-only; the local recovery
+intent (including the original snapshot) is journaled before the first remote
+claim write. No workspace or agent side effect precedes the verified lock and
+Jira mirror. Verified compensation marks the run `compensated` and its local
+claim `released`; an uncertain outcome retains recovery evidence.
+
 | From | Operation | Verified result | Failure path |
 | --- | --- | --- | --- |
 | `planning` | Complete preflights; capture snapshot | `claiming` | No tracker mutation |
@@ -74,7 +82,7 @@ by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
   the claim record, built on the observed tip and sent with an ordinary
   fast-forward push. The remote applies it only while the ref is still at that
   tip, and claim creates the ref only while it is absent. A losing writer gets
-  `ClaimCollisionError`. Forced pushes and ref deletion are never used.
+  `ClaimCollisionError`. Forced pushes, hook bypasses and ref deletion are never used.
 - The lock version is the tip commit, or `absent`. It is the snapshot version
   that claim, renewal and release must match.
 - A push that fails without a definite rejection is resolved with
@@ -108,8 +116,11 @@ ambiguous-failure behavior before enabling live writes. Verification must cover
 each restored field when assignment, metadata, and workflow status use separate
 operations. Concurrent human changes must not be overwritten.
 
-The generic pickup capability requirements include `claim_comments`; that is
-an implementation constraint, not authority to narrate work into a tracker.
+The CLI supplies the Git lock as the pickup claim authority. Its verified
+capability requirements are `conditional_update`, `claim_identity`, and
+`lease_metadata`; Jira need not advertise conditional writes, atomic assignment
+or comments. Existing generic callers can still supply a tracker that provides
+those guarantees itself.
 [Tracker write policy](adr/0002-tracker-write-minimalism.md) keeps ownership in
 structured storage and makes resolution comments optional. Capability checks
 and tests must reflect an adapter's actual behavior.

@@ -23,6 +23,49 @@ SQLite database, call adapters directly, or parse human-formatted output.
 Use generated `--help --json` to discover available actions and input contracts.
 Output shapes belong to each action's definition.
 
+### Pickup handoff
+
+The in-thread T3 caller queries `orchestrator_capabilities` immediately before
+pickup, including searches for configured models omitted from the short catalog.
+It supplies the returned catalog as `{ "host": "t3", "observedAt": "<UTC ISO time>",
+"catalog": <tool structured result> }` through `--t3-catalog PATH` or stdin with
+`--t3-catalog -`. This is a trusted caller boundary: the CLI checks the supplied
+catalog and its age (at most 60 seconds), not an independently authenticated T3
+connection. Missing, stale, future-dated, disabled or ambiguous selections fail
+before claiming. The caller must query again after a failure or delay.
+
+`pickup KEY --dry-run --json --t3-catalog PATH` reads configuration and Jira and
+returns a plan without creating a ledger, workspace or claim. A mutating pickup
+verifies the Git lock and Jira mirror, prepares `task/KEY` at
+`<worktree_root>/KEY`, and records a `claimed` run. Its JSON `launch` object is
+the argument object for `t3_thread_launch`, including `existing_worktree`, title,
+message and model selection. The caller invokes that tool and retains its
+returned thread identity; pickup does not launch an agent or claim it did.
+
+The implementer uses resolved personal/project settings unless
+`[roles.implementer]` supplies `provider`, `model`, and optional `options`.
+`[roles.reviewers.<lens>]` uses the same fields for each reviewer lens.
+Every configured role is checked against exact provider instance/model IDs and
+advertised option values. Required project settings apply to every role.
+Inherited T3 model options apply only to the same provider instance and model;
+an explicit options table replaces them. The plan's `reviewers` object carries
+the verified choices for later reviews; pickup starts no reviewer.
+
+Jira credentials come from `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` in the process
+environment. The site comes from project configuration; an optional `JIRA_SITE`
+must match it. The authenticated Jira account owns the claim. Repository paths
+and instruction paths resolve relative to the project TOML. Jira Rank and
+priority metadata are discovered through read-only endpoints; unsupported
+claim statuses fail closed.
+
+`claim release CLAIM --json` uses the saved execution configuration and verifies
+the authenticated owner, remote lock and restored Jira fields. It preserves the
+workspace, including dirty work. A lost local release receipt can be retried;
+an uncertain remote result remains `recovery_required`. `runs list`, `runs show`
+and `runs export` expose local run evidence; export includes configuration,
+claim, plan steps and recovery details. These commands accept `--state PATH`
+when an explicit local ledger is needed. Closing a T3 thread is not release.
+
 Selection must identify one ticket or an explicit selection policy. Secrets
 cross through credential-provider handles or scoped secure channels, never
 ordinary configuration, process arguments, logs, or receipts.
