@@ -17,6 +17,7 @@ import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/ide
 import type { RepositorySpec, RunRef, Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
 import { evaluateFrontier } from "../frontier/evaluate.ts";
+import { lockExecution } from "../persistence/execution-lock.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
@@ -53,7 +54,12 @@ export async function withExecutionStore<T>(
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const store = services.execution?.openStore?.(path) ?? new StateStore(path);
   try {
-    return await action(store);
+    const unlock = lockExecution(path);
+    try {
+      return await action(store);
+    } finally {
+      unlock();
+    }
   } finally {
     store.close();
   }

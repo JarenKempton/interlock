@@ -128,6 +128,13 @@ claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
   continuing; competing journal writers and stale completions are rejected
   transactionally. An interrupted older release without this journal requires
   explicit recovery instead of an automatic retry.
+- Pickup and release hold a separate SQLite process lock for the complete
+  operation on the canonical local ledger, including restoration reads. A
+  competing invocation fails before entering the operation. The operating
+  system releases this exclusion on process exit; the durable Jira write
+  journal still blocks retries whose remote outcome is unknown. Ledger reads
+  remain available. The process lock is local exclusion, not remote ownership;
+  moving or copying an active ledger cannot transfer a running operation.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
   `conditional_update` or `atomic_assignment`.
