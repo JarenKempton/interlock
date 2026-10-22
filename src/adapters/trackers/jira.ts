@@ -148,6 +148,7 @@ export interface JiraTrackerOptions {
   priorityOrder: readonly string[];
   claimProperty?: string;
   pageSize?: number;
+  validateClaim?: (ticket: Ticket) => void;
 }
 
 const MUTATION_CAPABILITIES = [
@@ -169,6 +170,7 @@ export class JiraTrackerAdapter implements Tracker {
   readonly #priorityOrder: readonly string[];
   readonly #rankField: string;
   readonly #pageSize: number;
+  readonly #validateClaim: JiraTrackerOptions["validateClaim"];
 
   constructor(options: JiraTrackerOptions) {
     if (!options.rankField) throw new Error("Jira Rank field id is required");
@@ -184,6 +186,7 @@ export class JiraTrackerAdapter implements Tracker {
     this.#priorityOrder = options.priorityOrder;
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
+    this.#validateClaim = options.validateClaim;
   }
 
   async describe() {
@@ -198,6 +201,9 @@ export class JiraTrackerAdapter implements Tracker {
     const tickets = await this.list_work(map);
     const found = tickets.find((item) => item.ref === ticket);
     if (!found) throw new Error(`Jira ticket is not a child of its reported map: ${ticket}`);
+    const latest = await this.#issue(ticket);
+    if (latest.fields.parent?.key !== parent)
+      throw new Error("Jira ticket changed maps during read");
     const links = await this.#required(
       "GET",
       `/rest/api/3/issue/${this.#ticketKey(ticket)}/remotelink`,
@@ -206,8 +212,8 @@ export class JiraTrackerAdapter implements Tracker {
       z.array(z.object({ object: z.object({ url: z.string() }) })),
     );
     return {
-      ticket: { ...found, ...this.#normalize(issue, ticket, map, found.order) },
-      snapshot: { version: issue.fields.updated, payload: await this.#claimState(ticket, issue) },
+      ticket: this.#normalize(latest, ticket, map, found.order),
+      snapshot: { version: latest.fields.updated, payload: await this.#claimState(ticket, latest) },
       artifacts: links.map((link) => link.object.url),
     };
   }
@@ -241,7 +247,20 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   async apply(request: MirrorClaim): Promise<void> {
-    const current = await this.#claimState(request.ticket);
+    const issue = await this.#issue(request.ticket);
+    const current = await this.#claimState(request.ticket, issue);
+    if (this.#validateClaim && current.claim?.claim !== request.claim) {
+      const parent = issue.fields.parent?.key;
+      if (!parent) throw new ClaimCollisionError("Jira ticket no longer has a parent map");
+      this.#validateClaim(
+        this.#normalize(
+          issue,
+          request.ticket,
+          mapRefSchema.parse(`${this.#prefix}:map:${parent}`),
+          0,
+        ),
+      );
+    }
     const replacing =
       request.supersedes !== undefined && current.claim?.claim === request.supersedes;
     const expectedOwner = replacing ? current.claim?.owner : request.owner;

@@ -22,8 +22,13 @@ export class ClaimCoordinator {
     readonly tracker: Tracker,
   ) {}
 
-  async snapshotClaimState(ticket: TicketRef): Promise<TrackerSnapshot> {
-    const tracker = (await this.tracker.read(ticket)).snapshot;
+  async snapshotClaimState(
+    ticket: TicketRef,
+    validate?: (ticket: Ticket) => void,
+  ): Promise<TrackerSnapshot> {
+    const current = await this.tracker.read(ticket);
+    validate?.(current.ticket);
+    const tracker = current.snapshot;
     const lock = await this.lock.read(ticket);
     return { version: lock.version, payload: { lock, tracker } };
   }

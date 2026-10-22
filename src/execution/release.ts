@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { z } from "zod";
 import { GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { parseRef } from "../domain/reference.ts";
 import { claimRef } from "../persistence/command-store.ts";
@@ -21,12 +22,19 @@ export async function releaseClaim(
     const configuration = store.getExecutionConfiguration(run.ref);
     if (!configuration) throw new Error("Release requires the recorded execution configuration");
     const key = parseRef(claim.ticket).nativeId;
-    const candidates = Object.keys(configuration.project.repositories)
-      .map((name) => repositorySpec(configuration, name))
-      .filter((repository) => resolve(repository.worktreeRoot, key ?? "") === run.workspace.path);
-    const repository = candidates[0];
-    if (candidates.length !== 1 || !repository)
-      throw new Error("Recorded claim repository is missing or ambiguous");
+    const intent = z
+      .object({ receipt_json: z.string() })
+      .parse(
+        store
+          .steps(run.ref)
+          .find((step) => z.object({ state: z.literal("planning") }).safeParse(step).success),
+      );
+    const plan = z
+      .object({ plan: z.object({ repository: z.string() }) })
+      .parse(JSON.parse(intent.receipt_json)).plan;
+    const repository = repositorySpec(configuration, plan.repository);
+    if (resolve(repository.worktreeRoot, key ?? "") !== run.workspace.path)
+      throw new Error("Recorded workspace does not match its selected repository");
     const jira = await executionTracker(
       configuration,
       parseRef(claim.ticket).workspace ?? "",

@@ -133,7 +133,10 @@ export class PickupCoordinator {
       ...(request.context ? { context: request.context } : {}),
     });
 
-    const snapshot = await this.#claims.snapshotClaimState(request.ticket);
+    const snapshot = await this.#claims.snapshotClaimState(
+      request.ticket,
+      this.#options.validateTicket,
+    );
     run.workspace = { path: plan.path, branch: plan.branch };
     await this.#options.ledger.saveRun(run);
     await this.#options.ledger.recordStep(runRef, "planning", receipt);
