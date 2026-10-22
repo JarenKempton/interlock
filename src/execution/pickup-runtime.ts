@@ -125,10 +125,12 @@ export function claimCoordination(
   repository: RepositorySpec,
   tracker: JiraTrackerAdapter,
   services: RuntimeServices,
+  beforeClaimWrite?: () => void,
 ) {
   const claimLock = new GitClaimLock({
     repository: repository.path,
     remote: "origin",
+    ...(beforeClaimWrite ? { beforeClaimWrite } : {}),
     ...(services.execution?.git ? { git: services.execution.git } : {}),
     ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
   });
@@ -237,7 +239,9 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   validateT3Catalog(catalog, clock.now());
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" };
   const mirror = new JiraTrackerAdapter({ ...jira.options, validateClaim: eligible });
-  const { claimLock } = claimCoordination(repository, mirror, services);
+  const { claimLock } = claimCoordination(repository, mirror, services, () => {
+    validateT3Catalog(catalog, clock.now());
+  });
   const validateTicket = async (current: Ticket) => {
     await eligible(current);
     validateT3Catalog(catalog, clock.now());

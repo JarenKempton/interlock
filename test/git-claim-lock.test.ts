@@ -67,6 +67,35 @@ function claimRequest(
   };
 }
 
+test.each(["landed", "competing"])(
+  "an uncertain push blocks restoration until its outcome is resolved: %s",
+  async (outcome) => {
+    const { fixture, lock, bob: competitor } = await setup();
+    const git = new ScriptedGit(fixture.git);
+    const subject = lock(fixture.alice, { git });
+    let finishPush: (() => Promise<unknown>) | undefined;
+    git.push = async (run) => {
+      finishPush = run;
+      return { exitCode: 128, stdout: "", stderr: "connection lost" };
+    };
+    const claim = claimRequest(alice, "delayed");
+    await expect(subject.claim(claim)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    await expect(subject.read(ticket)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    await expect(subject.restore(ticket, claim.claim)).rejects.toBeInstanceOf(
+      AmbiguousTrackerResultError,
+    );
+    if (!finishPush) throw new Error("Expected a pending push");
+    if (outcome === "competing") await competitor.claim(claimRequest(bob, "winner"));
+    await finishPush();
+    await subject.restore(ticket, claim.claim);
+    const state = await subject.read(ticket);
+    if (outcome === "landed")
+      expect(state.record).toMatchObject({ action: "release", claim: claim.claim });
+    else expect(heldClaim(state)?.claim).toBe(claimRefSchema.parse("interlock-claim:winner"));
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
 describe("Git remote claim lock", () => {
   test(
     "concurrent claims leave exactly one winner and the loser gets a collision",
@@ -199,13 +228,14 @@ describe("Git remote claim lock", () => {
     GIT_TEST_TIMEOUT_MS,
   );
 
-  test(
-    "a dropped connection after the remote applied the push resolves to success",
-    async () => {
+  test.each(["return", "throw"])(
+    "a dropped connection after the remote applied the push resolves to success: %s",
+    async (outcome) => {
       const { fixture, lock } = await setup();
       const scripted = new ScriptedGit(fixture.git);
       scripted.push = async (run) => {
         await run();
+        if (outcome === "throw") throw new Error("connection lost");
         return { exitCode: 128, stdout: "", stderr: "fatal: the remote end hung up unexpectedly" };
       };
       const subject = lock(fixture.alice, { git: scripted });
@@ -321,7 +351,10 @@ describe("Git remote claim lock", () => {
       await expect(subject.claim(claimRequest(alice, "a"))).rejects.toBeInstanceOf(
         AmbiguousTrackerResultError,
       );
-      expect(heldClaim(await subject.read(ticket))).toBeUndefined();
+      await expect(subject.read(ticket)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+      expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote, ref], fixture.alice)).toBe(
+        "",
+      );
     },
     GIT_TEST_TIMEOUT_MS,
   );

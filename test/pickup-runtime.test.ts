@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { GitClaimLock, heldClaim } from "../src/adapters/claims/git-lock.ts";
+import type { CommandResult } from "../src/adapters/workspaces/git.ts";
 import { createApplication } from "../src/application.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import { PickupResultError } from "../src/execution/pickup.ts";
@@ -31,6 +32,94 @@ function inspect<T>(f: Awaited<ReturnType<typeof fixture>>, read: (store: StateS
     store.close();
   }
 }
+
+test.each(["absent-return", "absent-throw", "released-return", "released-throw"])(
+  "a delayed claim push retains recovery evidence while the remote is unchanged: %s",
+  async (scenario) => {
+    const f = await fixture();
+    if (scenario.startsWith("released")) {
+      const app = createApplication(f.services);
+      const picked = await app.pickup.execute(f.input);
+      if (!("claim" in picked)) throw new Error("Expected claim");
+      await app.claim.release.execute({ claim: picked.claim, state: f.state });
+    }
+    const before = await lock(f).read(ref);
+    const writesBefore = f.jira.calls.length;
+    const git = new ScriptedGit(f.git);
+    let finishPush: (() => Promise<CommandResult>) | undefined;
+    git.push = async (run) => {
+      finishPush = run;
+      if (scenario.endsWith("throw")) throw new Error("connection lost");
+      return { exitCode: 128, stdout: "", stderr: "connection lost" };
+    };
+    f.services.execution = { ...f.services.execution, git };
+    const failure = await createApplication(f.services)
+      .pickup.execute(f.input)
+      .catch((e) => e);
+    if (!(failure instanceof PickupResultError)) throw new Error("Expected pickup failure");
+    const receipt = failure.receipt;
+    expect(receipt.state).toBe("recovery_required");
+    expect(await lock(f).read(ref)).toEqual(before);
+    expect(
+      f.jira.calls
+        .slice(writesBefore)
+        .filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call)),
+    ).toEqual([]);
+    if (!finishPush) throw new Error("Expected a pending push");
+    expect((await finishPush()).exitCode).toBe(0);
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(receipt.claim);
+    expect(inspect(f, (s) => s.run(receipt.run)).status).toBe("recovery_required");
+    expect(inspect(f, (s) => s.recoveryEvidence(receipt.run))).toHaveLength(1);
+    expect(() => inspect(f, (s) => s.claimForRun(receipt.run))).toThrow("Claim not found");
+    expect(JSON.stringify(inspect(f, (s) => s.steps(receipt.run)))).toContain(
+      "push outcome is unknown",
+    );
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each(["remote-read", "commit-preparation"])(
+  "catalog expiry during final %s prevents the claim push",
+  async (stage) => {
+    const f = await fixture();
+    const catalog = catalogEnvelope();
+    await writeFile(f.t3Catalog, JSON.stringify(catalog));
+    const observed = Date.parse(catalog.observedAt);
+    let now = observed;
+    let claiming = false;
+    class ClaimingStore extends StateStore {
+      override recordStep(...args: Parameters<StateStore["recordStep"]>) {
+        super.recordStep(...args);
+        if (args[1] === "claiming") claiming = true;
+      }
+    }
+    let pushes = 0;
+    f.services.execution = {
+      ...f.services.execution,
+      clock: { now: () => new Date(now) },
+      openStore: (path) => new ClaimingStore(path),
+      git: {
+        async run(argv, cwd) {
+          if (argv[1] === "push") pushes += 1;
+          const result = await f.git.run(argv, cwd);
+          if (
+            (stage === "remote-read" && claiming && argv[1] === "ls-remote") ||
+            (stage === "commit-preparation" && argv.includes("commit-tree"))
+          )
+            now = observed + 60_001;
+          return result;
+        },
+      },
+    };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow("catalog");
+    expect(now).toBe(observed + 60_001);
+    expect(pushes).toBe(0);
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(f.jira.property).toBeNull();
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
 
 test(
   "dry-run returns T3 arguments and AC with no ledger, workspace, mirror or remote lock mutation",
