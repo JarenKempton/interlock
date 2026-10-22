@@ -437,13 +437,28 @@ describe("Jira mirror behind the Git claim lock", () => {
     });
   });
 
-  test("a mirror conflict after the lock is held surfaces for compensation, not as a collision", async () => {
+  test("a human assignment after the snapshot compensates by releasing the lock", async () => {
     const api = new FakeJira();
-    api.issues = [issue("JWB-288", { assignee: "human" })];
     const { first } = await lockedJira(api);
-    const failure = first.claim(claimRequest(owner, "c", ABSENT_LOCK_VERSION));
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "c", original.version);
+    reassign(api, "human");
+    const failure = first.claim(request);
     await expect(failure).rejects.toThrow("Tracker mirror conflicts with the held claim lock");
     await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+    const restore: RestoreClaimRequest = {
+      ticket,
+      claim: request.claim,
+      claimedOwner: owner,
+      originalSnapshot: original,
+    };
+    await first.restoreClaimState(restore);
+    await first.verifyRestored(restore);
+    expect(api.mirror()).toEqual({ assignee: "human", status: "To Do", claim: null });
+    expect(api.mutationCount()).toBe(0);
+    expect((await first.snapshotClaimState(ticket)).payload).toMatchObject({
+      lock: { record: { action: "release", claim: request.claim } },
+    });
   });
 
   test("release refuses a human Jira change and keeps the lock held", async () => {

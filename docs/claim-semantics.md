@@ -91,10 +91,13 @@ by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
   tip means a collision; an unchanged tip or an unreadable remote remains
   `AmbiguousTrackerResultError`.
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
-  property, assignee and `In Progress`, each read back. Restoration requires the
-  property to still name the claim, refuses assignee or status changes made
-  outside Interlock, and restores status, assignee, then the property. Release
-  restores the mirror before appending the release commit.
+  property first, then assignee and `In Progress`, each read back. Restoration
+  removes the property last, so a property that no longer names the claim means
+  none of its writes remain. Otherwise it refuses assignee or status changes
+  made outside Interlock and restores status, assignee, then the property.
+  Verification accepts human changes but no remaining trace of the claim.
+  Release restores the mirror before appending the release commit; a refused or
+  failed mirror restoration keeps the lock held and requires recovery.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
   `conditional_update` or `atomic_assignment`.

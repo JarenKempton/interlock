@@ -260,6 +260,7 @@ export class LifecycleCoordinator {
     const request = {
       claim: claim.ref,
       ticket: claim.ticket,
+      claimedOwner: claim.humanOwner,
       originalSnapshot: claim.previousState,
       expectedVersion: claim.currentVersion ?? claim.previousState.version,
       authorizedBy,

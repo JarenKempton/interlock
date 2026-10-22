@@ -275,9 +275,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     const owner = requireClaimedOwner(request.claimedOwner);
     const original = originalClaimState(request);
     const current = await this.#claimState(request.ticket);
-    if (sameClaimState(current, original)) return;
-    if (current.claim?.claim !== request.claim)
-      throw new ClaimCollisionError("Jira ticket is not marked by this claim");
+    if (current.claim?.claim !== request.claim) return;
     if (
       (current.assignee !== owner && current.assignee !== original.assignee) ||
       (current.status !== CLAIMED_STATUS && current.status !== original.status)
@@ -292,8 +290,14 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   }
 
   async verifyRestored(request: RestoreClaimRequest): Promise<void> {
-    requireClaimedOwner(request.claimedOwner);
-    if (!sameClaimState(await this.#claimState(request.ticket), originalClaimState(request)))
+    const owner = requireClaimedOwner(request.claimedOwner);
+    const original = originalClaimState(request);
+    const current = await this.#claimState(request.ticket);
+    if (
+      current.claim?.claim === request.claim ||
+      (current.assignee === owner && current.assignee !== original.assignee) ||
+      (current.status === CLAIMED_STATUS && current.status !== original.status)
+    )
       throw new AmbiguousTrackerResultError("Jira restored state could not be verified");
   }
 
@@ -533,14 +537,6 @@ function originalClaimState(request: RestoreClaimRequest): JiraClaimSnapshot {
   const parsed = claimSnapshotSchema.safeParse(request.originalSnapshot.payload);
   if (!parsed.success) throw new Error("Invalid Jira original claim snapshot");
   return parsed.data;
-}
-
-function sameClaimState(left: JiraClaimSnapshot, right: JiraClaimSnapshot): boolean {
-  return (
-    left.assignee === right.assignee &&
-    left.status === right.status &&
-    JSON.stringify(left.claim) === JSON.stringify(right.claim)
-  );
 }
 
 function requireClaimedOwner(owner: ActorRef | undefined): ActorRef {
