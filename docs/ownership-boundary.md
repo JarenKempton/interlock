@@ -82,6 +82,10 @@ state cannot establish restoration or authorize another write.
 The write intent is committed before dispatch, so this guard also applies when
 the process exits during the request without recording an error. The unfinished
 intent remains visible in `runs export`.
+Pickup and release exclude overlapping mutation operations using the same
+canonical ledger. A competing invocation fails immediately and can be retried
+after the active process exits; read-only run inspection remains available.
+Keep an active ledger at its original path until its operations finish.
 
 Selection must identify one ticket or an explicit selection policy. Secrets
 cross through credential-provider handles or scoped secure channels, never
