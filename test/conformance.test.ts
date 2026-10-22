@@ -1,0 +1,111 @@
+import { describe, expect, test } from "bun:test";
+import { claimLockConformance } from "../src/conformance/claim-lock.ts";
+import { hostConformance } from "../src/conformance/host.ts";
+import { runConformance } from "../src/conformance/runner.ts";
+import { trackerConformance } from "../src/conformance/tracker.ts";
+import { fakeHostFixture } from "./fixtures/portable-host.ts";
+import { fakeLockFixture } from "./fixtures/portable-lock.ts";
+import { fakeTrackerFixture } from "./fixtures/portable-tracker.ts";
+
+describe("portable adapter conformance", () => {
+  test("fake tracker, lock and host pass the executable contract", async () => {
+    const report = await runConformance([
+      ...trackerConformance(async () => fakeTrackerFixture()),
+      ...claimLockConformance(async () => fakeLockFixture()),
+      ...hostConformance(async () => fakeHostFixture()),
+    ]);
+    expect(report.results.filter((result) => !result.ok)).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(report.results.length).toBe(23);
+  });
+
+  test.each(["collision", "stale", "ambiguous"] as const)(
+    "rejects a lock that lies about %s guarantees",
+    async (fault) => {
+      const report = await runConformance(claimLockConformance(async () => fakeLockFixture(fault)));
+      expect(report.ok).toBe(false);
+      expect(
+        report.results.some(
+          (result) =>
+            !result.ok && result.name.includes(fault === "stale" ? "stale_version" : fault),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  test("rejects a tracker that advertises conditional writes", async () => {
+    const report = await runConformance(
+      trackerConformance(async () => {
+        const fixture = fakeTrackerFixture();
+        fixture.adapter.describe = async () => ({ conditional_update: true, transition: true });
+        return fixture;
+      }),
+    );
+    expect(report.results.find((result) => result.name === "tracker.read_only")).toMatchObject({
+      ok: false,
+    });
+  });
+
+  test("rejects a tracker that acknowledges ambiguous writes", async () => {
+    const report = await runConformance(
+      trackerConformance(async () => {
+        const fixture = fakeTrackerFixture();
+        const apply = fixture.adapter.apply.bind(fixture.adapter);
+        fixture.adapter.apply = async (request) => {
+          try {
+            await apply(request);
+          } catch {}
+        };
+        return fixture;
+      }),
+    );
+    expect(
+      report.results.find((result) => result.name === "tracker.ambiguous_apply"),
+    ).toMatchObject({ ok: false });
+  });
+
+  test.each(["message", "interrupt", "focus", "subagents", "pr_ownership"] as const)(
+    "rejects false host %s capability",
+    async (capability) => {
+      const report = await runConformance(
+        hostConformance(async () => {
+          const fixture = fakeHostFixture();
+          switch (capability) {
+            case "message":
+              fixture.adapter.message = async () => {};
+              break;
+            case "interrupt":
+              fixture.adapter.interrupt = async () => {};
+              break;
+            case "focus":
+              fixture.adapter.focus = async () => {};
+              break;
+            case "subagents":
+              fixture.adapter.subagents = async () => [];
+              break;
+            case "pr_ownership":
+              fixture.adapter.owns_pull_request = async () => true;
+              break;
+          }
+          return fixture;
+        }),
+      );
+      expect(report.results.find((result) => result.name === `host.${capability}`)).toMatchObject({
+        ok: false,
+      });
+    },
+  );
+
+  test("rejects an acknowledged host launch that cannot be located", async () => {
+    const report = await runConformance(
+      hostConformance(async () => {
+        const fixture = fakeHostFixture();
+        fixture.adapter.locate = async () => null;
+        return fixture;
+      }),
+    );
+    expect(report.results.find((result) => result.name === "host.launch_and_locate")).toMatchObject(
+      { ok: false },
+    );
+  });
+});
