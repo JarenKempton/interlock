@@ -14,7 +14,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../domain/identifiers.ts";
-import type { ClaimRef, TicketRef } from "../../domain/model.ts";
+import { type ClaimRef, capabilities, type TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
 import {
   BunGitCommandExecutor,
@@ -47,6 +47,7 @@ export interface GitClaimLockOptions {
   remote: string;
   git?: GitCommandExecutor;
   clock?: Clock;
+  beforeClaimWrite?: () => void;
 }
 
 export class GitClaimLock {
@@ -54,6 +55,8 @@ export class GitClaimLock {
   readonly #remote: string;
   readonly #git: GitCommandExecutor;
   readonly #clock: Clock;
+  readonly #beforeClaimWrite: (() => void) | undefined;
+  readonly #pendingWrites = new Map<TicketRef, { version: string; commit: string }>();
   #emptyTree?: string;
 
   constructor(options: GitClaimLockOptions) {
@@ -63,6 +66,11 @@ export class GitClaimLock {
     this.#remote = options.remote;
     this.#git = options.git ?? new BunGitCommandExecutor();
     this.#clock = options.clock ?? { now: () => new Date() };
+    this.#beforeClaimWrite = options.beforeClaimWrite;
+  }
+
+  async describe() {
+    return capabilities("conditional_update", "claim_identity", "lease_metadata");
   }
 
   async ref(ticket: TicketRef): Promise<string> {
@@ -80,6 +88,11 @@ export class GitClaimLock {
   async read(ticket: TicketRef): Promise<ClaimLockState> {
     const ref = await this.ref(ticket);
     const tip = await this.#remoteTip(ref);
+    const pending = this.#pendingWrites.get(ticket);
+    if (pending) {
+      if (!tip || tip === pending.version) throw this.#unknownPush(ticket);
+      this.#pendingWrites.delete(ticket);
+    }
     if (!tip) return { version: ABSENT_LOCK_VERSION, record: null };
     const record = await this.#record(ref, tip);
     if (record.ticket !== ticket) throw new Error(`Claim lock ${ref} belongs to ${record.ticket}`);
@@ -159,6 +172,7 @@ export class GitClaimLock {
   }
 
   async #append(ticket: TicketRef, state: ClaimLockState, record: ClaimLockRecord): Promise<void> {
+    await this.#verifyRemote();
     const ref = await this.ref(ticket);
     const parent = state.version === ABSENT_LOCK_VERSION ? [] : ["-p", state.version];
     const commit = await this.#checked([
@@ -175,35 +189,101 @@ export class GitClaimLock {
       "-m",
       JSON.stringify(lockRecordSchema.parse(record)),
     ]);
-    const push = await this.#run([
-      "git",
-      "push",
-      "--porcelain",
-      "--no-verify",
-      this.#remote,
-      `${commit}:${ref}`,
-    ]);
+    if (record.action === "claim") this.#beforeClaimWrite?.();
+    this.#pendingWrites.set(ticket, { version: state.version, commit });
+    let push: CommandResult | undefined;
+    try {
+      push = await this.#run(["git", "push", "--porcelain", this.#remote, `${commit}:${ref}`]);
+    } catch {
+      push = undefined;
+    }
     let tip: string | null;
     try {
       tip = await this.#remoteTip(ref);
-    } catch (error) {
-      throw new AmbiguousTrackerResultError(`Claim lock push outcome is unknown: ${String(error)}`);
+    } catch {
+      throw this.#unknownPush(ticket);
     }
-    if (tip === commit) return;
-    if ((tip ?? ABSENT_LOCK_VERSION) !== state.version)
+    if (tip === commit) {
+      this.#pendingWrites.delete(ticket);
+      return;
+    }
+    if (tip && tip !== state.version) {
+      this.#pendingWrites.delete(ticket);
       throw new ClaimCollisionError("Claim lock was written concurrently");
-    const rejected = push.exitCode === 0 ? undefined : /^!\t.*$/m.exec(push.stdout)?.[0];
-    if (rejected) throw new Error(`Claim lock push was rejected: ${rejected.trim()}`);
-    throw new AmbiguousTrackerResultError("Claim lock push outcome is unknown");
+    }
+    const rejected = !push || push.exitCode === 0 ? undefined : /^!\t.*$/m.exec(push.stdout)?.[0];
+    if (rejected) {
+      this.#pendingWrites.delete(ticket);
+      throw new Error(`Claim lock push was rejected: ${rejected.trim()}`);
+    }
+    throw this.#unknownPush(ticket);
+  }
+
+  #unknownPush(ticket: TicketRef): AmbiguousTrackerResultError {
+    const pending = this.#pendingWrites.get(ticket);
+    return new AmbiguousTrackerResultError(
+      `Claim lock push outcome is unknown: ${pending?.commit} from ${pending?.version}; unchanged readback cannot rule out a pending write`,
+    );
   }
 
   async #remoteTip(ref: string): Promise<string | null> {
+    await this.#verifyRemote();
     const output = await this.#checked(["git", "ls-remote", this.#remote, ref]);
     const line = output
       .split(/\r?\n/)
       .map((item) => item.split("\t"))
       .find((item) => item[1] === ref);
     return line?.[0] || null;
+  }
+
+  async #verifyRemote(): Promise<void> {
+    const fetch = await this.#run(["git", "remote", "get-url", "--all", this.#remote]);
+    if (fetch.exitCode !== 0) {
+      const name = this.#remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const configured = await this.#run([
+        "git",
+        "config",
+        "--get-regexp",
+        `^remote\\.${name}\\.(url|pushurl)$`,
+      ]);
+      if (configured.exitCode !== 1)
+        throw new Error("Claim lock fetch destination cannot be verified");
+      await this.#verifyLiteralRemote();
+      return;
+    }
+    const fetchUrls = fetch.stdout.trim().split(/\r?\n/);
+    const pushUrls = (
+      await this.#checked(["git", "remote", "get-url", "--push", "--all", this.#remote])
+    ).split(/\r?\n/);
+    if (
+      fetchUrls.length !== 1 ||
+      !fetchUrls[0] ||
+      pushUrls.length !== 1 ||
+      fetchUrls[0] !== pushUrls[0]
+    )
+      throw new Error("Claim lock requires one identical fetch and push destination");
+  }
+
+  async #verifyLiteralRemote(): Promise<void> {
+    const expanded = await this.#checked(["git", "ls-remote", "--get-url", this.#remote]);
+    const rewrites = await this.#run([
+      "git",
+      "config",
+      "--null",
+      "--get-regexp",
+      "^url\\..*\\.pushinsteadof$",
+    ]);
+    if (rewrites.exitCode === 1) return;
+    if (rewrites.exitCode !== 0) throw new Error("Claim lock push rewrites cannot be verified");
+    for (const entry of rewrites.stdout.split("\0").filter(Boolean)) {
+      const separator = entry.indexOf("\n");
+      if (separator < 0) throw new Error("Claim lock push rewrites cannot be verified");
+      const prefix = entry.slice(separator + 1);
+      if (this.#remote.startsWith(prefix) || expanded.startsWith(prefix))
+        throw new Error(
+          "Claim lock literal remote has push rewriting; use a verified named remote",
+        );
+    }
   }
 
   async #record(ref: string, tip: string): Promise<ClaimLockRecord> {

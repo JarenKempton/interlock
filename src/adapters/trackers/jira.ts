@@ -130,6 +130,22 @@ const claimSnapshotSchema = z.object({
   status: z.string(),
   claim: claimPropertySchema.nullable(),
 });
+export const pendingJiraWriteSchema = z.object({
+  ticket: ticketRefSchema,
+  operation: z.string(),
+  expected: z.discriminatedUnion("field", [
+    z.object({ field: z.literal("claim"), value: claimPropertySchema.nullable() }),
+    z.object({ field: z.literal("assignee"), value: z.string().nullable() }),
+    z.object({ field: z.literal("status"), value: z.string() }),
+  ]),
+});
+type PendingJiraWrite = z.infer<typeof pendingJiraWriteSchema>;
+
+export class PendingJiraWriteError extends AmbiguousTrackerResultError {
+  constructor(readonly pendingWrite: PendingJiraWrite) {
+    super(`Jira ${pendingWrite.operation} outcome is unknown: ${JSON.stringify(pendingWrite)}`);
+  }
+}
 const transitionsSchema = z.object({
   transitions: z.array(z.object({ id: z.string(), to: z.object({ name: z.string() }) })),
 });
@@ -145,11 +161,13 @@ export interface JiraTrackerOptions {
   workspace: string;
   transport: JiraTransport;
   /** Jira's site-specific field id for the standard LexoRank Rank field. */
-  rankField: string;
+  rankField?: string;
   /** Highest-priority name first; Jira numeric IDs have no portable semantic ordering. */
-  priorityOrder: readonly string[];
+  priorityOrder?: readonly string[];
   claimProperty?: string;
   pageSize?: number;
+  validateClaim?: (ticket: Ticket) => void | Promise<void>;
+  journalWrite?: (pending: PendingJiraWrite) => () => void;
 }
 
 const MUTATION_CAPABILITIES = [
@@ -172,13 +190,19 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   readonly #transport: JiraTransport;
   readonly #prefix: string;
   readonly #claimProperty: string;
-  readonly #priorityOrder: readonly string[];
-  readonly #rankField: string;
+  readonly #priorityOrder: readonly string[] | undefined;
+  readonly #rankField: string | undefined;
   readonly #pageSize: number;
+  readonly #validateClaim: JiraTrackerOptions["validateClaim"];
+  readonly #pendingWrites = new Map<TicketRef, PendingJiraWrite>();
+  readonly #journalWrite: JiraTrackerOptions["journalWrite"];
+  readonly #completeWrites = new Map<TicketRef, () => void>();
 
   constructor(options: JiraTrackerOptions) {
-    if (!options.rankField) throw new Error("Jira Rank field id is required");
-    if (options.priorityOrder.length === 0) throw new Error("Jira priority order is required");
+    if (options.rankField !== undefined && !options.rankField)
+      throw new Error("Jira Rank field id is required");
+    if (options.priorityOrder !== undefined && options.priorityOrder.length === 0)
+      throw new Error("Jira priority order is required");
     if (
       options.pageSize !== undefined &&
       (!Number.isInteger(options.pageSize) || options.pageSize < 1 || options.pageSize > 100)
@@ -190,17 +214,21 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     this.#priorityOrder = options.priorityOrder;
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
+    this.#validateClaim = options.validateClaim;
+    this.#journalWrite = options.journalWrite;
   }
 
   async describe() {
-    return jiraCapabilities();
+    return this.#rankField && this.#priorityOrder ? jiraCapabilities() : capabilities();
   }
 
   async preflight(ticket: TicketRef): Promise<void> {
-    await this.getTicket(ticket);
+    const current = await this.getTicket(ticket);
+    await this.#validateClaim?.(current);
   }
 
   async getTicket(ticket: TicketRef): Promise<Ticket> {
+    this.#readConfiguration();
     const issue = await this.#issue(ticket);
     const parent = issue.fields.parent?.key;
     if (!parent) throw new Error("Jira ticket has no parent map");
@@ -208,10 +236,14 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     const tickets = await this.listMapTickets(map);
     const found = tickets.find((item) => item.ref === ticket);
     if (!found) throw new Error(`Jira ticket is not a child of its reported map: ${ticket}`);
-    return found;
+    const current = await this.#issue(ticket);
+    if (current.fields.parent?.key !== parent)
+      throw new Error("Jira ticket changed maps during read; retry pickup");
+    return this.#normalize(current, ticket, map, found.order);
   }
 
   async listMapTickets(map: MapRef): Promise<Ticket[]> {
+    this.#readConfiguration();
     const mapKey = this.#mapKey(map);
     const issues: JiraIssue[] = [];
     let nextPageToken: string | undefined;
@@ -245,7 +277,20 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   }
 
   async claim(request: ClaimRequest): Promise<void> {
-    const current = await this.#claimState(request.ticket);
+    const issue = await this.#issue(request.ticket);
+    const current = await this.#claimState(request.ticket, issue);
+    if (this.#validateClaim) {
+      const parent = issue.fields.parent?.key;
+      if (!parent) throw new ClaimCollisionError("Jira ticket no longer has a parent map");
+      await this.#validateClaim(
+        this.#normalize(
+          issue,
+          request.ticket,
+          mapRefSchema.parse(`${this.#prefix}:map:${parent}`),
+          0,
+        ),
+      );
+    }
     if (
       (current.assignee !== null && current.assignee !== request.owner) ||
       (current.claim !== null && current.claim.claim !== request.claim)
@@ -273,6 +318,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   async restoreClaimState(request: RestoreClaimRequest): Promise<void> {
     const owner = requireClaimedOwner(request.claimedOwner);
     const original = originalClaimState(request);
+    await this.#settlePendingWrite(request.ticket);
     const current = await this.#claimState(request.ticket);
     if (current.claim?.claim !== request.claim) return;
     if (
@@ -284,13 +330,17 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     if (current.assignee !== original.assignee)
       await this.#assign(request.ticket, original.assignee);
     const path = this.#propertyPath(request.ticket);
-    if (original.claim) await this.#write("PUT", path, original.claim, "restore claim property");
-    else await this.#write("DELETE", path, undefined, "delete claim property");
+    await this.#write(original.claim ? "PUT" : "DELETE", path, original.claim ?? undefined, {
+      ticket: request.ticket,
+      operation: "restore claim property",
+      expected: { field: "claim", value: original.claim },
+    });
   }
 
   async verifyRestored(request: RestoreClaimRequest): Promise<void> {
     const owner = requireClaimedOwner(request.claimedOwner);
     const original = originalClaimState(request);
+    await this.#settlePendingWrite(request.ticket);
     const current = await this.#claimState(request.ticket);
     if (
       current.claim?.claim === request.claim ||
@@ -352,12 +402,19 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     this.#mutationUnavailable();
   }
 
+  #readConfiguration() {
+    if (!this.#rankField || !this.#priorityOrder)
+      throw new Error("Jira normalized reads require Rank and priority configuration");
+    return { rankField: this.#rankField, priorityOrder: this.#priorityOrder };
+  }
+
   #normalize(issue: JiraIssue, ref: TicketRef, map: MapRef, order: number): Ticket {
-    const rank = issue.fields[this.#rankField];
+    const { rankField, priorityOrder } = this.#readConfiguration();
+    const rank = issue.fields[rankField];
     if (typeof rank !== "string" || rank.length === 0)
-      throw new Error(`Jira Rank field is missing or invalid: ${this.#rankField}`);
+      throw new Error(`Jira Rank field is missing or invalid: ${rankField}`);
     const priorityName = issue.fields.priority?.name;
-    const priorityIndex = priorityName ? this.#priorityOrder.indexOf(priorityName) : -1;
+    const priorityIndex = priorityName ? priorityOrder.indexOf(priorityName) : -1;
     if (priorityName && priorityIndex < 0)
       throw new Error(`Jira priority is not configured: ${priorityName}`);
     const dependencies: Dependency[] = [];
@@ -384,7 +441,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
         : {}),
       dependencies,
       order,
-      ...(priorityIndex >= 0 ? { priority: this.#priorityOrder.length - priorityIndex } : {}),
+      ...(priorityIndex >= 0 ? { priority: priorityOrder.length - priorityIndex } : {}),
       metadata: {
         nativeKey: issue.key,
         version: issue.fields.updated,
@@ -419,7 +476,19 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     property: JiraClaimProperty,
     current: JiraClaimSnapshot,
   ): Promise<void> {
-    await this.#write("PUT", this.#propertyPath(ticket), property, "set claim property");
+    await this.#write("PUT", this.#propertyPath(ticket), property, {
+      ticket,
+      operation: "set claim property",
+      expected: { field: "claim", value: property },
+    });
+    const installed = await this.#readClaim(ticket);
+    if (
+      installed?.claim !== property.claim ||
+      installed.run !== property.run ||
+      installed.owner !== property.owner ||
+      installed.supersedes !== property.supersedes
+    )
+      throw new AmbiguousTrackerResultError("Jira claim property was not verified");
     if (current.assignee !== property.owner) await this.#assign(ticket, property.owner);
     if (current.status !== CLAIMED_STATUS) await this.#transition(ticket, CLAIMED_STATUS);
   }
@@ -429,8 +498,10 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
       "PUT",
       `/rest/api/3/issue/${this.#ticketKey(ticket)}/assignee`,
       { accountId },
-      "assign issue",
+      { ticket, operation: "assign issue", expected: { field: "assignee", value: accountId } },
     );
+    if ((await this.#claimState(ticket)).assignee !== accountId)
+      throw new AmbiguousTrackerResultError("Jira assignment was not verified");
   }
 
   async #transition(ticket: TicketRef, status: string): Promise<void> {
@@ -444,13 +515,74 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     );
     const transition = transitions.find((item) => item.to.name === status);
     if (!transition) throw new Error(`Jira has no transition to ${status}`);
-    await this.#write("POST", path, { transition: { id: transition.id } }, "transition issue");
+    await this.#write(
+      "POST",
+      path,
+      { transition: { id: transition.id } },
+      {
+        ticket,
+        operation: "transition issue",
+        expected: { field: "status", value: status },
+      },
+    );
+    if ((await this.#claimState(ticket)).status !== status)
+      throw new AmbiguousTrackerResultError("Jira transition was not verified");
   }
 
-  async #write(method: string, path: string, body: unknown, operation: string): Promise<void> {
-    const response = await this.#transport.request(method, path, body);
-    if (response.status < 200 || response.status >= 300)
-      throw new Error(`Jira ${operation} failed (${response.status})`);
+  async #write(
+    method: string,
+    path: string,
+    body: unknown,
+    pending: PendingJiraWrite,
+  ): Promise<void> {
+    await this.#settlePendingWrite(pending.ticket);
+    const complete = this.#journalWrite?.(structuredClone(pending));
+    this.#pendingWrites.set(pending.ticket, pending);
+    if (complete) this.#completeWrites.set(pending.ticket, complete);
+    let response: JiraResponse;
+    try {
+      response = await this.#transport.request(method, path, body);
+    } catch {
+      throw new PendingJiraWriteError(pending);
+    }
+    if (response.status >= 200 && response.status < 300 && response.status !== 202) {
+      this.#completeWrite(pending.ticket);
+      return;
+    }
+    if ([400, 401, 403, 404, 405, 409, 415, 422, 429].includes(response.status)) {
+      this.#completeWrite(pending.ticket);
+      throw new Error(`Jira ${pending.operation} failed (${response.status})`);
+    }
+    throw new PendingJiraWriteError(pending);
+  }
+
+  async verifyPendingWrite(pending: PendingJiraWrite): Promise<void> {
+    let current: JiraClaimSnapshot;
+    try {
+      current = await this.#claimState(pending.ticket);
+    } catch {
+      throw new PendingJiraWriteError(pending);
+    }
+    if (JSON.stringify(current[pending.expected.field]) !== JSON.stringify(pending.expected.value))
+      throw new PendingJiraWriteError(pending);
+  }
+
+  pendingWrite(ticket: TicketRef): PendingJiraWrite | undefined {
+    const pending = this.#pendingWrites.get(ticket);
+    return pending ? structuredClone(pending) : undefined;
+  }
+
+  async #settlePendingWrite(ticket: TicketRef): Promise<void> {
+    const pending = this.#pendingWrites.get(ticket);
+    if (!pending) return;
+    await this.verifyPendingWrite(pending);
+    this.#completeWrite(ticket);
+  }
+
+  #completeWrite(ticket: TicketRef): void {
+    this.#completeWrites.get(ticket)?.();
+    this.#completeWrites.delete(ticket);
+    this.#pendingWrites.delete(ticket);
   }
 
   #propertyPath(ticket: TicketRef): string {
@@ -478,7 +610,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
       "parent",
       "issuelinks",
       "priority",
-      this.#rankField,
+      ...(this.#rankField ? [this.#rankField] : []),
     ];
   }
 

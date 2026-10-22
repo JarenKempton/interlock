@@ -204,6 +204,13 @@ export class StateStore {
     });
   }
 
+  commitRelease(run: Run, claim: Claim, receipt: unknown): void {
+    this.#transaction(() => {
+      this.saveClaim(claim);
+      this.commitRun(run, "released", receipt);
+    });
+  }
+
   claim(ref: ClaimRef): Claim {
     const row = this.#database
       .query<ClaimRow, [string]>("SELECT * FROM claims WHERE ref=?")
@@ -228,6 +235,39 @@ export class StateStore {
         "SELECT state,receipt_json,error_text,occurred_at FROM transaction_steps WHERE run_ref=? ORDER BY id",
       )
       .all(run);
+  }
+
+  pendingWrite(run: RunRef): { id: number; receipt: unknown } | undefined {
+    const row = this.#database
+      .query<{ id: number; state: string; receipt_json: string }, [RunRef]>(
+        "SELECT id,state,receipt_json FROM transaction_steps WHERE run_ref=? AND state IN ('write_pending','write_completed') ORDER BY id DESC LIMIT 1",
+      )
+      .get(run);
+    return row?.state === "write_pending"
+      ? { id: row.id, receipt: JSON.parse(row.receipt_json) }
+      : undefined;
+  }
+
+  beginWrite(run: RunRef, receipt: unknown): number {
+    return this.#database
+      .transaction(() => {
+        if (this.pendingWrite(run))
+          throw new Error("An unfinished write requires verified readback");
+        this.recordStep(run, "write_pending", receipt);
+        const pending = this.pendingWrite(run);
+        if (!pending) throw new Error("Pending write was not recorded");
+        return pending.id;
+      })
+      .immediate();
+  }
+
+  completeWrite(run: RunRef, id: number): void {
+    this.#transaction(() => {
+      const pending = this.pendingWrite(run);
+      if (pending?.id !== id)
+        throw new Error("Pending write changed before completion was recorded");
+      this.recordStep(run, "write_completed", { id });
+    });
   }
 
   recordRecovery(run: RunRef, outcome: string, evidence: unknown): void {

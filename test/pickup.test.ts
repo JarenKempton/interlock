@@ -261,7 +261,7 @@ describe("pickup coordinator", () => {
     tracker.describedCapabilities = capabilities("native_maps", "native_dependencies");
     const { coordinator: subject } = coordinator(tracker);
     await expect(subject.execute(request)).rejects.toThrow(
-      "Unsupported capabilities: atomic_assignment, conditional_update, claim_comments, claim_identity, lease_metadata",
+      "Unsupported capabilities: conditional_update, claim_identity, lease_metadata",
     );
     expect(tracker.snapshotCalls).toBe(0);
     expect(tracker.claimCalls).toBe(0);

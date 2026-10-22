@@ -41,6 +41,14 @@ assertion is not itself proof of the remote outcome.
 
 Pickup persists each transition before beginning the next side effect:
 
+The executable T3 pickup stops after workspace preparation and records the run
+as `claimed`, with launch arguments in its plan. It does not connect T3 to the
+generic launch/stop path below. Preflights are read-only; the local recovery
+intent (including the original snapshot) is journaled before the first remote
+claim write. No workspace or agent side effect precedes the verified lock and
+Jira mirror. Verified compensation marks the run `compensated` and its local
+claim `released`; an uncertain outcome retains recovery evidence.
+
 | From | Operation | Verified result | Failure path |
 | --- | --- | --- | --- |
 | `planning` | Complete preflights; capture snapshot | `claiming` | No tracker mutation |
@@ -70,17 +78,28 @@ by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
 - The ref is `refs/interlock/claims/<KEY>`, validated by `git check-ref-format`.
   There is no fallback namespace: a host that rejects `refs/interlock/*` fails
   the claim with its own rejection.
+- Lock reads and writes require one identical effective fetch and push
+  destination. Divergent or multiple remote URLs fail closed. Literal remotes
+  with applicable push rewriting must use a named remote whose destinations
+  can be verified; compensation cannot infer ownership from another repository.
 - Claim, renew, release and reclaim each append one commit whose message holds
   the claim record, built on the observed tip and sent with an ordinary
   fast-forward push. The remote applies it only while the ref is still at that
   tip, and claim creates the ref only while it is absent. A losing writer gets
-  `ClaimCollisionError`. Forced pushes and ref deletion are never used.
+  `ClaimCollisionError`. Forced pushes, hook bypasses and ref deletion are never used.
 - The lock version is the tip commit, or `absent`. It is the snapshot version
   that claim, renewal and release must match.
 - A push that fails without a definite rejection is resolved with
   `git ls-remote` and the tip's record: our commit means it landed; a different
   tip means a collision; an unchanged tip or an unreadable remote remains
   `AmbiguousTrackerResultError`.
+- An uncertain push retains its candidate commit and previous tip. Further
+  reads through that lock cannot treat an absent or unchanged tip as proof of
+  restoration: an accepted receive may still complete. Compensation leaves
+  `recovery_required`, with the candidate and original snapshot in the run's
+  export, until readback proves the write landed or a competing tip fenced it.
+  Restarting the CLI does not resolve that recovery evidence or authorize a
+  manual lock deletion.
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
   property first, then assignee and `In Progress`, each read back. Restoration
   removes the property last, so a property that no longer names the claim means
@@ -89,6 +108,27 @@ by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
   Verification accepts human changes but no remaining trace of the claim.
   Release restores the mirror before appending the release commit; a refused or
   failed mirror restoration keeps the lock held and requires recovery.
+- A Jira write with a lost response, HTTP 202 or a server error can still be
+  pending. The adapter retains its intended field value and refuses restoration
+  until readback observes that value. The lock stays held while the outcome is
+  unknown. Pickup and release persist the pending write in recovery evidence;
+  a restarted release verifies it before sending another write. Definite
+  request rejections permit compensation, while acknowledged completed writes
+  still require the normal per-field verification.
+- Before dispatching a Jira mutation, pickup and release commit its intent to
+  the local transaction journal. Only a completed response, definite rejection
+  or positive readback closes that journal entry. A process exit leaves an
+  unfinished entry even without an error receipt. Release verifies it before
+  continuing; competing journal writers and stale completions are rejected
+  transactionally. An interrupted older release without this journal requires
+  explicit recovery instead of an automatic retry.
+- Pickup and release hold a separate SQLite process lock for the complete
+  operation on the canonical local ledger, including restoration reads. A
+  competing invocation fails before entering the operation. The operating
+  system releases this exclusion on process exit; the durable Jira write
+  journal still blocks retries whose remote outcome is unknown. Ledger reads
+  remain available. The process lock is local exclusion, not remote ownership;
+  moving or copying an active ledger cannot transfer a running operation.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
   `conditional_update` or `atomic_assignment`.
@@ -108,8 +148,11 @@ ambiguous-failure behavior before enabling live writes. Verification must cover
 each restored field when assignment, metadata, and workflow status use separate
 operations. Concurrent human changes must not be overwritten.
 
-The generic pickup capability requirements include `claim_comments`; that is
-an implementation constraint, not authority to narrate work into a tracker.
+The CLI supplies the Git lock as the pickup claim authority. Its verified
+capability requirements are `conditional_update`, `claim_identity`, and
+`lease_metadata`; Jira need not advertise conditional writes, atomic assignment
+or comments. Existing generic callers can still supply a tracker that provides
+those guarantees itself.
 [Tracker write policy](adr/0002-tracker-write-minimalism.md) keeps ownership in
 structured storage and makes resolution comments optional. Capability checks
 and tests must reflect an adapter's actual behavior.

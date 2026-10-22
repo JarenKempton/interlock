@@ -67,6 +67,35 @@ function claimRequest(
   };
 }
 
+test.each(["landed", "competing"])(
+  "an uncertain push blocks restoration until its outcome is resolved: %s",
+  async (outcome) => {
+    const { fixture, lock, bob: competitor } = await setup();
+    const git = new ScriptedGit(fixture.git);
+    const subject = lock(fixture.alice, { git });
+    let finishPush: (() => Promise<unknown>) | undefined;
+    git.push = async (run) => {
+      finishPush = run;
+      return { exitCode: 128, stdout: "", stderr: "connection lost" };
+    };
+    const claim = claimRequest(alice, "delayed");
+    await expect(subject.claim(claim)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    await expect(subject.read(ticket)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    await expect(subject.restore(ticket, claim.claim)).rejects.toBeInstanceOf(
+      AmbiguousTrackerResultError,
+    );
+    if (!finishPush) throw new Error("Expected a pending push");
+    if (outcome === "competing") await competitor.claim(claimRequest(bob, "winner"));
+    await finishPush();
+    await subject.restore(ticket, claim.claim);
+    const state = await subject.read(ticket);
+    if (outcome === "landed")
+      expect(state.record).toMatchObject({ action: "release", claim: claim.claim });
+    else expect(heldClaim(state)?.claim).toBe(claimRefSchema.parse("interlock-claim:winner"));
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
 describe("Git remote claim lock", () => {
   test(
     "concurrent claims leave exactly one winner and the loser gets a collision",
@@ -199,13 +228,14 @@ describe("Git remote claim lock", () => {
     GIT_TEST_TIMEOUT_MS,
   );
 
-  test(
-    "a dropped connection after the remote applied the push resolves to success",
-    async () => {
+  test.each(["return", "throw"])(
+    "a dropped connection after the remote applied the push resolves to success: %s",
+    async (outcome) => {
       const { fixture, lock } = await setup();
       const scripted = new ScriptedGit(fixture.git);
       scripted.push = async (run) => {
         await run();
+        if (outcome === "throw") throw new Error("connection lost");
         return { exitCode: 128, stdout: "", stderr: "fatal: the remote end hung up unexpectedly" };
       };
       const subject = lock(fixture.alice, { git: scripted });
@@ -290,7 +320,7 @@ describe("Git remote claim lock", () => {
   );
 
   test(
-    "a failing pre-push hook blocks ordinary pushes but not the claim lock",
+    "a failing pre-push hook blocks ordinary pushes and the claim lock",
     async () => {
       const { fixture, alice: subject } = await setup();
       const hook = join(fixture.alice, ".git", "hooks", "pre-push");
@@ -318,13 +348,18 @@ describe("Git remote claim lock", () => {
       expect(ordinary.stderr).toContain("pre-push hook: blocked");
       expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote], fixture.alice)).toBe("");
 
-      await subject.claim(claimRequest(alice, "a"));
-      expect(heldClaim(await subject.read(ticket))?.owner).toBe(alice);
+      await expect(subject.claim(claimRequest(alice, "a"))).rejects.toBeInstanceOf(
+        AmbiguousTrackerResultError,
+      );
+      await expect(subject.read(ticket)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+      expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote, ref], fixture.alice)).toBe(
+        "",
+      );
     },
     GIT_TEST_TIMEOUT_MS,
   );
 
-  test("only the claim lock push skips client hooks", async () => {
+  test("no production push skips client hooks", async () => {
     const flag = ["--no", "verify"].join("-");
     const root = join(import.meta.dir, "..", "src");
     const files = await readdir(root, { recursive: true });
@@ -333,7 +368,7 @@ describe("Git remote claim lock", () => {
       const occurrences = (await readFile(join(root, file), "utf8")).split(flag).length - 1;
       for (let index = 0; index < occurrences; index += 1) callers.push(file.replaceAll("\\", "/"));
     }
-    expect(callers).toEqual(["adapters/claims/git-lock.ts"]);
+    expect(callers).toEqual([]);
   });
 
   test(
@@ -355,3 +390,100 @@ describe("Git remote claim lock", () => {
     GIT_TEST_TIMEOUT_MS,
   );
 });
+
+test.each([
+  "pushurl",
+  "multiple-pushurls",
+  "multiple-fetchurls",
+  "push-rewrite",
+  "literal-rewrite",
+])(
+  "claim refuses divergent or ambiguous effective destinations: %s",
+  async (configuration) => {
+    const { fixture, lock } = await setup();
+    const other = join(fixture.alice, "other.git");
+    await checkedGit(fixture.git, ["init", "--bare", "--quiet", other], fixture.alice);
+    await checkedGit(fixture.git, ["remote", "add", "origin", fixture.remote], fixture.alice);
+    if (configuration === "pushurl" || configuration === "multiple-pushurls") {
+      if (configuration === "multiple-pushurls")
+        await checkedGit(
+          fixture.git,
+          ["config", "--add", "remote.origin.pushurl", fixture.remote],
+          fixture.alice,
+        );
+      await checkedGit(
+        fixture.git,
+        ["config", "--add", "remote.origin.pushurl", other],
+        fixture.alice,
+      );
+    } else if (configuration === "multiple-fetchurls") {
+      await checkedGit(fixture.git, ["config", "--add", "remote.origin.url", other], fixture.alice);
+    } else {
+      await checkedGit(
+        fixture.git,
+        ["config", `url.${other}.pushInsteadOf`, fixture.remote],
+        fixture.alice,
+      );
+    }
+    const subject = lock(fixture.alice, {
+      remote: configuration === "literal-rewrite" ? fixture.remote : "origin",
+    });
+    await expect(subject.claim(claimRequest(alice, "redirected"))).rejects.toThrow();
+    for (const remote of [fixture.remote, other])
+      expect(await checkedGit(fixture.git, ["ls-remote", remote, ref], fixture.alice)).toBe("");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a matching explicit push URL permits verified claim and release",
+  async () => {
+    const { fixture, lock } = await setup();
+    await checkedGit(fixture.git, ["remote", "add", "origin", fixture.remote], fixture.alice);
+    await checkedGit(
+      fixture.git,
+      ["remote", "set-url", "--push", "origin", fixture.remote],
+      fixture.alice,
+    );
+    const subject = lock(fixture.alice, { remote: "origin" });
+    const claim = claimRequest(alice, "same-destination");
+    await subject.claim(claim);
+    expect(heldClaim(await subject.read(ticket))?.claim).toBe(claim.claim);
+    await subject.restore(ticket, claim.claim);
+    expect((await subject.read(ticket)).record?.action).toBe("release");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "command-scoped remote URLs cannot bypass destination verification",
+  async () => {
+    const { fixture, lock } = await setup();
+    const other = join(fixture.alice, "other.git");
+    await checkedGit(fixture.git, ["init", "--bare", "--quiet", other], fixture.alice);
+    const subject = lock(fixture.alice, {
+      remote: "ephemeral",
+      git: {
+        run(argv, cwd) {
+          return fixture.git.run(
+            [
+              "git",
+              "-c",
+              `remote.ephemeral.url=${fixture.remote}`,
+              "-c",
+              `remote.ephemeral.pushurl=${other}`,
+              ...argv.slice(1),
+            ],
+            cwd,
+          );
+        },
+      },
+    });
+    await expect(subject.claim(claimRequest(alice, "scoped-remote"))).rejects.toThrow(
+      "fetch destination cannot be verified",
+    );
+    for (const remote of [fixture.remote, other])
+      expect(await checkedGit(fixture.git, ["ls-remote", remote, ref], fixture.alice)).toBe("");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

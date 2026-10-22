@@ -336,10 +336,10 @@ function claimRequest(claimOwner: ActorRef, id: string, expectedVersion: string)
   };
 }
 
-async function lockedJira(api: FakeJira) {
+async function lockedJira(api: FakeJira, firstTracker = adapter(api)) {
   const fixture = await gitRemoteFixture();
   remotes.push(fixture);
-  const locked = (repository: string) =>
+  const locked = (repository: string, tracker = adapter(api)) =>
     new GitLockedTrackerAdapter(
       new GitClaimLock({
         repository,
@@ -347,9 +347,9 @@ async function lockedJira(api: FakeJira) {
         clock: fixture.clock,
         git: fixture.git,
       }),
-      adapter(api),
+      tracker,
     );
-  return { first: locked(fixture.alice), second: locked(fixture.bob) };
+  return { first: locked(fixture.alice, firstTracker), second: locked(fixture.bob) };
 }
 
 describe("Jira mirror behind the Git claim lock", () => {
@@ -433,16 +433,16 @@ describe("Jira mirror behind the Git claim lock", () => {
   );
 
   test(
-    "a mirror failure after the lock is held compensates Jira and the lock",
+    "a definite mirror rejection after the lock is held compensates Jira and the lock",
     async () => {
       const api = new FakeJira();
       const { first } = await lockedJira(api);
       const original = await first.snapshotClaimState(ticket);
       const request = claimRequest(owner, "c", original.version);
       api.fail = (method, path) =>
-        method === "PUT" && path.endsWith("/assignee") ? 500 : undefined;
+        method === "PUT" && path.endsWith("/assignee") ? 403 : undefined;
       const failure = first.claim(request);
-      await expect(failure).rejects.toThrow("Jira assign issue failed (500)");
+      await expect(failure).rejects.toThrow("Jira assign issue failed (403)");
       await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
       api.fail = () => undefined;
       const restore: RestoreClaimRequest = {
@@ -590,8 +590,7 @@ describe("Jira basic-auth transport", () => {
     });
     const result = await subject.getTicket(ticket);
     expect(result).toMatchObject({ title: "Live summary", description: "Live description" });
-    expect(calls.map((call) => new URL(call.url).origin)).toEqual([
-      "https://responsibid.atlassian.net",
+    expect([...new Set(calls.map((call) => new URL(call.url).origin))]).toEqual([
       "https://responsibid.atlassian.net",
     ]);
     for (const call of calls)
@@ -633,4 +632,129 @@ describe("Jira basic-auth transport", () => {
     );
     expect(await transport.request("GET", "/rest/api/3/myself")).toEqual({ status: 502 });
   });
+});
+
+test.each([
+  ["release", "status"],
+  ["release", "assignee"],
+  ["release", "property"],
+  ["compensation", "status"],
+  ["compensation", "assignee"],
+  ["compensation", "property"],
+])(
+  "%s retains ownership when Jira acknowledges a no-op %s restoration",
+  async (operation, field) => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "guarded", original.version);
+    await first.claim(request);
+    const held = await first.snapshotClaimState(ticket);
+    api.fail = (method, path) =>
+      (field === "status" && method === "POST" && path.endsWith("/transitions")) ||
+      (field === "assignee" && method === "PUT" && path.endsWith("/assignee")) ||
+      (field === "property" && method === "DELETE" && path.includes("/properties/"))
+        ? 204
+        : undefined;
+    const restore = {
+      ...request,
+      claimedOwner: owner,
+      originalSnapshot: original,
+      expectedVersion: held.version,
+      authorizedBy: owner,
+    };
+    await expect(
+      operation === "release" ? first.releaseClaim(restore) : first.restoreClaimState(restore),
+    ).rejects.toThrow();
+    expect((await first.snapshotClaimState(ticket)).version).toBe(held.version);
+    expect(api.claimProperty).toMatchObject({ claim: request.claim });
+    api.fail = () => undefined;
+    if (operation === "release") await first.releaseClaim(restore);
+    else await first.restoreClaimState(restore);
+    await first.verifyRestored(restore);
+    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each([202, 500])(
+  "Jira HTTP %s cannot establish that a pending write is finished",
+  async (status) => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "pending-response", original.version);
+    api.fail = (method, path) =>
+      method === "PUT" && path.endsWith("/assignee") ? status : undefined;
+    await expect(first.claim(request)).rejects.toThrow("outcome is unknown");
+    const held = await first.snapshotClaimState(ticket);
+    const restore = {
+      ticket,
+      claim: request.claim,
+      claimedOwner: owner,
+      originalSnapshot: original,
+    };
+    await expect(first.restoreClaimState(restore)).rejects.toThrow("outcome is unknown");
+    expect((await first.snapshotClaimState(ticket)).version).toBe(held.version);
+    expect(api.claimProperty).toMatchObject({ claim: request.claim });
+    reassign(api, owner);
+    api.fail = () => undefined;
+    await first.restoreClaimState(restore);
+    await first.verifyRestored(restore);
+    expect(api.mirror()).toEqual({ claim: null, assignee: null, status: "To Do" });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each(["release", "compensation"])(
+  "%s verifies the tracker restoration before dropping the Git lock",
+  async (operation) => {
+    const api = new FakeJira();
+    const tracker = adapter(api);
+    const { first } = await lockedJira(api, tracker);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "verify-restore", original.version);
+    await first.claim(request);
+    const held = await first.snapshotClaimState(ticket);
+    tracker.restoreClaimState = async () => {};
+    const restore = {
+      ...request,
+      claimedOwner: owner,
+      originalSnapshot: original,
+      expectedVersion: held.version,
+      authorizedBy: owner,
+    };
+    await expect(
+      operation === "release" ? first.releaseClaim(restore) : first.restoreClaimState(restore),
+    ).rejects.toThrow("Jira restored state could not be verified");
+    expect((await first.snapshotClaimState(ticket)).version).toBe(held.version);
+    expect(api.claimProperty).toMatchObject({ claim: request.claim });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test("an acknowledged no-op claim property write cannot advance assignment or status", async () => {
+  const api = new FakeJira();
+  api.fail = (method, path) =>
+    method === "PUT" && path.includes("/properties/") ? 204 : undefined;
+  await expect(adapter(api).claim(claimRequest(owner, "property", "v1"))).rejects.toThrow(
+    "Jira claim property was not verified",
+  );
+  expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+  expect(api.mutationCount()).toBe(1);
+});
+
+test("Jira mirror without read configuration cannot advertise or perform normalized reads", async () => {
+  const api = new FakeJira();
+  const subject = new JiraTrackerAdapter({
+    instance: "responsibid",
+    workspace: "JWB",
+    transport: api,
+  });
+  expect(await subject.describe()).toEqual(capabilities());
+  await expect(subject.getTicket(ticket)).rejects.toThrow("normalized reads require");
+  await expect(subject.listMapTickets(map)).rejects.toThrow("normalized reads require");
+  expect(api.requests).toEqual([]);
+  expect((await subject.snapshotClaimState(ticket)).payload).toEqual(snapshot().payload);
+  expect(api.requests[0]?.path).not.toContain("customfield");
 });

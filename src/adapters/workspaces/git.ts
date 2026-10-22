@@ -83,13 +83,17 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
 
   async preflight(ticket: Ticket): Promise<void> {
     ticketIdentity(ticket.ref);
+    await this.preflightRepository();
+    await this.#gitChecked(["git", "rev-parse", "--verify", this.#repository.baseBranch]);
+  }
+
+  async preflightRepository(): Promise<void> {
     const topLevel = resolve(await this.#gitChecked(["git", "rev-parse", "--show-toplevel"]));
     if (topLevel !== this.#repository.path) {
       throw new WorkspaceConflictError(
         `Repository path mismatch: expected ${this.#repository.path}, found ${topLevel}`,
       );
     }
-    await this.#gitChecked(["git", "rev-parse", "--verify", this.#repository.baseBranch]);
     const actualRemote = (await this.#gitChecked(["git", "remote", "get-url", "origin"])).trim();
     if (normalizeGitRemote(actualRemote) !== normalizeGitRemote(this.#repository.remote)) {
       throw new WorkspaceConflictError(
@@ -178,7 +182,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
       this.#fileSystem.realpath(this.#repository.worktreeRoot),
       this.#fileSystem.realpath(canonical.path),
     ]);
-    const expectedTarget = resolve(root, ticketIdentity(workspace.ticket));
+    const expectedTarget = resolve(root, workspaceIdentity(this.#repository, workspace.ticket));
     if (target !== expectedTarget) {
       throw new WorkspaceConflictError(
         `Workspace resolves outside its canonical ownership boundary: ${canonical.path}`,
@@ -216,12 +220,20 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
 }
 
 function canonicalPlan(repository: RepositorySpec, ticket: TicketRef): WorkspacePlan {
-  const identity = ticketIdentity(ticket);
+  const identity = workspaceIdentity(repository, ticket);
   return {
     ticket,
     path: resolve(repository.worktreeRoot, identity),
-    branch: `interlock/${identity}`,
+    branch: `${repository.ticketKeyWorkspaces ? "task" : "interlock"}/${identity}`,
   };
+}
+
+function workspaceIdentity(repository: RepositorySpec, ticket: TicketRef): string {
+  if (!repository.ticketKeyWorkspaces) return ticketIdentity(ticket);
+  const key = parseRef(ticket).nativeId;
+  if (!key || !/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(key))
+    throw new WorkspaceConflictError("Workspace requires a canonical ticket key");
+  return key;
 }
 
 function prepared(plan: WorkspacePlan): PreparedGitWorkspace {
