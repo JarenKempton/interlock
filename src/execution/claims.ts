@@ -24,10 +24,10 @@ export class ClaimCoordinator {
 
   async snapshotClaimState(
     ticket: TicketRef,
-    validate?: (ticket: Ticket) => void,
+    validate?: (ticket: Ticket) => void | Promise<void>,
   ): Promise<TrackerSnapshot> {
     const current = await this.tracker.read(ticket);
-    validate?.(current.ticket);
+    await validate?.(current.ticket);
     const tracker = current.snapshot;
     const lock = await this.lock.read(ticket);
     return { version: lock.version, payload: { lock, tracker } };

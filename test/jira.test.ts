@@ -905,3 +905,23 @@ test.each(["resume", "compensate"])(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test("Jira mirror without read configuration cannot advertise or perform normalized reads", async () => {
+  const api = new FakeJira();
+  const subject = new JiraTrackerAdapter({
+    instance: "responsibid",
+    workspace: "JWB",
+    transport: api,
+  });
+  expect(await subject.describe()).toEqual(capabilities());
+  await expect(subject.read(ticket)).rejects.toThrow("normalized reads require");
+  await expect(subject.list_work(map)).rejects.toThrow("normalized reads require");
+  expect(api.requests).toEqual([]);
+  const claim = claimRequest(owner, "c", "absent");
+  await subject.apply(claim);
+  await subject.verify({ ...claim, state: "applied" });
+  await subject.restore(restoreRequest());
+  await subject.verify({ ...restoreRequest(), state: "restored" });
+  expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+  expect(api.requests[0]?.path).not.toContain("customfield");
+});

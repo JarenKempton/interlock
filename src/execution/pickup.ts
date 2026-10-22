@@ -59,8 +59,8 @@ export class PickupResultError extends Error {
 export interface PickupCoordinatorOptions {
   tracker: Tracker;
   claimLock: RecoverableClaimLock;
-  validateTicket?: (ticket: Ticket) => void;
-  beforeClaim?: () => void;
+  validateTicket?: (ticket: Ticket) => void | Promise<void>;
+  beforeClaim?: () => void | Promise<void>;
   workspace: WorkspaceAdapter;
   harness?: HarnessAdapter;
   ledger: Ledger;
@@ -112,7 +112,7 @@ export class PickupCoordinator {
       updatedAt: now.toISOString(),
     };
     const ticket = (await this.#options.tracker.read(request.ticket)).ticket;
-    this.#options.validateTicket?.(ticket);
+    await this.#options.validateTicket?.(ticket);
     if (ticket.state !== "open" || ticket.assignee !== undefined) {
       throw new Error("Ticket is not claimable");
     }
@@ -158,7 +158,7 @@ export class PickupCoordinator {
     });
     try {
       try {
-        this.#options.beforeClaim?.();
+        await this.#options.beforeClaim?.();
         await this.#claims.claim(claimRequest);
       } catch (error) {
         if (error instanceof ClaimCollisionError) {

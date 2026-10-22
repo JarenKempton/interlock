@@ -23,9 +23,10 @@ export class PickupJira implements JiraTransport {
       parent: { key: "TEST-470" },
       priority: { name: "Medium" },
       customfield_rank: "0|a:",
-      issuelinks: [],
+      issuelinks: z.array(z.unknown()).parse([]),
     },
   };
+  relatedIssues: PickupJira["issue"][] = [];
   property: unknown = null;
   owner = "test-owner";
   calls: string[] = [];
@@ -45,9 +46,14 @@ export class PickupJira implements JiraTransport {
       response = { status: 200, body: [{ name: "Medium" }] };
     else if (path === "/rest/api/3/myself")
       response = { status: 200, body: { accountId: this.owner } };
-    else if (path === "/rest/api/3/search/jql")
-      response = { status: 200, body: { issues: [this.issue], isLast: true } };
-    else if (path.endsWith("/remotelink") && method === "GET") response = { status: 200, body: [] };
+    else if (path === "/rest/api/3/search/jql") {
+      const { jql } = z.object({ jql: z.string() }).parse(body);
+      const issues = [this.issue, ...this.relatedIssues].filter(
+        (issue) => jql === `parent = ${JSON.stringify(issue.fields.parent?.key)} ORDER BY Rank ASC`,
+      );
+      response = { status: 200, body: { issues, isLast: true } };
+    } else if (path.endsWith("/remotelink") && method === "GET")
+      response = { status: 200, body: [] };
     else if (path.includes("/properties/")) {
       if (method === "PUT") this.property = body;
       if (method === "DELETE") this.property = null;
@@ -77,9 +83,12 @@ export class PickupJira implements JiraTransport {
         this.issue.fields.status.name = transition.id === "progress" ? "In Progress" : "To Do";
         response = { status: 204 };
       }
-    } else if (method === "GET" && path.startsWith("/rest/api/3/issue/TEST-492?"))
-      response = { status: 200, body: structuredClone(this.issue) };
-    else throw new Error(`Unexpected fake Jira operation: ${method} ${path}`);
+    } else if (method === "GET" && path.startsWith("/rest/api/3/issue/")) {
+      const issue = [this.issue, ...this.relatedIssues].find((issue) =>
+        path.startsWith(`/rest/api/3/issue/${issue.key}?`),
+      );
+      response = issue ? { status: 200, body: structuredClone(issue) } : { status: 404 };
+    } else throw new Error(`Unexpected fake Jira operation: ${method} ${path}`);
     this.fail?.(method, path, true);
     return response;
   }

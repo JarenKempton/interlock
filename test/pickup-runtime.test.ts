@@ -525,3 +525,133 @@ test(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+function addBlocker(f: Awaited<ReturnType<typeof fixture>>, closed: boolean, external: boolean) {
+  const blocker = structuredClone(f.jira.issue);
+  blocker.key = "TEST-491";
+  blocker.fields.issuelinks = [];
+  blocker.fields.status = closed
+    ? { name: "Done", statusCategory: { key: "done" } }
+    : { name: "To Do", statusCategory: { key: "new" } };
+  if (external) blocker.fields.parent.key = "TEST-471";
+  f.jira.relatedIssues.push(blocker);
+  f.jira.issue.fields.issuelinks.push({
+    type: { inward: "is blocked by", outward: "blocks" },
+    inwardIssue: { key: blocker.key, fields: { status: blocker.fields.status } },
+  });
+  return blocker;
+}
+
+test.each([
+  [false, false],
+  [false, true],
+  [true, false],
+  [true, true],
+])(
+  "pickup rejects an unfinished blocker (dry-run %s, external map %s) before side effects",
+  async (dryRun, external) => {
+    const f = await fixture();
+    addBlocker(f, false, external);
+    await expect(
+      createApplication(f.services).pickup.execute({ ...f.input, "dry-run": dryRun }),
+    ).rejects.toThrow("not available");
+    expect((await lock(f).read(ref)).version).toBe("absent");
+    expect(f.jira.property).toBeNull();
+    expect(f.jira.issue.fields.status.name).toBe("To Do");
+    expect(existsSync(f.state)).toBe(false);
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each([false, true])(
+  "pickup accepts a completed blocker (external map %s)",
+  async (external) => {
+    const f = await fixture();
+    addBlocker(f, true, external);
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    expect(picked.state).toBe("claimed");
+    expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each([false, true])(
+  "pickup fails closed when blocker read is missing or unavailable (%s)",
+  async (unavailable) => {
+    const f = await fixture();
+    addBlocker(f, true, true);
+    if (unavailable) {
+      f.jira.fail = (_method, path) => {
+        if (path.includes("/issue/TEST-491?")) throw new Error("blocker unreadable");
+      };
+    } else f.jira.relatedIssues = [];
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow();
+    expect((await lock(f).read(ref)).version).toBe("absent");
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each([false, true])(
+  "pickup rechecks blockers during preflight and before mirroring (lock acquired %s)",
+  async (afterLock) => {
+    const f = await fixture();
+    const blocker = addBlocker(f, true, true);
+    const reopen = () => {
+      blocker.fields.status = { name: "To Do", statusCategory: { key: "new" } };
+    };
+    if (afterLock) {
+      f.services.execution = {
+        ...f.services.execution,
+        git: {
+          async run(argv, cwd) {
+            const result = await f.git.run(argv, cwd);
+            if (argv[1] === "push") reopen();
+            return result;
+          },
+        },
+      };
+    } else {
+      let reads = 0;
+      f.jira.fail = (method, path, after) => {
+        if (!after && method === "GET" && path.includes("/issue/TEST-491?") && ++reads === 2)
+          reopen();
+      };
+    }
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "not available",
+    );
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(f.jira.property).toBeNull();
+    expect(f.jira.issue.fields.status.name).toBe("To Do");
+    expect(existsSync(f.worktree)).toBe(false);
+    if (afterLock) expect(inspect(f, (store) => store.listRuns()[0]?.status)).toBe("compensated");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "release needs no Rank, priority or map discovery",
+  async () => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    Reflect.deleteProperty(f.jira.issue.fields, "parent");
+    Reflect.deleteProperty(f.jira.issue.fields, "customfield_rank");
+    Reflect.deleteProperty(f.jira.issue.fields, "priority");
+    f.jira.fail = (_method, path) => {
+      if (["/rest/api/3/field", "/rest/api/3/priority", "/rest/api/3/search/jql"].includes(path))
+        throw new Error("pickup discovery unavailable");
+    };
+    expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(f.jira.property).toBeNull();
+    expect(f.jira.issue.fields.assignee).toBeNull();
+    expect(f.jira.issue.fields.status.name).toBe("To Do");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

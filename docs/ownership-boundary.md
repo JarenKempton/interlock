@@ -42,6 +42,10 @@ the argument object for `t3_thread_launch`, including `existing_worktree`, title
 message and model selection. The caller invokes that tool and retains its
 returned thread identity; pickup does not launch an agent or claim it did.
 
+Pickup checks frontier eligibility, hydrating blockers across maps before
+claiming and again before writing the mirror. Unfinished or unreadable blockers
+fail closed.
+
 The implementer uses resolved personal/project settings unless
 `[roles.implementer]` supplies `provider`, `model`, and optional `options`.
 `[roles.reviewers.<lens>]` uses the same fields for each reviewer lens.
@@ -61,7 +65,8 @@ claim statuses fail closed.
 `claim release CLAIM --json` uses the saved execution configuration and verifies
 the authenticated owner, remote lock and restored Jira fields. It preserves the
 workspace, including dirty work. Release does not require the ticket's current
-parent map or the original workspace base branch. A lost local release receipt can be retried;
+parent map, Rank/priority discovery or the original workspace base branch.
+A lost local release receipt can be retried;
 an uncertain remote result remains `recovery_required`. `runs list`, `runs show`
 and `runs export` expose local run evidence; export includes configuration,
 claim, plan steps and recovery details. These commands accept `--state PATH`
