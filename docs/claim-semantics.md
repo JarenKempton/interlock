@@ -114,6 +114,13 @@ claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
   Verification accepts human changes but no remaining trace of the claim.
   Release restores and verifies the mirror before appending the release commit; a refused or
   failed mirror restoration keeps the lock held and requires recovery.
+- A Jira write with a lost response, HTTP 202 or a server error can still be
+  pending. The adapter retains its intended field value and refuses restoration
+  until readback observes that value. The lock stays held while the outcome is
+  unknown. Pickup and release persist the pending write in recovery evidence;
+  a restarted release verifies it before sending another write. Definite
+  request rejections permit compensation, while acknowledged completed writes
+  still require the normal per-field verification.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
   `conditional_update` or `atomic_assignment`.

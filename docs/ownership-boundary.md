@@ -76,6 +76,9 @@ an uncertain remote result remains `recovery_required`. `runs list`, `runs show`
 and `runs export` expose local run evidence; export includes configuration,
 claim, plan steps and recovery details. These commands accept `--state PATH`
 when an explicit local ledger is needed. Closing a T3 thread is not release.
+An uncertain Jira write's intended field value is retained in recovery evidence.
+Release retries first verify that pending write completed; unchanged pre-write
+state cannot establish restoration or authorize another write.
 
 Selection must identify one ticket or an explicit selection policy. Secrets
 cross through credential-provider handles or scoped secure channels, never

@@ -441,16 +441,16 @@ describe("Jira mirror behind the Git claim lock", () => {
   );
 
   test(
-    "a mirror failure after the lock is held compensates Jira and the lock",
+    "a definite mirror rejection after the lock is held compensates Jira and the lock",
     async () => {
       const api = new FakeJira();
       const { first } = await lockedJira(api);
       const original = await first.snapshotClaimState(ticket);
       const request = claimRequest(owner, "c", original.version);
       api.fail = (method, path) =>
-        method === "PUT" && path.endsWith("/assignee") ? 500 : undefined;
+        method === "PUT" && path.endsWith("/assignee") ? 403 : undefined;
       const failure = first.claim(request);
-      await expect(failure).rejects.toThrow("Jira assign issue failed (500)");
+      await expect(failure).rejects.toThrow("Jira assign issue failed (403)");
       await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
       api.fail = () => undefined;
       const restore: RestoreClaimRequest = {
@@ -798,6 +798,35 @@ test.each([
     else await first.restoreClaimState(restore);
     await first.verifyRestored(restore);
     expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each([202, 500])(
+  "Jira HTTP %s cannot establish that a pending write is finished",
+  async (status) => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "pending-response", original.version);
+    api.fail = (method, path) =>
+      method === "PUT" && path.endsWith("/assignee") ? status : undefined;
+    await expect(first.claim(request)).rejects.toThrow("outcome is unknown");
+    const held = await first.snapshotClaimState(ticket);
+    const restore = {
+      ticket,
+      claim: request.claim,
+      claimedOwner: owner,
+      originalSnapshot: original,
+    };
+    await expect(first.restoreClaimState(restore)).rejects.toThrow("outcome is unknown");
+    expect((await first.snapshotClaimState(ticket)).version).toBe(held.version);
+    expect(api.claimProperty).toMatchObject({ claim: request.claim });
+    reassign(api, owner);
+    api.fail = () => undefined;
+    await first.restoreClaimState(restore);
+    await first.verifyRestored(restore);
+    expect(api.mirror()).toEqual({ claim: null, assignee: null, status: "To Do" });
   },
   GIT_TEST_TIMEOUT_MS,
 );

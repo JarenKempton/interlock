@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { z } from "zod";
+import { PendingJiraWriteError, pendingJiraWriteSchema } from "../adapters/trackers/jira.ts";
 import { GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { parseRef } from "../domain/reference.ts";
 import { claimRef } from "../persistence/command-store.ts";
@@ -63,11 +64,22 @@ export async function releaseClaim(
       before.record.owner === claim.humanOwner;
     if (!released && (claim.status !== "active" || before.version !== claim.currentVersion))
       throw new Error("Claim lock changed; release refused");
+    const latest =
+      run.status === "recovery_required" ? store.recoveryEvidence(run.ref).at(-1) : undefined;
+    const pendingJiraWrite = latest
+      ? z
+          .object({ pendingJiraWrite: pendingJiraWriteSchema.optional() })
+          .parse(JSON.parse(z.object({ evidence_json: z.string() }).parse(latest).evidence_json))
+          .pendingJiraWrite
+      : undefined;
+    if (pendingJiraWrite && pendingJiraWrite.ticket !== claim.ticket)
+      throw new Error("Pending Jira write ticket does not match the claim");
     store.recordStep(run.ref, "releasing", {
       claim: claim.ref,
       expectedVersion: claim.currentVersion,
     });
     try {
+      if (pendingJiraWrite) await jira.tracker.verifyPendingWrite(pendingJiraWrite);
       if (!released) await claims.releaseClaim(request);
       await claims.verifyReleased(request);
       const verified = await claimLock.read(claim.ticket);
@@ -93,6 +105,7 @@ export async function releaseClaim(
         command: `interlock runs export ${run.ref}`,
         originalSnapshot: claim.previousState,
         owner: claim.humanOwner,
+        ...(error instanceof PendingJiraWriteError ? { pendingJiraWrite: error.pendingWrite } : {}),
       });
       throw new Error(`Release requires recovery; interlock runs export ${run.ref}`, {
         cause: error,

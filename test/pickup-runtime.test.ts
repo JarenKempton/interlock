@@ -207,6 +207,40 @@ test(
 );
 
 test.each(["property", "assignment", "transition"])(
+  "a delayed Jira %s claim write retains the lock and recovery evidence",
+  async (stage) => {
+    const f = await fixture();
+    const request = f.jira.request.bind(f.jira);
+    let finish: (() => Promise<unknown>) | undefined;
+    f.jira.request = async (method, path, body) => {
+      if (
+        !finish &&
+        ((stage === "property" && method === "PUT" && path.includes("/properties/")) ||
+          (stage === "assignment" && method === "PUT" && path.endsWith("/assignee")) ||
+          (stage === "transition" && method === "POST" && path.endsWith("/transitions")))
+      ) {
+        finish = () => request(method, path, body);
+        throw new Error("Accepted Jira write remains pending");
+      }
+      return request(method, path, body);
+    };
+    const failure = await createApplication(f.services)
+      .pickup.execute(f.input)
+      .catch((error) => error);
+    if (!(failure instanceof PickupResultError)) throw new Error("Expected pickup failure");
+    expect(failure.receipt.state).toBe("recovery_required");
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(failure.receipt.claim);
+    if (!finish) throw new Error("Expected pending Jira write");
+    await finish();
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(failure.receipt.claim);
+    expect(inspect(f, (s) => s.run(failure.receipt.run)).status).toBe("recovery_required");
+    expect(inspect(f, (s) => s.recoveryEvidence(failure.receipt.run))).toHaveLength(1);
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each(["property", "assignment", "transition"])(
   "ambiguous Jira %s response compensates the real lock and mirror",
   async (step) => {
     const f = await fixture();
@@ -449,6 +483,107 @@ test(
     expect((await lock(f).read(ref)).record?.action).toBe("release");
     expect(f.jira.property).toBeNull();
     expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each(["property", "assignment", "transition"])(
+  "a delayed Jira %s compensation write survives restart in recovery evidence",
+  async (stage) => {
+    const f = await fixture();
+    let compensating = false;
+    f.services.execution = {
+      ...f.services.execution,
+      git: {
+        async run(argv, cwd) {
+          if (argv[1] === "worktree" && argv[2] === "add") {
+            compensating = true;
+            return { exitCode: 1, stdout: "", stderr: "workspace preparation failed" };
+          }
+          return f.git.run(argv, cwd);
+        },
+      },
+    };
+    const request = f.jira.request.bind(f.jira);
+    let finish: (() => Promise<unknown>) | undefined;
+    f.jira.request = async (method, path, body) => {
+      if (
+        compensating &&
+        !finish &&
+        ((stage === "property" && method === "DELETE" && path.includes("/properties/")) ||
+          (stage === "assignment" && method === "PUT" && path.endsWith("/assignee")) ||
+          (stage === "transition" && method === "POST" && path.endsWith("/transitions")))
+      ) {
+        finish = () => request(method, path, body);
+        throw new Error("Accepted compensation remains pending");
+      }
+      return request(method, path, body);
+    };
+    const failure = await createApplication(f.services)
+      .pickup.execute(f.input)
+      .catch((error) => error);
+    if (!(failure instanceof PickupResultError)) throw new Error("Expected pickup failure");
+    expect(failure.receipt.state).toBe("recovery_required");
+    const claim = failure.receipt.claim;
+    await expect(createApplication(f.services).claim.release.execute({ claim })).rejects.toThrow(
+      "requires recovery",
+    );
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(claim);
+    if (!finish) throw new Error("Expected pending compensation");
+    await finish();
+    expect((await createApplication(f.services).claim.release.execute({ claim })).state).toBe(
+      "released",
+    );
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(f.jira.property).toBeNull();
+    expect(f.jira.issue.fields.assignee).toBeNull();
+    expect(f.jira.issue.fields.status.name).toBe("To Do");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each(["property", "assignment", "transition"])(
+  "a delayed Jira %s release write blocks restart retries until it completes",
+  async (stage) => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claim");
+    const request = f.jira.request.bind(f.jira);
+    let finish: (() => Promise<unknown>) | undefined;
+    f.jira.request = async (method, path, body) => {
+      if (
+        !finish &&
+        ((stage === "property" && method === "DELETE" && path.includes("/properties/")) ||
+          (stage === "assignment" && method === "PUT" && path.endsWith("/assignee")) ||
+          (stage === "transition" && method === "POST" && path.endsWith("/transitions")))
+      ) {
+        finish = () => request(method, path, body);
+        throw new Error("Accepted restoration remains pending");
+      }
+      return request(method, path, body);
+    };
+    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+      "requires recovery",
+    );
+    const writes = f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call));
+    await expect(
+      createApplication(f.services).claim.release.execute({ claim: picked.claim }),
+    ).rejects.toThrow("requires recovery");
+    expect(f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call))).toEqual(
+      writes,
+    );
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(picked.claim);
+    expect(inspect(f, (s) => s.run(picked.run)).status).toBe("recovery_required");
+    if (!finish) throw new Error("Expected pending Jira write");
+    await finish();
+    expect(
+      (await createApplication(f.services).claim.release.execute({ claim: picked.claim })).state,
+    ).toBe("released");
+    expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
+    expect(f.jira.property).toBeNull();
+    expect(f.jira.issue.fields.assignee).toBeNull();
+    expect(f.jira.issue.fields.status.name).toBe("To Do");
   },
   GIT_TEST_TIMEOUT_MS,
 );
