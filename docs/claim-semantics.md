@@ -73,7 +73,9 @@ and prevents duplicate launch.
 Trackers without a conditional write, such as Jira Cloud, claim through an
 append-only lock ref on the repository's Git remote:
 [`GitClaimLock`](../src/adapters/claims/git-lock.ts), composed with the tracker
-by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
+by the portable [`ClaimCoordinator`](../src/execution/claims.ts). The coordinator
+does not advertise tracker capabilities: ownership writes go to the lock, and
+claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
 
 - The ref is `refs/interlock/claims/<KEY>`, validated by `git check-ref-format`.
   There is no fallback namespace: a host that rejects `refs/interlock/*` fails
@@ -95,14 +97,16 @@ by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
   none of its writes remain. Otherwise it refuses assignee or status changes
   made outside Interlock and restores status, assignee, then the property.
   Verification accepts human changes but no remaining trace of the claim.
-  Release restores the mirror before appending the release commit; a refused or
+  Release restores and verifies the mirror before appending the release commit; a refused or
   failed mirror restoration keeps the lock held and requires recovery.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
   `conditional_update` or `atomic_assignment`.
 
-[Lock tests](../test/git-claim-lock.test.ts) run against a real local bare
-remote; [Jira tests](../test/jira.test.ts) cover the mirror and composition.
+[Lock tests](../test/git-claim-lock.test.ts) and
+[portable lock conformance](../test/claim-lock-conformance.test.ts) run against
+real local bare remotes; [Jira tests](../test/jira.test.ts) cover the mirror,
+composition, and portable tracker conformance with an injected transport.
 
 ## Tracker guarantees
 

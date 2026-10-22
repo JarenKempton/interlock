@@ -122,7 +122,6 @@ export interface Claim {
   claimedAt: string;
   leaseExpiresAt: string;
   status: ClaimStatus;
-  /** Latest tracker version verified for this claim; used to guard renewal/release. */
   currentVersion?: string;
   supersedes?: ClaimRef;
   supersededBy?: ClaimRef;

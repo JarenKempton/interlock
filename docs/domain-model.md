@@ -45,6 +45,8 @@ normalized tickets; `read(ticket)` returns the ticket, an opaque restoration
 snapshot, and artifact URLs. These reads never claim work or advance status.
 The snapshot's revision is evidence for the tracker, not a conditional lock
 version. Consumers must not infer compare-and-swap from it.
+The persisted claim's `currentVersion` is the verified lock version; the original
+tracker snapshot remains nested in its recovery envelope for existing ledgers.
 
 `TrackerMirror.apply` mirrors an already-held lock's claim, run, and human owner.
 `verify` explicitly distinguishes applied from restored expectations. `restore`

@@ -9,6 +9,8 @@ import {
   type JiraTransport,
   jiraBasicAuthTransport,
 } from "../src/adapters/trackers/jira.ts";
+import { runConformance } from "../src/conformance/runner.ts";
+import { trackerConformance } from "../src/conformance/tracker.ts";
 import {
   ClaimCollisionError,
   type ClaimRequest,
@@ -70,6 +72,7 @@ function issue(key: string, options: FakeIssueOptions = {}) {
 class FakeJira implements JiraTransport {
   issues = [issue("JWB-288")];
   claimProperty: unknown = null;
+  artifacts: string[] = [];
   requests: Array<{ method: string; path: string; body?: unknown }> = [];
   fail: (method: string, path: string) => number | undefined = () => undefined;
 
@@ -86,7 +89,8 @@ class FakeJira implements JiraTransport {
     const key = decodeURIComponent(path.match(/\/issue\/([^/?]+)/)?.[1] ?? "");
     const found = this.issues.find((item) => item.key === key);
     if (!found) return { status: 404 };
-    if (path.endsWith("/remotelink") && method === "GET") return { status: 200, body: [] };
+    if (path.endsWith("/remotelink") && method === "GET")
+      return { status: 200, body: this.artifacts.map((url) => ({ object: { url } })) };
     if (path.includes("/properties/")) {
       if (method === "PUT") this.claimProperty = body;
       if (method === "DELETE") this.claimProperty = null;
@@ -631,3 +635,121 @@ describe("Jira basic-auth transport", () => {
     expect(await transport.request("GET", "/rest/api/3/myself")).toEqual({ status: 502 });
   });
 });
+
+test("Jira satisfies portable tracker conformance through its injected transport", async () => {
+  const report = await runConformance(
+    trackerConformance(async () => {
+      const api = new FakeJira();
+      const subject = adapter(api);
+      const claim = {
+        ticket,
+        claim: "interlock-claim:conformance" as const,
+        run: "interlock-run:conformance" as const,
+        owner,
+      };
+      return {
+        adapter: subject,
+        claim,
+        otherOwner: actorRefSchema.parse("other-human"),
+        async observe() {
+          const raw = required(api.issues, 0);
+          const fields = raw.fields;
+          const mirror = z
+            .object({
+              claim: claimRefSchema,
+              run: runRefSchema,
+              owner: actorRefSchema,
+              supersedes: claimRefSchema.optional(),
+            })
+            .nullable()
+            .parse(api.claimProperty);
+          return {
+            ticket: {
+              ref: ticket,
+              map,
+              kind: "task" as const,
+              state: "open" as const,
+              status: fields.status.name,
+              order: 0,
+              ...(fields.assignee
+                ? { assignee: actorRefSchema.parse(fields.assignee.accountId) }
+                : {}),
+            },
+            mirror: mirror
+              ? {
+                  ticket,
+                  claim: mirror.claim,
+                  run: mirror.run,
+                  owner: mirror.owner,
+                  ...(mirror.supersedes ? { supersedes: mirror.supersedes } : {}),
+                }
+              : null,
+            artifacts: [...api.artifacts],
+            writes: api.mutationCount(),
+          };
+        },
+        changeOwner: async (owner) => reassign(api, owner),
+        addArtifact: async (url) => {
+          api.artifacts.push(url);
+        },
+        loseWriteReadback() {
+          const before = api.mutationCount();
+          api.fail = (method) =>
+            method === "GET" && api.mutationCount() > before ? 503 : undefined;
+        },
+      };
+    }),
+  );
+  expect(report.results.filter((result) => !result.ok)).toEqual([]);
+  expect(report.ok).toBe(true);
+});
+
+test.each(["status", "assignee"])(
+  "unverified %s restoration retains the claim property and held Git lock",
+  async (field) => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "guarded", original.version);
+    await first.claim(request);
+    const held = await first.lock.read(ticket);
+    api.fail = (method, path) =>
+      field === "status"
+        ? method === "POST" && path.endsWith("/transitions")
+          ? 204
+          : undefined
+        : method === "PUT" && path.endsWith("/assignee")
+          ? 204
+          : undefined;
+    await expect(
+      first.releaseClaim({
+        ...request,
+        claimedOwner: owner,
+        originalSnapshot: original,
+        expectedVersion: held.version,
+        authorizedBy: owner,
+      }),
+    ).rejects.toThrow("was not verified");
+    expect(await first.lock.read(ticket)).toEqual(held);
+    expect(api.claimProperty).toMatchObject({ claim: request.claim });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "compensation keeps ownership until restoration verification succeeds",
+  async () => {
+    const api = new FakeJira();
+    const { first } = await lockedJira(api);
+    const original = await first.snapshotClaimState(ticket);
+    const request = claimRequest(owner, "compensation", original.version);
+    await first.claim(request);
+    const held = await first.lock.read(ticket);
+    first.tracker.restore = async () => {};
+    await expect(
+      first.restoreClaimState({ ...request, claimedOwner: owner, originalSnapshot: original }),
+    ).rejects.toThrow("Jira restored state could not be verified");
+    expect(await first.lock.read(ticket)).toEqual(held);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

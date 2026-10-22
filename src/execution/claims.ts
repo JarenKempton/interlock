@@ -9,7 +9,7 @@ import {
   type RenewLeaseRequest,
   type RestoreClaimRequest,
 } from "../domain/contracts.ts";
-import type { ClaimRef, TicketRef, TrackerSnapshot } from "../domain/model.ts";
+import type { ClaimRef, Ticket, TicketRef, TrackerSnapshot } from "../domain/model.ts";
 import type { Tracker } from "../domain/tracker.ts";
 
 const lockedPayloadSchema = z.object({

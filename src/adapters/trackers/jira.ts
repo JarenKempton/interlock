@@ -270,17 +270,23 @@ export class JiraTrackerAdapter implements Tracker {
       (request.supersedes !== undefined && current.claim === null)
     )
       throw new ClaimCollisionError("Jira ticket is assigned or marked by another claim");
-    await this.#mirror(
-      request.ticket,
-      {
-        claim: request.claim,
-        run: request.run,
-        owner: request.owner,
-        ...(request.supersedes ? { supersedes: request.supersedes } : {}),
-      },
-      current,
-    );
-    await this.verify({ ...request, state: "applied" });
+    try {
+      await this.#mirror(
+        request.ticket,
+        {
+          claim: request.claim,
+          run: request.run,
+          owner: request.owner,
+          ...(request.supersedes ? { supersedes: request.supersedes } : {}),
+        },
+        current,
+      );
+      await this.verify({ ...request, state: "applied" });
+    } catch (error) {
+      throw new AmbiguousTrackerResultError(
+        `Jira mirror apply could not be verified: ${String(error)}`,
+      );
+    }
   }
 
   async verify(request: MirrorExpectation): Promise<void> {
@@ -311,13 +317,20 @@ export class JiraTrackerAdapter implements Tracker {
       (current.status !== CLAIMED_STATUS && current.status !== original.status)
     )
       throw new ClaimCollisionError("Jira claim mirror was changed outside Interlock");
-    if (current.status !== original.status) await this.#transition(request.ticket, original.status);
-    if (current.assignee !== original.assignee)
-      await this.#assign(request.ticket, original.assignee);
-    const path = this.#propertyPath(request.ticket);
-    if (original.claim) await this.#write("PUT", path, original.claim, "restore claim property");
-    else await this.#write("DELETE", path, undefined, "delete claim property");
-    await this.verify({ ...request, state: "restored" });
+    try {
+      if (current.status !== original.status)
+        await this.#transition(request.ticket, original.status);
+      if (current.assignee !== original.assignee)
+        await this.#assign(request.ticket, original.assignee);
+      const path = this.#propertyPath(request.ticket);
+      if (original.claim) await this.#write("PUT", path, original.claim, "restore claim property");
+      else await this.#write("DELETE", path, undefined, "delete claim property");
+      await this.verify({ ...request, state: "restored" });
+    } catch (error) {
+      throw new AmbiguousTrackerResultError(
+        `Jira mirror restore could not be verified: ${String(error)}`,
+      );
+    }
   }
 
   async #verifyRestored(request: MirrorRestore): Promise<void> {
@@ -422,6 +435,14 @@ export class JiraTrackerAdapter implements Tracker {
       current.claim.supersedes !== property.supersedes
     ) {
       await this.#write("PUT", this.#propertyPath(ticket), property, "set claim property");
+      const installed = await this.#readClaim(ticket);
+      if (
+        installed?.claim !== property.claim ||
+        installed.run !== property.run ||
+        installed.owner !== property.owner ||
+        installed.supersedes !== property.supersedes
+      )
+        throw new AmbiguousTrackerResultError("Jira claim property was not verified");
     }
     if (current.assignee !== property.owner) await this.#assign(ticket, property.owner);
     if (current.status !== CLAIMED_STATUS) await this.#transition(ticket, CLAIMED_STATUS);
@@ -434,6 +455,8 @@ export class JiraTrackerAdapter implements Tracker {
       { accountId },
       "assign issue",
     );
+    if ((await this.#verifiedClaimState(ticket)).assignee !== accountId)
+      throw new AmbiguousTrackerResultError("Jira assignment was not verified");
   }
 
   async #transition(ticket: TicketRef, status: string): Promise<void> {
@@ -448,6 +471,8 @@ export class JiraTrackerAdapter implements Tracker {
     const transition = transitions.find((item) => item.to.name === status);
     if (!transition) throw new Error(`Jira has no transition to ${status}`);
     await this.#write("POST", path, { transition: { id: transition.id } }, "transition issue");
+    if ((await this.#verifiedClaimState(ticket)).status !== status)
+      throw new AmbiguousTrackerResultError("Jira transition was not verified");
   }
 
   async #write(method: string, path: string, body: unknown, operation: string): Promise<void> {
