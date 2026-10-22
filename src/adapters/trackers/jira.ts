@@ -21,6 +21,7 @@ import {
 } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
 import { jiraDescription } from "../../execution/launch-prompt.ts";
+import { fetchTransport, type HttpTransport } from "./http.ts";
 
 export interface JiraResponse<T = unknown> {
   status: number;
@@ -30,6 +31,61 @@ export interface JiraResponse<T = unknown> {
 /** Credential-bearing HTTP is a platform concern; the domain adapter only receives this handle. */
 export interface JiraTransport {
   request(method: string, path: string, body?: unknown): Promise<JiraResponse>;
+}
+
+export function jiraBasicAuthTransport(
+  environment: Record<string, string | undefined> = process.env,
+  http: HttpTransport = fetchTransport,
+): JiraTransport {
+  const origin = jiraOrigin(requiredVariable(environment, "JIRA_SITE"));
+  const credentials = `${requiredVariable(environment, "JIRA_USER_EMAIL")}:${requiredVariable(environment, "JIRA_API_TOKEN")}`;
+  const authorization = `Basic ${Buffer.from(credentials).toString("base64")}`;
+  return {
+    async request(method, path, body) {
+      if (!path.startsWith("/rest/")) throw new Error("Jira request path must be a REST path");
+      const response = await http(`${origin}${path}`, {
+        method,
+        headers: {
+          Authorization: authorization,
+          Accept: "application/json",
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const text = await response.text();
+      if (!text) return { status: response.status };
+      try {
+        return { status: response.status, body: JSON.parse(text) };
+      } catch {
+        return { status: response.status };
+      }
+    },
+  };
+}
+
+function requiredVariable(environment: Record<string, string | undefined>, name: string): string {
+  const value = environment[name];
+  if (!value) throw new Error(`${name} is required for Jira`);
+  return value;
+}
+
+function jiraOrigin(site: string): string {
+  let url: URL;
+  try {
+    url = new URL(site.includes("://") ? site : `https://${site}`);
+  } catch {
+    throw new Error("JIRA_SITE must be an https Jira site origin");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/"
+  )
+    throw new Error("JIRA_SITE must be an https Jira site origin");
+  return url.origin;
 }
 
 const jiraStatusSchema = z.object({

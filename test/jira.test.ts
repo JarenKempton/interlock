@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { builtInAdapters } from "../src/adapters/registry.ts";
+import type { HttpRequest, HttpTransport } from "../src/adapters/trackers/http.ts";
 import {
   type JiraResponse,
   JiraTrackerAdapter,
   type JiraTransport,
+  jiraBasicAuthTransport,
 } from "../src/adapters/trackers/jira.ts";
 import type { ReleaseClaimRequest, RestoreClaimRequest } from "../src/domain/contracts.ts";
 import {
@@ -283,4 +285,92 @@ test("Jira requests and normalizes summary and ADF acceptance context without mu
       .parse(api.requests.find((request) => request.method === "POST")?.body)?.fields,
   ).toEqual(expect.arrayContaining(["summary", "description"]));
   expect(api.mutationCount()).toBe(0);
+});
+
+const jiraEnvironment = {
+  JIRA_SITE: "responsibid.atlassian.net",
+  JIRA_USER_EMAIL: "lane@example.com",
+  JIRA_API_TOKEN: "token-value",
+};
+
+function recordingHttp(api: FakeJira, calls: Array<{ url: string; request: HttpRequest }>) {
+  const http: HttpTransport = async (url, request = {}) => {
+    calls.push({ url, request });
+    const parsed = new URL(url);
+    const response = await api.request(
+      request.method ?? "GET",
+      `${parsed.pathname}${parsed.search}`,
+      request.body === undefined ? undefined : JSON.parse(request.body),
+    );
+    return new Response(response.body === undefined ? null : JSON.stringify(response.body), {
+      status: response.status,
+    });
+  };
+  return http;
+}
+
+describe("Jira basic-auth transport", () => {
+  test("authenticates from environment and hydrates summary and description into Ticket", async () => {
+    const api = new FakeJira();
+    Object.assign(api.issues[0]?.fields ?? {}, {
+      summary: "Live summary",
+      description: {
+        type: "doc",
+        version: 1,
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Live description" }] }],
+      },
+    });
+    const calls: Array<{ url: string; request: HttpRequest }> = [];
+    const subject = new JiraTrackerAdapter({
+      instance: "responsibid",
+      workspace: "JWB",
+      transport: jiraBasicAuthTransport(jiraEnvironment, recordingHttp(api, calls)),
+      rankField: "customfield_rank",
+      priorityOrder: ["Highest", "High", "Medium", "Low", "Lowest"],
+    });
+    const result = await subject.getTicket(ticket);
+    expect(result).toMatchObject({ title: "Live summary", description: "Live description" });
+    expect(calls.map((call) => new URL(call.url).origin)).toEqual([
+      "https://responsibid.atlassian.net",
+      "https://responsibid.atlassian.net",
+    ]);
+    for (const call of calls)
+      expect(call.request.headers).toMatchObject({
+        Authorization: `Basic ${btoa("lane@example.com:token-value")}`,
+        Accept: "application/json",
+      });
+    expect(calls[1]?.request).toMatchObject({ method: "POST" });
+    expect(calls[1]?.request.headers?.["Content-Type"]).toBe("application/json");
+    expect(api.mutationCount()).toBe(0);
+  });
+
+  test("names a missing variable without echoing any credential", () => {
+    for (const name of Object.keys(jiraEnvironment)) {
+      const environment = { ...jiraEnvironment, [name]: undefined };
+      expect(() => jiraBasicAuthTransport(environment)).toThrow(`${name} is required for Jira`);
+    }
+    for (const site of [
+      "http://responsibid.atlassian.net",
+      "https://u:p@x.net",
+      "https://x.net/a",
+    ]) {
+      let message = "";
+      try {
+        jiraBasicAuthTransport({ ...jiraEnvironment, JIRA_SITE: site });
+      } catch (error) {
+        message = String(error);
+      }
+      expect(message).toContain("JIRA_SITE must be an https Jira site origin");
+      expect(message).not.toContain("token-value");
+    }
+  });
+
+  test("refuses non-REST paths and keeps status for non-JSON responses", async () => {
+    const http: HttpTransport = async () => new Response("<html>gateway</html>", { status: 502 });
+    const transport = jiraBasicAuthTransport(jiraEnvironment, http);
+    await expect(transport.request("GET", "//evil.example/rest")).rejects.toThrow(
+      "Jira request path must be a REST path",
+    );
+    expect(await transport.request("GET", "/rest/api/3/myself")).toEqual({ status: 502 });
+  });
 });
