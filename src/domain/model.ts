@@ -8,41 +8,19 @@ export type ClaimRef = `interlock-claim:${string}`;
 export type ActorRef = string & { readonly __kind: "ActorRef" };
 export type AdapterRef = string & { readonly __kind: "AdapterRef" };
 
-/** Protocol-stable capability identifiers. Additions are backward compatible; renames are not. */
+/** Capability identifiers adapters may advertise. Additions are backward compatible; renames are not. */
 export const CAPABILITIES = [
   "native_maps",
-  "native_groups",
   "native_dependencies",
-  "cross_map_dependencies",
   "atomic_assignment",
-  "workflow_transition",
   "conditional_update",
-  "native_properties",
   "claim_comments",
   "claim_identity",
   "lease_metadata",
-  "resolution_comments",
-  "artifact_links",
-  "prompt_generation",
-  "workspace_open",
-  "process_launch",
-  "session_create",
-  "session_resume",
-  "session_status",
-  "session_interrupt",
-  "session_close",
   "model_selection",
   "reasoning_selection",
   "context_selection",
-  "tool_configuration",
-  "visible_multi_session",
   "workspace_prepare",
-  "environment_plan",
-  "environment_start",
-  "environment_readiness",
-  "environment_logs",
-  "environment_resume",
-  "environment_stop",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -155,50 +133,11 @@ export function claimStatusAt(claim: Claim, at: Date): ClaimStatus {
   return at.getTime() >= Date.parse(claim.leaseExpiresAt) ? "stale" : "active";
 }
 
-export type ClaimLifecycleEvent =
-  | "claimed"
-  | "renewed"
-  | "reclaimed"
-  | "released"
-  | "recovery_required";
-
-/** Heartbeats remain machine-readable metadata; lifecycle boundaries are human-visible. */
-export function claimEventRequiresComment(event: ClaimLifecycleEvent): boolean {
-  return event !== "renewed";
-}
-
-export type RunStatus =
-  | "planning"
-  | "active"
-  | "stopped"
-  | "attention_required"
-  | "recovery_required";
+export type RunStatus = "planning" | "active" | "recovery_required";
 
 export interface PreparedWorkspace {
   path: string;
   branch?: string;
-}
-
-export type EnvironmentProfileRef = string & { readonly __kind: "EnvironmentProfileRef" };
-
-export interface EnvironmentPlan {
-  id: string;
-  profile: EnvironmentProfileRef;
-  summary: string;
-  warnings: string[];
-  credentialHandles: string[];
-}
-
-export interface EnvironmentStartAuthorization {
-  kind: "human" | "policy";
-  policy?: string;
-}
-
-export interface PreparedEnvironment {
-  id: string;
-  profile: EnvironmentProfileRef;
-  readiness: Record<string, "ready" | "not_ready" | "external">;
-  logReferences: string[];
 }
 
 export interface Run {
@@ -213,27 +152,5 @@ export interface Run {
   status: RunStatus;
   createdAt: string;
   updatedAt: string;
-  execution?: ExecutionReceipt;
-  observation?: RunObservation;
-}
-
-export interface ExecutionReceipt {
-  sessionId?: string;
-  pid?: number;
-  /** PID operations are forbidden unless this adapter-owned identity can be verified. */
-  processIdentity?: string;
-  tier: "prepare" | "launch" | "managed" | "lifecycle";
-}
-
-export type ObservedSessionState = "running" | "stopped" | "missing" | "unknown";
-
-export interface RunObservation {
-  state: ObservedSessionState;
-  observedAt: string;
-  detail?: string;
-}
-
-/** Stopping execution preserves workspace and claim/tracker ownership outside the run record. */
-export function stopRun(run: Run, stoppedAt: Date): Run {
-  return { ...run, status: "stopped", updatedAt: stoppedAt.toISOString() };
+  execution?: import("./contracts.ts").LaunchReceipt;
 }

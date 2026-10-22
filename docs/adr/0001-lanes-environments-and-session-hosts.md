@@ -2,32 +2,21 @@
 
 ## Decision
 
-Keep tracker, workspace, environment, agent invocation, and session hosting
-separate. A session host may own several agent providers; it must not become
-synonymous with one agent or model. Command invocations and structured host
-requests need not share an argv-shaped interface.
+Keep the tracker, the claim lock, the workspace, and the agent host separate.
+Interlock dispatches one ticket to one T3 Code lane: one lane works one ticket
+in one Git worktree and produces one pull request. T3 Code launches the lane's
+agent through in-thread MCP. A host may run several agent providers; it must
+not become synonymous with one agent or model.
 
-Durable execution identity belongs to Interlock's ledger and tracker claims.
-An orchestrator conversation or UI is a control surface, not a coordination
-store. Closing a surface must not erase execution identity. Unattended progress
-may use a supervisor; persistence must not depend on a daemon remaining alive.
+Ownership belongs to the Git-remote claim lock, `refs/interlock/claims/<KEY>`,
+which the tracker mirrors. Interlock's local ledger records execution identity
+and recovery evidence. A lane's conversation or UI is a control surface, not a
+coordination store. Closing it must not erase ownership or execution identity,
+and claims must not depend on a daemon remaining alive.
 
-Workspace strategy and execution isolation are separate choices. Strong
-isolation runs the agent itself inside the selected environment. A host agent
-issuing occasional container commands does not satisfy that requirement.
-A sandbox-private clone and a host worktree are alternative strategies, not
-mandatory duplicate copies. Workspace handles resolve in the selected
-environment's frame of reference.
-
-An explicit environment or isolation requirement cannot silently downgrade.
-Provisioning can establish selectable integrations, but runtime preflight must
-still verify availability and capabilities. Editors are optional presentation
-tools, and desktop automation cannot substitute for a verified session API.
-
-Project setup is declarative and provider-neutral. Runtime providers translate
-the project contract; product-specific service topology remains adapter-owned.
-Resource admission must respect configured concurrency and budgets before
-starting additional work. Reuse does not relax ownership or readiness checks.
+Runtime preflight must verify host and agent availability before claiming.
+Editors are optional presentation tools, and desktop automation cannot
+substitute for a verified host API.
 
 Grant source access, branch push, tracker writes, and merge authority separately.
 Agents report through structured operations; prose does not authorize a state
@@ -36,12 +25,11 @@ PR review automation belongs outside core, as an optional integration.
 
 ## Rationale
 
-These boundaries allow different trackers, runtimes, hosts, and isolation
-providers without changing claim semantics or making UI failure lose work.
-They also prevent a requested isolation boundary from becoming cosmetic and
-keep provider-specific policy out of portable coordination.
+A Git ref gives every tracker the same conditional claim, including trackers
+without compare-and-swap, and survives the loss of any lane or machine. Keeping
+the host separate lets lanes change providers or models without changing claim
+semantics, and keeps provider-specific policy out of portable coordination.
 
-This decision constrains implementation; it does not advertise a lane protocol,
-scheduler, sandbox provider, or command surface. Concrete interfaces live in
-[domain contracts](../../src/domain/contracts.ts) and the
-[environment boundary](../environment-boundary.md).
+This decision constrains implementation; it does not advertise a command
+surface. Concrete interfaces live in [domain contracts](../../src/domain/contracts.ts)
+and [claim semantics](../claim-semantics.md).

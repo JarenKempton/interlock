@@ -15,7 +15,7 @@ export function projectConfigPath(cwd: string, path = "interlock.toml"): string 
     return resolve(realpathSync(dirname(requested)), basename(requested));
   }
 }
-/** Resolve local config references only. Setup locations belong to the future environment runner. */
+/** Resolve local config references only. */
 export function configurationReference(configPath: string, path: string): string {
   if (path.startsWith("~"))
     throw new Error("Use a project-relative or absolute path; shell expansion is not performed");

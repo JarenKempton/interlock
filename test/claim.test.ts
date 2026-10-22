@@ -1,19 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReclaimRequest, ReleaseClaimRequest } from "../src/domain/contracts.ts";
-import {
-  actorRefSchema,
-  adapterRefSchema,
-  runRefSchema,
-  ticketRefSchema,
-} from "../src/domain/identifiers.ts";
-import {
-  type Claim,
-  claimEventRequiresComment,
-  claimStatusAt,
-  type Run,
-  stopRun,
-  type TrackerSnapshot,
-} from "../src/domain/model.ts";
+import { actorRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
+import { type Claim, claimStatusAt, type TrackerSnapshot } from "../src/domain/model.ts";
 
 const originalSnapshot: TrackerSnapshot = {
   version: "before-claim",
@@ -70,32 +58,5 @@ describe("claim semantics", () => {
       status: "To Do",
       claim: null,
     });
-  });
-
-  test("stop changes only run execution fields", () => {
-    const run: Run = {
-      ref: runRefSchema.parse("interlock-run:first"),
-      ticket: claim.ticket,
-      harness: adapterRefSchema.parse("codex"),
-      workspace: { path: "/work", branch: "decision/A" },
-      capabilities: {},
-      status: "active",
-      createdAt: "2026-08-10T12:00:00.000Z",
-      updatedAt: "2026-08-10T12:00:00.000Z",
-    };
-    const stopped = stopRun(run, new Date("2026-08-10T12:05:00.000Z"));
-    expect(stopped).toEqual({
-      ...run,
-      status: "stopped",
-      updatedAt: "2026-08-10T12:05:00.000Z",
-    });
-    expect(stopped.workspace).toBe(run.workspace);
-  });
-
-  test("heartbeats are metadata-only while lifecycle boundaries require comments", () => {
-    expect(claimEventRequiresComment("renewed")).toBeFalse();
-    for (const event of ["claimed", "reclaimed", "released", "recovery_required"] as const) {
-      expect(claimEventRequiresComment(event)).toBeTrue();
-    }
   });
 });

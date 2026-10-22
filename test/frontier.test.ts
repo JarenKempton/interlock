@@ -7,6 +7,7 @@ import {
   workspaceRefSchema,
 } from "../src/domain/identifiers.ts";
 import type { Ticket } from "../src/domain/model.ts";
+import { parseTickets } from "../src/domain/tickets.ts";
 import {
   evaluateFrontier,
   normalizeTrackerTickets,
@@ -124,6 +125,41 @@ describe("frontier", () => {
       Reflect.apply(normalizeTrackerTickets, undefined, [[{ ...a, kind: "bug" }]]),
     ).toThrow("unsupported kind");
     expect(() => normalizeTrackerTickets([{ ...a, status: "" }])).toThrow("invalid status");
+    expect(() => normalizeTrackerTickets([{ ...a, order: Number.NaN }])).toThrow(
+      "non-finite tracker order",
+    );
+    expect(() =>
+      Reflect.apply(normalizeTrackerTickets, undefined, [[{ ...a, map: "jira:x:W:ticket:M" }]]),
+    ).toThrow("Expected map reference");
+    expect(() =>
+      normalizeTrackerTickets([{ ...a, map: mapRefSchema.parse("jira:x:OTHER:map:M") }]),
+    ).toThrow("Cross-workspace relationship");
+    const related = base("jira:x:W:ticket:C", 2);
+    expect(() =>
+      Reflect.apply(normalizeTrackerTickets, undefined, [
+        [
+          a,
+          {
+            ...related,
+            dependencies: [{ blocking: a.ref, blocked: related.ref, kind: "relates" }],
+          },
+        ],
+      ]),
+    ).toThrow("unsupported dependency kind");
+    expect(() =>
+      evaluateFrontier(
+        [a],
+        { map: mapRefSchema.parse("jira:x:OTHER:map:M") },
+        { availableStatuses: new Set(["To Do"]) },
+      ),
+    ).toThrow("outside workspace");
+  });
+
+  test("ticket input parsing fails closed on malformed tickets", () => {
+    const ticket = base("jira:x:W:ticket:A", 0);
+    expect(parseTickets([ticket])).toEqual([ticket]);
+    expect(() => parseTickets([{ ...ticket, order: "first" }])).toThrow("Invalid ticket input");
+    expect(() => parseTickets({ tickets: [ticket] })).toThrow("Invalid ticket input");
   });
 
   test("canonicalizes parseable scope references", () => {

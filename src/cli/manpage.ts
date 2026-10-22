@@ -25,7 +25,7 @@ export function manPage(version: string, tree: ActionTree): string {
     },
     FILES: {
       "interlock.toml":
-        "Project defaults, requirements and instruction/setup references. Secrets must not be placed in ordinary configuration, command arguments, logs, or receipts.",
+        "Project defaults, requirements and instruction references. Secrets must not be placed in ordinary configuration, command arguments, logs, or receipts.",
       "interlock.db":
         "Local state and personal choices: $XDG_STATE_HOME/interlock (or $HOME/.local/state/interlock) on Linux; $HOME/Library/Application Support/interlock on macOS; %LOCALAPPDATA%/Interlock on Windows.",
       "update-check.json": "Update-check timestamp, stored beside interlock.db.",

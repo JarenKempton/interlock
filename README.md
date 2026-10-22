@@ -1,10 +1,11 @@
 # Interlock
 
-A CLI for selecting work from tracker maps and coordinating agent sessions.
+A CLI that selects work from tracker maps and dispatches each ticket to an agent
+in its own T3 Code lane.
 Built with TypeScript and Bun.
 
 **In development:** project configuration and offline work selection are usable.
-Live ticket pickup and setup execution are not wired into the CLI yet.
+Live ticket pickup is not wired into the CLI yet.
 
 ## Try it
 
@@ -44,7 +45,7 @@ configuration or initializing the database.
 | --- | --- |
 | Add an action | [Configuration commands](src/configuration/commands.ts) show the pattern; register new groups in [application.ts](src/application.ts) |
 | Change configuration | [Schemas](src/configuration/schema.ts) and [starter TOML](src/configuration/default.toml) |
-| Add a tracker, harness or host | [Adapters](src/adapters/) — implementations are grouped by responsibility and named by provider |
+| Add a tracker or workspace adapter | [Adapters](src/adapters/) — implementations are grouped by responsibility and named by provider |
 | Understand execution | [Execution](src/execution/) and [portable contracts](src/domain/contracts.ts) |
 | Understand boundaries and contracts | [Architecture](docs/architecture.md) |
 | Install releases or configure shell integration | [Distribution](docs/distribution.md) |

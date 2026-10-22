@@ -3,13 +3,8 @@ import type {
   AdapterRef,
   CapabilitySet,
   ClaimRef,
-  EnvironmentPlan,
-  EnvironmentProfileRef,
-  EnvironmentStartAuthorization,
-  PreparedEnvironment,
   PreparedWorkspace,
   Run,
-  RunObservation,
   RunRef,
   Ticket,
   TicketRef,
@@ -114,29 +109,6 @@ export interface WorkspaceAdapter {
   prepare(plan: WorkspacePlan): Promise<PreparedWorkspace>;
 }
 
-export interface EnvironmentPlanRequest {
-  ticket: Ticket;
-  workspaces: Record<string, PreparedWorkspace>;
-  profile: EnvironmentProfileRef;
-}
-
-export interface EnvironmentStartRequest {
-  plan: EnvironmentPlan;
-  authorization: EnvironmentStartAuthorization;
-}
-
-/** Application-specific lifecycle boundary, whether embedded or external. */
-export interface EnvironmentAdapter {
-  describe(): Promise<CapabilitySet>;
-  preflight(request: EnvironmentPlanRequest): Promise<void>;
-  plan(request: EnvironmentPlanRequest): Promise<EnvironmentPlan>;
-  start(request: EnvironmentStartRequest): Promise<PreparedEnvironment>;
-  verifyReady(environment: PreparedEnvironment): Promise<void>;
-  logs(environment: PreparedEnvironment): Promise<string[]>;
-  resume(id: string): Promise<PreparedEnvironment>;
-  stop(environment: PreparedEnvironment): Promise<void>;
-}
-
 export interface LaunchRequest {
   run: RunRef;
   ticket: Ticket;
@@ -181,19 +153,6 @@ export interface Ledger {
     error: unknown,
     evidence: unknown,
   ): void | Promise<void>;
-}
-
-/** Harness-specific observation is kept behind this portable lifecycle boundary. */
-export interface RunLifecycleAdapter {
-  capabilities: CapabilitySet;
-  observe(run: Run): Promise<RunObservation>;
-  stop(run: Run): Promise<void>;
-}
-
-export interface RecoveryVerification {
-  verified: boolean;
-  evidence: unknown;
-  resolvedStatus?: "active" | "stopped";
 }
 
 export interface IdFactory {

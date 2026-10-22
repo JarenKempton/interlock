@@ -10,6 +10,7 @@ import type {
 } from "../domain/contracts.ts";
 import { ClaimCollisionError, HarnessLaunchError } from "../domain/contracts.ts";
 import {
+  type CapabilitySet,
   type Claim,
   capabilities,
   type PreparedWorkspace,
@@ -17,7 +18,6 @@ import {
   type RunRef,
   requireCapabilities,
 } from "../domain/model.ts";
-import { validateExecutionRoute } from "./routing.ts";
 
 const MUTATING_PICKUP_TRACKER_CAPABILITIES = capabilities(
   "atomic_assignment",
@@ -256,7 +256,7 @@ export class PickupCoordinator {
       if (recoveryErrors.length === 0) throw new PickupResultError(receipt, cause);
     }
     receipt.state = "recovery_required";
-    receipt.recoveryCommand = `interlock recover ${receipt.run} --evidence '{"tracker":"verify","session":"verify"}'`;
+    receipt.recoveryCommand = `interlock runs export ${receipt.run}`;
     const combined = new AggregateError(
       [cause, ...recoveryErrors],
       "Pickup compensation could not be fully verified",
@@ -281,6 +281,14 @@ export class PickupCoordinator {
     }
     throw new PickupResultError(receipt, combined);
   }
+}
+
+function validateExecutionRoute(route: PickupRequest, available: CapabilitySet): void {
+  const required = { ...route.requiredCapabilities };
+  if (route.model) required.model_selection = true;
+  if (route.effort) required.reasoning_selection = true;
+  if (route.context) required.context_selection = true;
+  requireCapabilities(available, required);
 }
 
 function message(value: unknown): string {

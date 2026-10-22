@@ -3,6 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { jiraDescription } from "../src/adapters/trackers/jira.ts";
 import {
   configurationVersion,
   loadConfigurationInstructions,
@@ -12,11 +13,7 @@ import { INITIAL_CONFIGURATION } from "../src/configuration/project-files.ts";
 import { resolveProjectConfiguration } from "../src/configuration/schema.ts";
 import type { TicketKind } from "../src/domain/model.ts";
 import { planConfiguredLaunch } from "../src/execution/configuration-plan.ts";
-import {
-  acceptanceCriteria,
-  buildLaunchPrompt,
-  jiraDescription,
-} from "../src/execution/launch-prompt.ts";
+import { acceptanceCriteria, buildLaunchPrompt } from "../src/execution/launch-prompt.ts";
 import { fakeConfigurationPlan, fakePlanningTicket } from "./fixtures/configuration-plan.ts";
 
 test.each<TicketKind>(["task", "research", "prototype", "decision"])(

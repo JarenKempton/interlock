@@ -70,25 +70,28 @@ test("runtime dependencies govern actual application help, manual, completion an
       statePath: join(directory, "state.db"),
       configuration: { cwd: directory, statePath: join(directory, "state.db") },
     };
-    const unavailable = createApplication(services);
-    expect(actionHelp(unavailable)).not.toContain("Stop a recorded run");
-    expect(completionCandidates(unavailable, [])).not.toContain("stop");
+    const application = createApplication(services);
+    expect(availableActions(application)).toEqual(registeredActions(application));
+    const unavailable = composeActions(application, example());
+    expect(actionHelp(unavailable)).not.toContain("sample");
+    expect(completionCandidates(unavailable, [])).not.toContain("sample");
     expect(completionCandidates(unavailable, ["claim"])).toEqual(["show"]);
-    expect(completionCandidates(unavailable, ["supervisor"])).toEqual(["status"]);
-    await expect(unavailable.stop.execute({ run: "example" })).rejects.toThrow(
-      "no managed lifecycle adapter",
+    await expect(unavailable.sample.greet.execute({ name: "Jaren" })).rejects.toThrow(
+      "no greeting service",
     );
     expect(readdirSync(directory)).toEqual([]);
-    let lifecycleCalls = 0;
-    services.lifecycle = () => {
-      lifecycleCalls++;
-      throw new Error("Per-run preflight has not been requested");
-    };
-    const available = createApplication(services);
-    expect(actionHelp(available)).toContain("Stop a recorded run");
-    expect(manPage("test", available)).toContain("Stop a recorded run");
-    expect(completionCandidates(available, [])).toContain("stop");
-    expect(lifecycleCalls).toBe(0);
+    let greetings = 0;
+    const available = composeActions(
+      createApplication(services),
+      example((name) => {
+        greetings++;
+        return name;
+      }),
+    );
+    expect(actionHelp(available)).toContain("sample");
+    expect(manPage("test", available)).toContain("Greet through");
+    expect(completionCandidates(available, [])).toContain("sample");
+    expect(greetings).toBe(0);
     expect(readdirSync(directory)).toEqual([]);
   } finally {
     rmSync(directory, { recursive: true, force: true });

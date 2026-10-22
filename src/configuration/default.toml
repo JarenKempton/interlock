@@ -16,7 +16,6 @@ version = 1
 
 [tracker.jira]
 site = "https://example.atlassian.net"
-cli = "acli"
 
 [t3]
 provider = "codex"

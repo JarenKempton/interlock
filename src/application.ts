@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { adapterActions } from "./adapters/commands.ts";
-import { PROTOCOL_VERSION } from "./adapters/protocol.ts";
 import { builtInAdapters } from "./adapters/registry.ts";
 import { composeActions } from "./cli/catalog.ts";
 import { completionCandidates, completionScript } from "./cli/completions.ts";
@@ -13,7 +12,6 @@ import { runActions } from "./execution/commands.ts";
 import { frontierActions } from "./frontier/commands.ts";
 import { withStore } from "./persistence/command-store.ts";
 import { databasePath } from "./persistence/paths.ts";
-import { reconciliationActions } from "./reconciliation/commands.ts";
 import type { RuntimeServices } from "./runtime-services.ts";
 
 export function createApplication(services: RuntimeServices = {}) {
@@ -26,7 +24,6 @@ export function createApplication(services: RuntimeServices = {}) {
         withStore(services, () => ({
           ok: true,
           version: VERSION,
-          protocolVersion: PROTOCOL_VERSION,
           database: services.statePath ?? databasePath(),
           adapters: builtInAdapters().length,
         })),
@@ -65,7 +62,7 @@ export function createApplication(services: RuntimeServices = {}) {
     },
   );
   const discovery = composeActions(frontierActions(), adapterActions());
-  const execution = composeActions(runActions(services), reconciliationActions(services));
+  const execution = runActions(services);
   const actions = composeActions(
     composeActions(configuration, discovery),
     composeActions(execution, core),

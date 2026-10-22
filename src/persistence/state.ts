@@ -24,8 +24,7 @@ CREATE TABLE IF NOT EXISTS runs (
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  execution_json TEXT,
-  observation_json TEXT
+  execution_json TEXT
 );
 CREATE TABLE IF NOT EXISTS claims (
   ref TEXT PRIMARY KEY,
@@ -35,7 +34,10 @@ CREATE TABLE IF NOT EXISTS claims (
   previous_state_json TEXT NOT NULL,
   claimed_at TEXT NOT NULL,
   lease_expires_at TEXT NOT NULL,
-  status TEXT NOT NULL
+  status TEXT NOT NULL,
+  current_version TEXT,
+  supersedes TEXT,
+  superseded_by TEXT
 );
 CREATE TABLE IF NOT EXISTS recovery_evidence (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,18 +45,6 @@ CREATE TABLE IF NOT EXISTS recovery_evidence (
   outcome TEXT NOT NULL,
   evidence_json TEXT NOT NULL,
   occurred_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS supervisor_lock (
-  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-  owner TEXT NOT NULL,
-  heartbeat_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS renewal_intents (
-  run_ref TEXT PRIMARY KEY REFERENCES runs(ref),
-  claim_ref TEXT NOT NULL REFERENCES claims(ref),
-  request_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS transaction_steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,8 +67,7 @@ interface RunRow {
   status: Run["status"];
   created_at: string;
   updated_at: string;
-  execution_json?: string | null;
-  observation_json?: string | null;
+  execution_json: string | null;
 }
 
 interface ClaimRow {
@@ -90,9 +79,9 @@ interface ClaimRow {
   claimed_at: string;
   lease_expires_at: string;
   status: Claim["status"];
-  current_version?: string | null;
-  supersedes?: ClaimRef | null;
-  superseded_by?: ClaimRef | null;
+  current_version: string | null;
+  supersedes: ClaimRef | null;
+  superseded_by: ClaimRef | null;
 }
 
 export class StateStore {
@@ -104,13 +93,6 @@ export class StateStore {
     this.#database.exec("PRAGMA journal_mode=WAL");
     this.#database.exec("PRAGMA foreign_keys=ON");
     this.#database.exec(schema);
-    ensureColumn(this.#database, "runs", "effort", "TEXT");
-    ensureColumn(this.#database, "runs", "context", "TEXT");
-    ensureColumn(this.#database, "runs", "execution_json", "TEXT");
-    ensureColumn(this.#database, "runs", "observation_json", "TEXT");
-    ensureColumn(this.#database, "claims", "current_version", "TEXT");
-    ensureColumn(this.#database, "claims", "supersedes", "TEXT");
-    ensureColumn(this.#database, "claims", "superseded_by", "TEXT");
   }
 
   close(): void {
@@ -138,12 +120,12 @@ export class StateStore {
 
   saveRun(run: Run): void {
     this.#database
-      .query(`INSERT INTO runs(ref,ticket,harness,model,effort,context,workspace_json,capabilities_json,status,created_at,updated_at,execution_json,observation_json)
-        VALUES($ref,$ticket,$harness,$model,$effort,$context,$workspace,$capabilities,$status,$createdAt,$updatedAt,$execution,$observation)
+      .query(`INSERT INTO runs(ref,ticket,harness,model,effort,context,workspace_json,capabilities_json,status,created_at,updated_at,execution_json)
+        VALUES($ref,$ticket,$harness,$model,$effort,$context,$workspace,$capabilities,$status,$createdAt,$updatedAt,$execution)
         ON CONFLICT(ref) DO UPDATE SET model=excluded.model,effort=excluded.effort,context=excluded.context,
           workspace_json=excluded.workspace_json,
           capabilities_json=excluded.capabilities_json,status=excluded.status,updated_at=excluded.updated_at,
-          execution_json=excluded.execution_json,observation_json=excluded.observation_json`)
+          execution_json=excluded.execution_json`)
       .run({
         ref: run.ref,
         ticket: run.ticket,
@@ -157,7 +139,6 @@ export class StateStore {
         createdAt: run.createdAt,
         updatedAt: run.updatedAt,
         execution: run.execution ? JSON.stringify(run.execution) : null,
-        observation: run.observation ? JSON.stringify(run.observation) : null,
       });
   }
 
@@ -177,7 +158,6 @@ export class StateStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.execution_json ? { execution: JSON.parse(row.execution_json) } : {}),
-      ...(row.observation_json ? { observation: JSON.parse(row.observation_json) } : {}),
     };
   }
 
@@ -242,13 +222,6 @@ export class StateStore {
     return claimFromRow(row);
   }
 
-  activeRuns(): Run[] {
-    const rows = this.#database
-      .query<{ ref: RunRef }, []>("SELECT ref FROM runs WHERE status='active' ORDER BY created_at")
-      .all();
-    return rows.map(({ ref }) => this.run(ref));
-  }
-
   steps(run: RunRef): unknown[] {
     return this.#database
       .query(
@@ -273,40 +246,6 @@ export class StateStore {
       .all(run);
   }
 
-  acquireSupervisor(owner: string, heartbeatAt: string, expiresAt: string): boolean {
-    const result = this.#database
-      .query(`INSERT INTO supervisor_lock(singleton,owner,heartbeat_at,expires_at) VALUES(1,?,?,?)
-        ON CONFLICT(singleton) DO UPDATE SET owner=excluded.owner,heartbeat_at=excluded.heartbeat_at,
-          expires_at=excluded.expires_at WHERE supervisor_lock.expires_at<=excluded.heartbeat_at`)
-      .run(owner, heartbeatAt, expiresAt);
-    return result.changes === 1;
-  }
-
-  refreshSupervisor(owner: string, heartbeatAt: string, expiresAt: string): boolean {
-    return (
-      this.#database
-        .query(
-          "UPDATE supervisor_lock SET heartbeat_at=?,expires_at=? WHERE singleton=1 AND owner=?",
-        )
-        .run(heartbeatAt, expiresAt, owner).changes === 1
-    );
-  }
-
-  releaseSupervisor(owner: string): boolean {
-    return (
-      this.#database.query("DELETE FROM supervisor_lock WHERE singleton=1 AND owner=?").run(owner)
-        .changes === 1
-    );
-  }
-
-  supervisorStatus(): unknown | undefined {
-    return (
-      this.#database
-        .query("SELECT owner,heartbeat_at,expires_at FROM supervisor_lock WHERE singleton=1")
-        .get() ?? undefined
-    );
-  }
-
   listRuns(): Run[] {
     const rows = this.#database
       .query<{ ref: RunRef }, []>("SELECT ref FROM runs ORDER BY created_at DESC")
@@ -325,93 +264,6 @@ export class StateStore {
         error === undefined ? null : errorMessage(error),
         new Date().toISOString(),
       );
-  }
-
-  markAttention(run: Run, receipt: unknown, error?: unknown): void {
-    this.#transaction(() => {
-      this.saveRun(run);
-      this.recordStep(run.ref, "attention_required", receipt, error);
-    });
-  }
-
-  beginRenewal(run: RunRef, claim: ClaimRef, request: unknown, createdAt: string): void {
-    this.#database
-      .query(`INSERT INTO renewal_intents(run_ref,claim_ref,request_json,created_at) VALUES(?,?,?,?)
-        ON CONFLICT(run_ref) DO UPDATE SET claim_ref=excluded.claim_ref,request_json=excluded.request_json,created_at=excluded.created_at`)
-      .run(run, claim, JSON.stringify(request), createdAt);
-  }
-
-  pendingRenewals(): Array<{ run: RunRef; claim: ClaimRef; request: unknown }> {
-    const rows = this.#database
-      .query<{ run_ref: RunRef; claim_ref: ClaimRef; request_json: string }, []>(
-        "SELECT run_ref,claim_ref,request_json FROM renewal_intents ORDER BY created_at",
-      )
-      .all();
-    return rows.map((row) => ({
-      run: row.run_ref,
-      claim: row.claim_ref,
-      request: JSON.parse(row.request_json),
-    }));
-  }
-
-  discardRenewal(run: RunRef): void {
-    this.#database.query("DELETE FROM renewal_intents WHERE run_ref=?").run(run);
-  }
-
-  /** Retire a stale intent atomically with the evidence needed for explicit recovery. */
-  retireRenewal(run: Run, request: unknown, error: Error): void {
-    this.#transaction(() => {
-      this.saveRun(run);
-      this.recordStep(
-        run.ref,
-        "attention_required",
-        { phase: "renewal_reconciliation", request },
-        error,
-      );
-      this.discardRenewal(run.ref);
-    });
-  }
-
-  commitRenewal(run: Run, claim: Claim, receipt: unknown): void {
-    this.#transaction(() => {
-      this.saveRun(run);
-      this.saveClaim(claim);
-      this.recordStep(run.ref, "renewed", receipt);
-      this.#database.query("DELETE FROM renewal_intents WHERE run_ref=?").run(run.ref);
-    });
-  }
-
-  commitRelease(claim: Claim, receipt: unknown): void {
-    this.#transaction(() => {
-      this.saveClaim(claim);
-      this.recordStep(claim.run, "released", receipt);
-    });
-  }
-
-  commitStopped(run: Run, receipt: unknown): void {
-    this.#transaction(() => {
-      this.saveRun(run);
-      this.recordStep(run.ref, "stopped", receipt);
-    });
-  }
-
-  commitRecovery(run: Run, outcome: string, evidence: unknown): void {
-    this.#transaction(() => {
-      this.recordRecovery(run.ref, outcome, evidence);
-      this.saveRun(run);
-      this.recordStep(
-        run.ref,
-        outcome === "recovered" ? "recovered" : "recovery_required",
-        evidence,
-      );
-    });
-  }
-
-  reconcileAttention(run: Run, evidence: unknown): void {
-    this.#transaction(() => {
-      this.saveRun(run);
-      this.recordStep(run.ref, "reconciled", evidence);
-    });
   }
 
   #transaction(operation: () => void): void {
@@ -433,13 +285,6 @@ function claimFromRow(row: ClaimRow): Claim {
     ...(row.supersedes ? { supersedes: row.supersedes } : {}),
     ...(row.superseded_by ? { supersededBy: row.superseded_by } : {}),
   };
-}
-
-function ensureColumn(database: Database, table: string, column: string, type: string): void {
-  const columns = database.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all();
-  if (!columns.some((item) => item.name === column)) {
-    database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-  }
 }
 
 function errorMessage(error: unknown): string {

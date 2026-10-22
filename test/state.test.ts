@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { run as runCli } from "../src/cli.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
 import { type Claim, capabilities, type Run } from "../src/domain/model.ts";
 import { StateStore } from "../src/persistence/state.ts";
@@ -19,12 +20,11 @@ test("SQLite store round-trips runs", () => {
     effort: "high",
     context: "repository",
     workspace: { path: "/tmp/work", branch: "task/A" },
-    capabilities: capabilities("process_launch"),
+    capabilities: capabilities("model_selection"),
     status: "active",
     createdAt: now,
     updatedAt: now,
     execution: { sessionId: "session", tier: "managed" },
-    observation: { state: "running", observedAt: now },
   };
   try {
     store.saveRun(run);
@@ -43,59 +43,14 @@ test("SQLite store round-trips runs", () => {
     store.saveClaim(claim);
     expect(store.claim(claim.ref)).toEqual(claim);
     expect(store.claimForRun(run.ref)).toEqual(claim);
-    expect(store.activeRuns()).toEqual([run]);
-    const lifecycleUpdate: Run = {
+    const committed: Run = {
       ...run,
-      status: "attention_required",
+      status: "recovery_required",
       updatedAt: new Date(Date.parse(now) + 1_000).toISOString(),
-      observation: { state: "unknown", observedAt: now, detail: "reconcile" },
     };
-    store.commitRun(lifecycleUpdate, "attention_required", { reason: "test" });
-    expect(store.run(run.ref)).toEqual(lifecycleUpdate);
+    store.commitRun(committed, "recovery_required", { reason: "test" });
+    expect(store.run(run.ref)).toEqual(committed);
     expect(store.run(run.ref)).toMatchObject({ effort: "high", context: "repository" });
-  } finally {
-    store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test("SQLite store additively migrates legacy run routing columns", () => {
-  const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
-  const path = join(directory, "interlock.db");
-  const legacy = new Database(path, { create: true });
-  legacy.exec(`CREATE TABLE runs (
-    ref TEXT PRIMARY KEY,
-    ticket TEXT NOT NULL,
-    harness TEXT NOT NULL,
-    model TEXT,
-    workspace_json TEXT NOT NULL,
-    capabilities_json TEXT NOT NULL,
-    status TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )`);
-  legacy.close();
-
-  const store = new StateStore(path);
-  const now = new Date().toISOString();
-  const run: Run = {
-    ref: "interlock-run:migrated",
-    ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
-    harness: adapterRefSchema.parse("codex"),
-    model: "gpt",
-    effort: "high",
-    context: "repository",
-    workspace: { path: "/tmp/work" },
-    capabilities: capabilities("process_launch"),
-    status: "active",
-    createdAt: now,
-    updatedAt: now,
-    execution: { pid: 123, processIdentity: "legacy-migrated", tier: "launch" },
-    observation: { state: "running", observedAt: now },
-  };
-  try {
-    store.saveRun(run);
-    expect(store.run(run.ref)).toEqual(run);
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
@@ -111,7 +66,7 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities("process_launch"),
+    capabilities: capabilities("model_selection"),
     status: "planning",
     createdAt: now,
     updatedAt: now,
@@ -119,7 +74,7 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
   try {
     store.saveRun(run);
     const recoveryRun = { ...run, status: "recovery_required" as const };
-    const receipt = { state: "recovery_required", recoveryCommand: "interlock recover" };
+    const receipt = { state: "recovery_required", recoveryCommand: "interlock runs export" };
     const evidence = { tracker: "verification_required", session: "not_started" };
 
     store.saveRecoveryRequired(recoveryRun, receipt, new Error("ambiguous"), evidence);
@@ -141,6 +96,65 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
   }
 });
 
+test("runs export shows a recovery-required run with its claim, steps, and evidence", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
+  const statePath = join(directory, "interlock.db");
+  const store = new StateStore(statePath);
+  const now = new Date().toISOString();
+  const run: Run = {
+    ref: "interlock-run:export",
+    ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
+    harness: adapterRefSchema.parse("codex"),
+    workspace: { path: "/tmp/work" },
+    capabilities: capabilities(),
+    status: "planning",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const claim: Claim = {
+    ref: "interlock-claim:export",
+    ticket: run.ticket,
+    humanOwner: actorRefSchema.parse("human"),
+    run: run.ref,
+    previousState: { version: "1", payload: {} },
+    claimedAt: now,
+    leaseExpiresAt: now,
+    status: "active",
+  };
+  const evidence = { command: "interlock runs export interlock-run:export", tracker: "verify" };
+  try {
+    store.saveRun(run);
+    store.commitClaim(claim, { state: "claimed" });
+    store.saveRecoveryRequired(
+      { ...run, status: "recovery_required" },
+      { state: "recovery_required" },
+      new Error("ambiguous"),
+      evidence,
+    );
+    store.close();
+    const output: string[] = [];
+    await runCli(["runs", "export", "export", "--json"], (text) => output.push(text), {
+      statePath,
+    });
+    const exported = JSON.parse(output.join("\n"));
+    expect(exported.run).toMatchObject({ ref: run.ref, status: "recovery_required" });
+    expect(exported.claim).toEqual(claim);
+    expect(exported.steps.map((step: { state: string }) => step.state)).toEqual([
+      "claimed",
+      "recovery_required",
+    ]);
+    expect(exported.recovery).toEqual([
+      expect.objectContaining({
+        outcome: "verification_required",
+        evidence_json: JSON.stringify(evidence),
+      }),
+    ]);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("SQLite recovery-required transaction rolls back every row on a mid-transaction failure", () => {
   const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
   const path = join(directory, "interlock.db");
@@ -151,7 +165,7 @@ test("SQLite recovery-required transaction rolls back every row on a mid-transac
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities("process_launch"),
+    capabilities: capabilities("model_selection"),
     status: "planning",
     createdAt: now,
     updatedAt: now,
