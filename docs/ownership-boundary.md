@@ -42,4 +42,4 @@ Generic launch prompts do not grant tracker mutation or merge authority.
 
 PR review automation belongs in an optional integration consuming public
 actions, with its workflow and permissions configured explicitly. Stopping
-execution, releasing ownership, and deleting a workspace remain distinct actions.
+execution, releasing ownership, and deleting a workspace remain distinct operations.

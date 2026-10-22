@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { run as runCli } from "../src/cli.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
 import { type Claim, capabilities, type Run } from "../src/domain/model.ts";
 import { StateStore } from "../src/persistence/state.ts";
@@ -89,6 +90,65 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
       outcome: "verification_required",
       evidence_json: JSON.stringify(evidence),
     });
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("runs export shows a recovery-required run with its claim, steps, and evidence", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "interlock-test-"));
+  const statePath = join(directory, "interlock.db");
+  const store = new StateStore(statePath);
+  const now = new Date().toISOString();
+  const run: Run = {
+    ref: "interlock-run:export",
+    ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
+    harness: adapterRefSchema.parse("codex"),
+    workspace: { path: "/tmp/work" },
+    capabilities: capabilities(),
+    status: "planning",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const claim: Claim = {
+    ref: "interlock-claim:export",
+    ticket: run.ticket,
+    humanOwner: actorRefSchema.parse("human"),
+    run: run.ref,
+    previousState: { version: "1", payload: {} },
+    claimedAt: now,
+    leaseExpiresAt: now,
+    status: "active",
+  };
+  const evidence = { command: "interlock runs export interlock-run:export", tracker: "verify" };
+  try {
+    store.saveRun(run);
+    store.commitClaim(claim, { state: "claimed" });
+    store.saveRecoveryRequired(
+      { ...run, status: "recovery_required" },
+      { state: "recovery_required" },
+      new Error("ambiguous"),
+      evidence,
+    );
+    store.close();
+    const output: string[] = [];
+    await runCli(["runs", "export", "export", "--json"], (text) => output.push(text), {
+      statePath,
+    });
+    const exported = JSON.parse(output.join("\n"));
+    expect(exported.run).toMatchObject({ ref: run.ref, status: "recovery_required" });
+    expect(exported.claim).toEqual(claim);
+    expect(exported.steps.map((step: { state: string }) => step.state)).toEqual([
+      "claimed",
+      "recovery_required",
+    ]);
+    expect(exported.recovery).toEqual([
+      expect.objectContaining({
+        outcome: "verification_required",
+        evidence_json: JSON.stringify(evidence),
+      }),
+    ]);
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

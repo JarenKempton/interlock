@@ -52,7 +52,9 @@ class FakeLedger implements Ledger {
   recordStepErrorState?: string;
   saveRecoveryRequiredError?: Error;
   saveClaim(_claim: import("../src/domain/model.ts").Claim): void {}
-  commitClaim(_claim: import("../src/domain/model.ts").Claim): void {
+  committedClaim?: import("../src/domain/model.ts").Claim;
+  commitClaim(claim: import("../src/domain/model.ts").Claim): void {
+    this.committedClaim = structuredClone(claim);
     this.steps.push("claimed");
   }
   recoveryRun?: Run;
@@ -114,7 +116,9 @@ class FakeTracker implements TrackerAdapter {
   }
   async snapshotClaimState(_ticket: TicketRef): Promise<TrackerSnapshot> {
     this.snapshotCalls += 1;
-    return { version: "1", payload: { assignee: null, status: "To Do" } };
+    return this.claimCalls === 0
+      ? { version: "1", payload: { assignee: null, status: "To Do" } }
+      : { version: "2", payload: { assignee: "human", status: "In Progress" } };
   }
   async claim(request: ClaimRequest) {
     this.claimCalls += 1;
@@ -222,6 +226,17 @@ describe("pickup coordinator", () => {
     const { coordinator: subject, tracker, ledger } = coordinator();
     expect(await subject.execute(request)).toMatchObject({ ok: true, state: "committed" });
     expect(tracker.claimRequest?.leaseExpiresAt).toBe("2026-08-10T12:15:00.000Z");
+    expect(ledger.committedClaim).toEqual({
+      ref: claimRefSchema.parse("interlock-claim:test"),
+      ticket: request.ticket,
+      humanOwner: request.owner,
+      run: runRefSchema.parse("interlock-run:test"),
+      previousState: { version: "1", payload: { assignee: null, status: "To Do" } },
+      claimedAt: "2026-08-10T12:00:00.000Z",
+      leaseExpiresAt: "2026-08-10T12:15:00.000Z",
+      status: "active",
+      currentVersion: "2",
+    });
     expect(ledger.steps).toEqual([
       "planning",
       "claiming",

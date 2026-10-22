@@ -17,7 +17,7 @@ Adapters translate vendor objects into these terms.
 | claim | `interlock-claim:<id>` | Tracker coordination identity |
 
 Qualification prevents collisions across tracker installations. Dependency
-evaluation can cross maps within a workspace; protocol 1.x rejects evaluation
+evaluation can cross maps within a workspace; Interlock rejects evaluation
 across workspaces. A ticket belongs to one map. Group nesting and native tracker
 references do not change frontier or ownership rules.
 
@@ -27,7 +27,7 @@ A run never substitutes for its human assignee. See [claim semantics](claim-sema
 ## Capabilities
 
 `CAPABILITIES` in the domain model is the authoritative vocabulary. Identifiers
-are additive within a protocol major; published names cannot be repurposed.
+are additive; published names cannot be repurposed.
 An adapter advertises only behavior its implementation and runtime can verify.
 
 Presentation tiers summarize capabilities. Operations check the exact required

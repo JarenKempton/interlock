@@ -8,7 +8,7 @@ export type ClaimRef = `interlock-claim:${string}`;
 export type ActorRef = string & { readonly __kind: "ActorRef" };
 export type AdapterRef = string & { readonly __kind: "AdapterRef" };
 
-/** Protocol-stable capability identifiers. Additions are backward compatible; renames are not. */
+/** Capability identifiers adapters may advertise. Additions are backward compatible; renames are not. */
 export const CAPABILITIES = [
   "native_maps",
   "native_dependencies",
