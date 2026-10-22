@@ -38,19 +38,6 @@ const mapSchema = z.strictObject({
   repository: configText,
   claim_status: configText,
   available_statuses: z.array(configText).min(1),
-  claim_comment_required: z.boolean().optional(),
-});
-const setupSchema = z.strictObject({
-  version: configText,
-  steps: z
-    .array(
-      z.strictObject({
-        argv: z.array(configText).min(1),
-        location: z.enum(["source", "workspace"]),
-        scripts: z.array(z.strictObject({ path: configText, version: configText })),
-      }),
-    )
-    .min(1),
 });
 const jiraSite = configText.refine((site) => {
   try {
@@ -73,7 +60,7 @@ export const projectConfigurationSchema = z
     repositories: z.record(configText, repositorySchema),
     maps: z.record(configText, mapSchema),
     tracker: z.strictObject({
-      jira: z.strictObject({ site: jiraSite, cli: configText.optional() }),
+      jira: z.strictObject({ site: jiraSite }),
     }),
     t3: z
       .strictObject({
@@ -101,7 +88,6 @@ export const projectConfigurationSchema = z
           .optional(),
       })
       .optional(),
-    setup: setupSchema.optional(),
   })
   .superRefine((project, ctx) => {
     for (const [key, map] of Object.entries(project.maps)) {
@@ -115,7 +101,6 @@ export const projectConfigurationSchema = z
   });
 export type RepositoryConfiguration = z.infer<typeof repositorySchema>;
 export type MapConfiguration = z.infer<typeof mapSchema>;
-export type SetupRecipe = z.infer<typeof setupSchema>;
 export type ProjectConfiguration = z.infer<typeof projectConfigurationSchema>;
 const resolvedConfigurationSchema = z.strictObject({
   version: z.literal(1),

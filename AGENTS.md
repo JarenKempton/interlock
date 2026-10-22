@@ -2,8 +2,11 @@
 
 ## Project intent
 
-Interlock is a portable orchestration CLI for tracker maps. Preserve tracker,
-harness, model, and workspace independence in all core packages.
+Interlock is a tracker-to-agent dispatcher. It claims a ticket through the
+Git-remote claim lock, which the tracker mirrors, prepares a Git worktree, and
+hands the ticket to an agent in a T3 Code lane: one lane, one ticket, one pull
+request. Preserve tracker, host, model, and workspace independence in all core
+packages.
 
 The implementation language is TypeScript and the build/runtime tool is Bun.
 Bun-specific behavior belongs in narrow platform modules; portable domain and
@@ -26,8 +29,8 @@ transaction logic should remain ordinary TypeScript.
 - Use argument arrays with `Bun.spawn`; never compose shell commands.
 - Add tests for every state-machine transition and failure compensation path.
 - Run `bun test`, `bun run typecheck`, and `bun run check` before handoff.
-- Do not add a live tracker mutation until its fake/conformance adapter proves
-  collision, verification, compensation, and ambiguous-failure behavior.
+- Do not add a live tracker mutation until fake-adapter tests prove collision,
+  verification, compensation, and ambiguous-failure behavior.
 
 ## Documentation
 

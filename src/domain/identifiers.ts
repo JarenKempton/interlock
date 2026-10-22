@@ -3,7 +3,6 @@ import type {
   ActorRef,
   AdapterRef,
   ClaimRef,
-  EnvironmentProfileRef,
   GroupRef,
   MapRef,
   RunRef,
@@ -21,7 +20,6 @@ function identifier<T extends string>() {
 }
 export const actorRefSchema = identifier<ActorRef>();
 export const adapterRefSchema = identifier<AdapterRef>();
-export const environmentProfileRefSchema = identifier<EnvironmentProfileRef>();
 export const ticketRefSchema = identifier<TicketRef>();
 export const mapRefSchema = identifier<MapRef>();
 export const groupRefSchema = identifier<GroupRef>();

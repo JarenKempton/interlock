@@ -1,9 +1,14 @@
 # Client and core ownership
 
 Interlock's CLI owns portable execution: normalized tracker reads, frontier
-selection, claims, workspace preparation, configuration, launch, supervision,
-and recovery. Adapters own vendor mechanics. Tracker facts remain durable
-coordination truth; the local ledger holds execution and recovery evidence.
+selection, claims, workspace preparation, configuration, launch, and recovery.
+Adapters own vendor mechanics. The Git-remote claim lock decides ownership and
+the tracker mirrors it; tracker facts remain durable coordination truth, and the
+local ledger holds execution and recovery evidence.
+
+T3 Code owns the lane: its conversation, agent provider, model, and the
+in-thread MCP launch of the agent. A lane works one ticket in one worktree and
+produces one pull request. Closing a lane does not release its claim.
 
 Skills, MCP integrations, and other clients own presentation, map authoring,
 role guidance, and translating a user's intent into an explicit operation.
@@ -16,8 +21,7 @@ External clients invoke available public commands and request `--json` for
 machine results. They must not import internal TypeScript modules, inspect the
 SQLite database, call adapters directly, or parse human-formatted output.
 Use generated `--help --json` to discover available actions and input contracts.
-Output shapes belong to each action's definition; the adapter protocol is a
-separate versioned interface described in [adapter-protocol.md](adapter-protocol.md).
+Output shapes belong to each action's definition.
 
 Selection must identify one ticket or an explicit selection policy. Secrets
 cross through credential-provider handles or scoped secure channels, never

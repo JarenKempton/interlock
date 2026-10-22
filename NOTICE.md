@@ -13,6 +13,5 @@ MCP tool definitions. This repository is specifically the portable CLI
 orchestration runtime; it does not own Product Pipeline or MCP product state.
 
 Interlock is not presented as Matt Pocock's software, and Matt Pocock has not
-endorsed this repository. The implementation, adapter protocol, transaction
-model, and code in this repository are maintained independently under the MIT
+endorsed this repository. The implementation, transaction model, and code in this repository are maintained independently under the MIT
 License.

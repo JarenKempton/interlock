@@ -22,7 +22,6 @@ import {
   UnsupportedCapabilityError,
 } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
-import { jiraDescription } from "../../execution/launch-prompt.ts";
 import { fetchTransport, type HttpTransport } from "./http.ts";
 
 export interface JiraResponse<T = unknown> {
@@ -204,7 +203,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   async getTicket(ticket: TicketRef): Promise<Ticket> {
     const issue = await this.#issue(ticket);
     const parent = issue.fields.parent?.key;
-    if (!parent) throw new Error("Jira Wayfinder ticket has no parent map");
+    if (!parent) throw new Error("Jira ticket has no parent map");
     const map = mapRefSchema.parse(`${this.#prefix}:map:${parent}`);
     const tickets = await this.listMapTickets(map);
     const found = tickets.find((item) => item.ref === ticket);
@@ -542,4 +541,67 @@ function originalClaimState(request: RestoreClaimRequest): JiraClaimSnapshot {
 function requireClaimedOwner(owner: ActorRef | undefined): ActorRef {
   if (!owner) throw new Error("Persisted claimed owner is required");
   return owner;
+}
+
+/** Jira ADF -> readable text. Preserve block/list boundaries and link destinations. */
+export function jiraDescription(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  function render(value: unknown): string {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error("Invalid Jira description document");
+    const node = z.record(z.string(), z.unknown()).parse(value);
+    if (typeof node.type !== "string") throw new Error("Invalid Jira description node");
+    if (node.type === "text") {
+      if (typeof node.text !== "string") throw new Error("Invalid Jira description text");
+      const marks = Array.isArray(node.marks) ? node.marks : [];
+      const link = marks.find((mark) => mark?.type === "link")?.attrs?.href;
+      return node.text + (typeof link === "string" ? ` (${link})` : "");
+    }
+    if (node.type === "hardBreak") return "\n";
+    const attrs = z.record(z.string(), z.unknown()).safeParse(node.attrs).data ?? {};
+    if (node.type === "mention")
+      return typeof attrs.text === "string"
+        ? attrs.text
+        : typeof attrs.id === "string"
+          ? `@${attrs.id}`
+          : "[Jira mention]";
+    if (node.type === "inlineCard" || node.type === "blockCard")
+      return typeof attrs.url === "string"
+        ? attrs.url + (node.type === "blockCard" ? "\n" : "")
+        : "[Jira link card unavailable]";
+    if (node.type === "emoji" || node.type === "status")
+      return typeof attrs.text === "string"
+        ? attrs.text
+        : typeof attrs.shortName === "string"
+          ? attrs.shortName
+          : "[Jira label]";
+    if (node.type === "date")
+      return typeof attrs.timestamp === "string" ? attrs.timestamp : "[Jira date]";
+    if (node.type === "rule") return "\n---\n";
+    if (node.content !== undefined && !Array.isArray(node.content))
+      throw new Error("Invalid Jira description content");
+    const content = z
+      .array(z.unknown())
+      .parse(node.content ?? [])
+      .map(render)
+      .join("");
+    if (node.type === "heading") {
+      const level = z.number().int().min(1).max(6).safeParse(attrs.level).data ?? 1;
+      return `${"#".repeat(level)} ${content.trimEnd()}\n`;
+    }
+    if (node.type === "codeBlock") return `\n\`\`\`\n${content}\n\`\`\`\n`;
+    if (["paragraph", "listItem", "blockquote", "tableRow"].includes(node.type))
+      return `${content.trimEnd()}\n`;
+    if (
+      ["doc", "bulletList", "orderedList", "table", "tableCell", "tableHeader", "panel"].includes(
+        node.type,
+      )
+    )
+      return content;
+    if (node.type === "expand" || node.type === "nestedExpand")
+      return `${typeof attrs.title === "string" ? attrs.title : ""}\n${content}`;
+    return `[Unsupported Jira content]${content}`;
+  }
+  return render(value).trimEnd();
 }

@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { Ticket, TicketKind } from "../domain/model.ts";
 
 const ROLE_TEMPLATES: Record<TicketKind, string> = {
@@ -55,9 +54,7 @@ export interface LaunchPromptOptions {
 export function buildLaunchPrompt(ticket: Ticket, options: LaunchPromptOptions = {}): string {
   const criteria = ticket.acceptanceCriteria ?? acceptanceCriteria(ticket.description ?? "");
   return [
-    ...(options.runtimeContract
-      ? [`Read the Wayfinder runtime contract:\n${options.runtimeContract}`]
-      : []),
+    ...(options.runtimeContract ? [`Read the runtime contract:\n${options.runtimeContract}`] : []),
     ...(options.tracker ? [`Tracker:\n${options.tracker}`] : []),
     `Map:\n${ticket.map}`,
     `Ticket:\n${ticket.ref}${ticket.title ? ` — ${ticket.title}` : ""}`,
@@ -69,66 +66,4 @@ export function buildLaunchPrompt(ticket: Ticket, options: LaunchPromptOptions =
     "Authorization and completion:\nThis prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied.",
     ...(options.context ? [`Session-specific instructions:\n${options.context}`] : []),
   ].join("\n\n");
-}
-/** Jira ADF -> readable text. Preserve block/list boundaries and link destinations. */
-export function jiraDescription(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === "string") return value;
-  function render(value: unknown): string {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      throw new Error("Invalid Jira description document");
-    const node = z.record(z.string(), z.unknown()).parse(value);
-    if (typeof node.type !== "string") throw new Error("Invalid Jira description node");
-    if (node.type === "text") {
-      if (typeof node.text !== "string") throw new Error("Invalid Jira description text");
-      const marks = Array.isArray(node.marks) ? node.marks : [];
-      const link = marks.find((mark) => mark?.type === "link")?.attrs?.href;
-      return node.text + (typeof link === "string" ? ` (${link})` : "");
-    }
-    if (node.type === "hardBreak") return "\n";
-    const attrs = z.record(z.string(), z.unknown()).safeParse(node.attrs).data ?? {};
-    if (node.type === "mention")
-      return typeof attrs.text === "string"
-        ? attrs.text
-        : typeof attrs.id === "string"
-          ? `@${attrs.id}`
-          : "[Jira mention]";
-    if (node.type === "inlineCard" || node.type === "blockCard")
-      return typeof attrs.url === "string"
-        ? attrs.url + (node.type === "blockCard" ? "\n" : "")
-        : "[Jira link card unavailable]";
-    if (node.type === "emoji" || node.type === "status")
-      return typeof attrs.text === "string"
-        ? attrs.text
-        : typeof attrs.shortName === "string"
-          ? attrs.shortName
-          : "[Jira label]";
-    if (node.type === "date")
-      return typeof attrs.timestamp === "string" ? attrs.timestamp : "[Jira date]";
-    if (node.type === "rule") return "\n---\n";
-    if (node.content !== undefined && !Array.isArray(node.content))
-      throw new Error("Invalid Jira description content");
-    const content = z
-      .array(z.unknown())
-      .parse(node.content ?? [])
-      .map(render)
-      .join("");
-    if (node.type === "heading") {
-      const level = z.number().int().min(1).max(6).safeParse(attrs.level).data ?? 1;
-      return `${"#".repeat(level)} ${content.trimEnd()}\n`;
-    }
-    if (node.type === "codeBlock") return `\n\`\`\`\n${content}\n\`\`\`\n`;
-    if (["paragraph", "listItem", "blockquote", "tableRow"].includes(node.type))
-      return `${content.trimEnd()}\n`;
-    if (
-      ["doc", "bulletList", "orderedList", "table", "tableCell", "tableHeader", "panel"].includes(
-        node.type,
-      )
-    )
-      return content;
-    if (node.type === "expand" || node.type === "nestedExpand")
-      return `${typeof attrs.title === "string" ? attrs.title : ""}\n${content}`;
-    return `[Unsupported Jira content]${content}`;
-  }
-  return render(value).trimEnd();
 }

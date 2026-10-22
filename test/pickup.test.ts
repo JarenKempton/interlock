@@ -156,7 +156,7 @@ class FakeHarness implements HarnessAdapter {
   launchError?: Error;
   stopError?: Error;
   stopped = false;
-  describedCapabilities = capabilities("process_launch");
+  describedCapabilities = capabilities();
   preflightRequest?: Parameters<HarnessAdapter["preflight"]>[0];
   launchRequest?: Parameters<HarnessAdapter["launch"]>[0];
   async describe() {
@@ -254,7 +254,7 @@ describe("pickup coordinator", () => {
 
   test("requested routing capabilities are rejected before claim", async () => {
     const harness = new FakeHarness();
-    harness.describedCapabilities = capabilities("process_launch", "model_selection");
+    harness.describedCapabilities = capabilities("model_selection");
     const {
       coordinator: subject,
       tracker,
@@ -266,10 +266,10 @@ describe("pickup coordinator", () => {
         model: "gpt",
         effort: "high",
         context: "repo",
-        requiredCapabilities: capabilities("session_resume"),
+        requiredCapabilities: capabilities("workspace_prepare"),
       }),
     ).rejects.toThrow(
-      "Unsupported capabilities: session_resume, reasoning_selection, context_selection",
+      "Unsupported capabilities: reasoning_selection, context_selection, workspace_prepare",
     );
     expect(tracker.claimCalls).toBe(0);
     expect(workspace).toBeDefined();
@@ -279,7 +279,6 @@ describe("pickup coordinator", () => {
   test("validated routing settings reach preflight, launch, and the run ledger", async () => {
     const harness = new FakeHarness();
     harness.describedCapabilities = capabilities(
-      "process_launch",
       "model_selection",
       "reasoning_selection",
       "context_selection",
@@ -390,7 +389,7 @@ describe("pickup coordinator", () => {
       expect(tracker.restoreCalls).toBe(1);
       expect(result.receipt).toMatchObject({
         state: "recovery_required",
-        recoveryCommand: `interlock recover interlock-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
+        recoveryCommand: "interlock runs export interlock-run:test",
       });
       expect(result.cause).toBeInstanceOf(AggregateError);
       const error = z.instanceof(AggregateError).parse(result.cause);
@@ -406,7 +405,7 @@ describe("pickup coordinator", () => {
         expect.objectContaining({
           outcome: "verification_required",
           evidence_json: JSON.stringify({
-            command: `interlock recover interlock-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
+            command: "interlock runs export interlock-run:test",
             tracker: "restored_verified",
             session: "not_started",
             ledger: "compensated_step_persistence_failed",
@@ -427,9 +426,7 @@ describe("pickup coordinator", () => {
     const item = coordinator(tracker, workspace);
     const result = await failure(item.coordinator);
     expect(result.receipt.state).toBe("recovery_required");
-    expect(result.receipt.recoveryCommand).toBe(
-      `interlock recover interlock-run:test --evidence '{"tracker":"verify","session":"verify"}'`,
-    );
+    expect(result.receipt.recoveryCommand).toBe("interlock runs export interlock-run:test");
     expect(item.ledger.recoveryRun?.status).toBe("recovery_required");
   });
 

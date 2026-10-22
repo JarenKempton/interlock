@@ -64,12 +64,6 @@ test("Zod schemas own configuration types and setting discovery", () => {
     const settings = personalSettingsSchema.parse({});
     // @ts-expect-error Unknown setting names must not become part of the inferred API.
     settings.secret;
-    const project = projectConfigurationSchema.parse({});
-    const step = project.setup?.steps[0];
-    if (step) {
-      // @ts-expect-error Recipe argv is inferred as an array, not a shell command string.
-      step.argv = "sh setup.sh";
-    }
   };
   void typeExamples;
 });
@@ -85,9 +79,12 @@ test.each(["unknown-field", "record-key", "record-value", "nested-array", "null-
     if (scenario === "record-value")
       project.repositories = { DO_NOT_ECHO: { github: "DO_NOT_ECHO" } };
     if (scenario === "nested-array")
-      project.setup = {
-        version: "v1",
-        steps: [{ argv: ["bun", { DO_NOT_ECHO: true }], location: "workspace", scripts: [] }],
+      project.maps = {
+        example: {
+          repository: "example",
+          claim_status: "In Progress",
+          available_statuses: ["To Do", { DO_NOT_ECHO: true }],
+        },
       };
     if (scenario === "null-section") project.t3 = null;
     let error: unknown;
@@ -260,7 +257,7 @@ test.each(["version = 2", 'token = "DO_NOT_ECHO"', 'version = "DO_NOT_ECHO"'])(
   },
 );
 
-test("rejects dangling map, credentials in tracker URL, invalid runtime, and shell-text setup", () => {
+test("rejects dangling map, credentials in tracker URL, and invalid runtime", () => {
   expect(() =>
     parseProjectToml(
       INITIAL_CONFIGURATION.replace(
@@ -285,18 +282,9 @@ test("rejects dangling map, credentials in tracker URL, invalid runtime, and she
       ),
     ),
   ).toThrow("project.t3.runtime_mode");
-  expect(() =>
-    parseProjectToml(
-      `${INITIAL_CONFIGURATION}\n[setup]\nversion = "v1"\n[[setup.steps]]\nargv = "sh setup.sh"\nlocation = "workspace"\nscripts = []`,
-    ),
-  ).toThrow("project.setup.steps.item.argv");
 });
 
-test("setup is ordered argv with explicit location and script version, and stays present across personal resolution", () => {
-  const content = `${INITIAL_CONFIGURATION}\n[setup]\nversion = "recipe-v1"\n[[setup.steps]]\nargv = ["bun", "install", "--frozen-lockfile"]\nlocation = "workspace"\nscripts = []\n[[setup.steps]]\nargv = ["sh", "scripts/setup.sh"]\nlocation = "workspace"\nscripts = [{ path = "scripts/setup.sh", version = "sha256:script-v1" }]`;
-  const configuration = resolve(content, { model: "personal" });
-  expect(configuration.project.setup?.steps.map((step) => step.argv[0])).toEqual(["bun", "sh"]);
-  expect(configuration.project.setup?.steps[1]?.scripts[0]?.version).toBe("sha256:script-v1");
+test("configuration references resolve against the project file without shell expansion", () => {
   const f = fixture();
   expect(configurationReference(f.path, "docs/contract.md")).toBe(
     join(f.cwd, "docs", "contract.md"),

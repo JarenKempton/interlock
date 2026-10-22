@@ -25,19 +25,6 @@ export function withStore<T>(services: RuntimeServices, operation: (store: State
     store.close();
   }
 }
-export async function withAsyncStore<T>(
-  services: RuntimeServices,
-  operation: (store: StateStore) => Promise<T>,
-): Promise<T> {
-  const path = services.statePath ?? databasePath();
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const store = new StateStore(path);
-  try {
-    return await operation(store);
-  } finally {
-    store.close();
-  }
-}
 export function runRef(value: string): RunRef {
   return runRefSchema.parse(value.startsWith("interlock-run:") ? value : `interlock-run:${value}`);
 }

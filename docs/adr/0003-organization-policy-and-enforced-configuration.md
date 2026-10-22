@@ -29,7 +29,7 @@ Preferences can differ between contributors; enforced policy must not depend
 on who runs a command. Serving policy through the tracker uses the authority
 already associated with the work and preserves provider independence.
 
-This decision does not add a protocol method or capability. Published identifiers
+This decision does not add a tracker operation or capability. Published identifiers
 live in [the domain model](../../src/domain/model.ts), and configuration behavior
 lives in [configuration](../../src/configuration/). Do not infer organization
 governance from project-local requirements or advertise it before implementation.
