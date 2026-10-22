@@ -290,7 +290,7 @@ describe("Git remote claim lock", () => {
   );
 
   test(
-    "a failing pre-push hook blocks ordinary pushes but not the claim lock",
+    "a failing pre-push hook blocks ordinary pushes and the claim lock",
     async () => {
       const { fixture, alice: subject } = await setup();
       const hook = join(fixture.alice, ".git", "hooks", "pre-push");
@@ -318,13 +318,15 @@ describe("Git remote claim lock", () => {
       expect(ordinary.stderr).toContain("pre-push hook: blocked");
       expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote], fixture.alice)).toBe("");
 
-      await subject.claim(claimRequest(alice, "a"));
-      expect(heldClaim(await subject.read(ticket))?.owner).toBe(alice);
+      await expect(subject.claim(claimRequest(alice, "a"))).rejects.toBeInstanceOf(
+        AmbiguousTrackerResultError,
+      );
+      expect(heldClaim(await subject.read(ticket))).toBeUndefined();
     },
     GIT_TEST_TIMEOUT_MS,
   );
 
-  test("only the claim lock push skips client hooks", async () => {
+  test("no production push skips client hooks", async () => {
     const flag = ["--no", "verify"].join("-");
     const root = join(import.meta.dir, "..", "src");
     const files = await readdir(root, { recursive: true });
@@ -333,7 +335,7 @@ describe("Git remote claim lock", () => {
       const occurrences = (await readFile(join(root, file), "utf8")).split(flag).length - 1;
       for (let index = 0; index < occurrences; index += 1) callers.push(file.replaceAll("\\", "/"));
     }
-    expect(callers).toEqual(["adapters/claims/git-lock.ts"]);
+    expect(callers).toEqual([]);
   });
 
   test(

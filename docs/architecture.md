@@ -42,7 +42,9 @@ transition is recorded before the next side effect. See [claim semantics](claim-
 for collision, compensation, and recovery behavior. A T3 Code lane runs the
 agent; a finished agent turn does not establish ticket completion.
 
-Git workspaces use qualified ticket identity for deterministic paths and branches.
+The pickup CLI uses `task/KEY` and `<worktree_root>/KEY`; the Git lock checks the
+qualified ticket identity before that workspace can be prepared. Other Git
+adapter callers retain the qualified identity encoding for paths and branches.
 Preparation verifies the exact repository/path/branch mapping before reuse and
 preserves dirty work. Deletion separately verifies ownership, canonical location,
 registration, and a clean workspace. See the [Git adapter](../src/adapters/workspaces/git.ts).
@@ -67,5 +69,7 @@ the lane state machine.
 Run the checks in [AGENTS.md](../AGENTS.md). Behavioral evidence lives in
 [tests](../test/). The claim lock tests run against a real local bare remote;
 Jira tests use an injected transport and do not qualify hosted tracker writes
-or a live agent. Platform and release checks are defined in the
+or a live agent. The [pickup CLI test](../test/pickup-command.test.ts) runs the
+registered command parser in subprocesses with real local Git locks/worktrees,
+injected Jira and an injected GitHub origin identity. Platform and release checks are defined in the
 [workflows](../.github/workflows/).

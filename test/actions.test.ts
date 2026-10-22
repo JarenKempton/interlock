@@ -75,7 +75,7 @@ test("runtime dependencies govern actual application help, manual, completion an
     const unavailable = composeActions(application, example());
     expect(actionHelp(unavailable)).not.toContain("sample");
     expect(completionCandidates(unavailable, [])).not.toContain("sample");
-    expect(completionCandidates(unavailable, ["claim"])).toEqual(["show"]);
+    expect(completionCandidates(unavailable, ["claim"])).toEqual(["release", "show"]);
     await expect(unavailable.sample.greet.execute({ name: "Jaren" })).rejects.toThrow(
       "no greeting service",
     );
@@ -140,7 +140,7 @@ test("current completion queries derive subcommands and options from the live tr
   expect(await app.completions.execute({ shell: "bash", at: "config" })).toBe("show\nedit");
   expect(await app.completions.execute({ shell: "bash", at: "config edit" })).toContain("--follow");
   expect(await app.completions.execute({ shell: "bash", at: "" })).not.toContain("stop");
-  expect(registeredActions(app).some((entry) => entry.command.join(" ") === "pickup")).toBe(false);
+  expect(registeredActions(app).some((entry) => entry.command.join(" ") === "pickup")).toBe(true);
 });
 
 // These compile-only examples fail typecheck if action/input/dependency types become permissive.

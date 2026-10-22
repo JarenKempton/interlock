@@ -54,6 +54,11 @@ const jiraSite = configText.refine((site) => {
     return false;
   }
 });
+const roleModelSchema = z.strictObject({
+  provider: configText,
+  model: configText,
+  options: z.record(configText, z.union([configText, z.boolean()])).optional(),
+});
 export const projectConfigurationSchema = z
   .strictObject({
     version: z.literal(1),
@@ -75,6 +80,12 @@ export const projectConfigurationSchema = z
       .default({}),
     defaults: personalSettingsSchema.default({}),
     required: personalSettingsSchema.default({}),
+    roles: z
+      .strictObject({
+        implementer: roleModelSchema.optional(),
+        reviewers: z.record(configText, roleModelSchema).optional(),
+      })
+      .optional(),
     instructions: z
       .strictObject({
         runtime_contract: configText.optional(),
