@@ -1,4 +1,4 @@
-import type { ClaimLock } from "../domain/claim-lock.ts";
+import type { ClaimLock, ClaimLockRecord } from "../domain/claim-lock.ts";
 import type { ClaimRequest, ReleaseClaimRequest } from "../domain/contracts.ts";
 import type { ActorRef } from "../domain/model.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";
@@ -28,7 +28,7 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
     };
   }
   return [
-    scenario("collision", async ({ adapter, contender, request }) => {
+    scenario("collision", async ({ adapter, contender, request, otherOwner }) => {
       requireBehavior(
         (await adapter.describe()).conditional_update === true,
         "Lock must verify conditional writes",
@@ -40,6 +40,7 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
           ...request,
           claim: "interlock-claim:contender",
           run: "interlock-run:contender",
+          owner: otherOwner,
           expectedVersion: initial.version,
         }),
       ]);
@@ -54,14 +55,23 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
       );
       const held = await adapter.read(request.ticket);
       const expected =
-        results[0]?.status === "fulfilled" ? request.claim : "interlock-claim:contender";
-      requireBehavior(
-        held.record?.claim === expected &&
-          held.record.action === "claim" &&
-          held.record.owner === request.owner &&
-          held.version !== initial.version,
-        "Winner was not durably installed",
-      );
+        results[0]?.status === "fulfilled"
+          ? request
+          : {
+              ...request,
+              claim: "interlock-claim:contender" as const,
+              run: "interlock-run:contender" as const,
+              owner: otherOwner,
+            };
+      requireBehavior(held.version !== initial.version, "Claim did not change the version");
+      requireRecord(held.record, {
+        action: "claim",
+        ticket: expected.ticket,
+        claim: expected.claim,
+        run: expected.run,
+        owner: expected.owner,
+        leaseExpiresAt: expected.leaseExpiresAt,
+      });
     }),
     scenario("stale_version", async (fixture) => {
       const { adapter, request } = fixture;
@@ -85,20 +95,27 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
       );
       await adapter.renew({ ...renew, expectedVersion: held.version });
       const renewed = await adapter.read(request.ticket);
-      requireBehavior(
-        renewed.record?.claim === request.claim &&
-          renewed.record.leaseExpiresAt === renew.leaseExpiresAt &&
-          renewed.version !== held.version,
-        "Renewal was not verified",
-      );
+      requireBehavior(renewed.version !== held.version, "Renewal did not change the version");
+      requireRecord(renewed.record, {
+        action: "renew",
+        ticket: request.ticket,
+        claim: request.claim,
+        run: request.run,
+        owner: request.owner,
+        leaseExpiresAt: renew.leaseExpiresAt,
+      });
       await adapter.release(release(fixture, renewed.version));
       const released = await adapter.read(request.ticket);
-      requireBehavior(
-        released.record?.action === "release" &&
-          released.record.claim === request.claim &&
-          released.version !== renewed.version,
-        "Release was not verified",
-      );
+      requireBehavior(released.version !== renewed.version, "Release did not change the version");
+      requireRecord(released.record, {
+        action: "release",
+        ticket: request.ticket,
+        claim: request.claim,
+        run: request.run,
+        owner: request.owner,
+        leaseExpiresAt: renew.leaseExpiresAt,
+        authorizedBy: request.owner,
+      });
     }),
     scenario("authority", async (fixture) => {
       const { adapter, request, otherOwner } = fixture;
@@ -177,4 +194,19 @@ function release(fixture: ClaimLockFixture, expectedVersion: string): ReleaseCla
     expectedVersion,
     originalSnapshot: { version: "opaque", payload: null },
   };
+}
+
+function requireRecord(actual: ClaimLockRecord | null, expected: ClaimLockRecord) {
+  requireBehavior(
+    actual &&
+      actual.action === expected.action &&
+      actual.ticket === expected.ticket &&
+      actual.claim === expected.claim &&
+      actual.run === expected.run &&
+      actual.owner === expected.owner &&
+      actual.leaseExpiresAt === expected.leaseExpiresAt &&
+      actual.supersedes === expected.supersedes &&
+      actual.authorizedBy === expected.authorizedBy,
+    "Lock record does not preserve the exact identity and lease",
+  );
 }

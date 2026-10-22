@@ -8,7 +8,9 @@ import {
 } from "../../src/domain/host.ts";
 import { fakePlanningTicket } from "./configuration-plan.ts";
 
-export function fakeHostFixture(): HostFixture {
+export function fakeHostFixture(
+  fault?: "duplicate_retry" | "global_ownership" | "global_children",
+): HostFixture {
   const sessions: HostSession[] = [];
   const messages: string[] = [];
   const children: HostSession[] = [];
@@ -28,7 +30,7 @@ export function fakeHostFixture(): HostFixture {
     },
     async launch(input) {
       const existing = sessions.find((session) => session.run === input.run);
-      if (existing) {
+      if (existing && !(fault === "duplicate_retry" && failReadback)) {
         if (
           existing.ticket !== input.ticket.ref ||
           existing.workspace.path !== input.workspace.path ||
@@ -45,8 +47,13 @@ export function fakeHostFixture(): HostFixture {
         state: "running",
       };
       sessions.push(structuredClone(session));
-      children.push({ ...session, id: "child-1", run: "interlock-run:child" });
-      if (failReadback) throw new AmbiguousTrackerResultError();
+      children.push({
+        ...session,
+        id: `child-${session.id}`,
+        run: `interlock-run:child-${session.id}`,
+      });
+      if (failReadback && !(fault === "duplicate_retry" && existing))
+        throw new AmbiguousTrackerResultError();
       return session;
     },
     async locate(run) {
@@ -62,11 +69,17 @@ export function fakeHostFixture(): HostFixture {
     async focus(session) {
       focused = session.id;
     },
-    async subagents() {
-      return structuredClone(children);
+    async subagents(session) {
+      return structuredClone(
+        children.filter(
+          (child) => fault === "global_children" || child.workspace.path === session.workspace.path,
+        ),
+      );
     },
-    async owns_pull_request(_session, url) {
-      return url === ownedPullRequest;
+    async owns_pull_request(session, url) {
+      return (
+        url === ownedPullRequest && (fault === "global_ownership" || session.run === request.run)
+      );
     },
   };
   return {
@@ -75,6 +88,9 @@ export function fakeHostFixture(): HostFixture {
     ownedPullRequest,
     unrelatedPullRequest: "https://example.invalid/pull/2",
     observe: async () => structuredClone({ sessions, messages, children, focused }),
+    restoreReadback: () => {
+      if (fault !== "duplicate_retry") failReadback = false;
+    },
     loseLaunchReadback: () => {
       failReadback = true;
     },

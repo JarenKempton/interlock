@@ -14,6 +14,7 @@ export interface HostFixture {
     children: readonly HostSession[];
   }>;
   loseLaunchReadback(): void | Promise<void>;
+  restoreReadback(): void | Promise<void>;
 }
 
 export function hostConformance(create: () => Promise<HostFixture>): ConformanceCase[] {
@@ -53,10 +54,30 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
         "claim_collision",
       );
     }),
-    scenario("ambiguous_launch", async ({ adapter, request, loseLaunchReadback }) => {
-      await loseLaunchReadback();
-      await requireRejection(() => adapter.launch(request), "ambiguous_tracker_result");
-    }),
+    scenario(
+      "ambiguous_launch",
+      async ({ adapter, request, observe, loseLaunchReadback, restoreReadback }) => {
+        await loseLaunchReadback();
+        await requireRejection(() => adapter.launch(request), "ambiguous_tracker_result");
+        const before = await observe();
+        requireBehavior(
+          before.sessions.length === 1,
+          "Lost-response fixture did not commit a launch",
+        );
+        await restoreReadback();
+        const retried = await adapter.launch(request);
+        const located = await adapter.locate(request.run);
+        requireBehavior(
+          retried.id === before.sessions[0]?.id &&
+            located?.id === retried.id &&
+            located.run === request.run &&
+            located.ticket === request.ticket.ref &&
+            located.workspace.path === request.workspace.path &&
+            (await observe()).sessions.length === 1,
+          "Lost-response retry duplicated or lost the original session",
+        );
+      },
+    ),
     ...HOST_CAPABILITIES.map((capability) =>
       scenario(capability, async (fixture) => {
         const { adapter, request, observe } = fixture;
@@ -87,8 +108,21 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
             break;
           case "subagents": {
             requireBehavior(adapter.subagents, "Advertised subagents has no implementation");
+            const other = await adapter.launch({
+              ...request,
+              run: "interlock-run:other",
+              workspace: { path: `${request.workspace.path}-other` },
+            });
             const children = await adapter.subagents(session);
-            const observed = (await observe()).children;
+            const others = await adapter.subagents(other);
+            const observed = (await observe()).children.filter(
+              (child) => child.workspace.path === session.workspace.path,
+            );
+            requireBehavior(
+              others.length > 0 &&
+                others.every((child) => !children.some((item) => item.id === child.id)),
+              "Subagent discovery crossed session ownership",
+            );
             requireBehavior(
               observed.length > 0 &&
                 children.length === observed.length &&
@@ -99,7 +133,7 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
             );
             break;
           }
-          case "pr_ownership":
+          case "pr_ownership": {
             requireBehavior(
               adapter.owns_pull_request,
               "Advertised PR ownership has no implementation",
@@ -112,6 +146,17 @@ export function hostConformance(create: () => Promise<HostFixture>): Conformance
               !(await adapter.owns_pull_request(session, fixture.unrelatedPullRequest)),
               "Unrelated PR was claimed",
             );
+            const other = await adapter.launch({
+              ...request,
+              run: "interlock-run:other",
+              workspace: { path: `${request.workspace.path}-other` },
+            });
+            requireBehavior(
+              !(await adapter.owns_pull_request(other, fixture.ownedPullRequest)),
+              "PR ownership leaked to an unrelated session",
+            );
+            break;
+          }
         }
       }),
     ),

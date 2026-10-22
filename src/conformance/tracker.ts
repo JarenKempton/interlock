@@ -15,6 +15,7 @@ export interface TrackerFixture {
   otherOwner: ActorRef;
   observe(): Promise<TrackerObservation>;
   changeOwner(owner: ActorRef): Promise<void>;
+  addArtifact(url: string): Promise<void>;
   loseWriteReadback(): void | Promise<void>;
 }
 
@@ -90,6 +91,61 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
         (await observe()).writes === restored.writes,
         "Repeated restore performed another write",
       );
+    }),
+    scenario("preserve_artifacts", async (fixture) => {
+      const { adapter, claim, addArtifact, observe } = fixture;
+      const original = await adapter.read(claim.ticket);
+      await adapter.apply(claim);
+      await addArtifact(artifact);
+      await adapter.restore(restoration(fixture, original.snapshot));
+      await adapter.verify({ ...restoration(fixture, original.snapshot), state: "restored" });
+      requireBehavior(
+        (await observe()).artifacts.includes(artifact) &&
+          (await adapter.read(claim.ticket)).artifacts.includes(artifact),
+        "Restoration deleted unrelated artifact evidence",
+      );
+    }),
+    scenario("authorized_successor", async (fixture) => {
+      const { adapter, claim, otherOwner, observe } = fixture;
+      const original = await adapter.read(claim.ticket);
+      await adapter.apply(claim);
+      const successor: MirrorClaim = {
+        ...claim,
+        claim: "interlock-claim:successor",
+        run: "interlock-run:successor",
+        owner: otherOwner,
+        supersedes: claim.claim,
+      };
+      const before = await observe();
+      await requireRejection(
+        () => adapter.apply({ ...successor, supersedes: "interlock-claim:unrelated" }),
+        "claim_collision",
+      );
+      requireBehavior(
+        (await observe()).writes === before.writes,
+        "Mismatched predecessor changed the mirror",
+      );
+      await adapter.apply(successor);
+      await adapter.verify({ ...successor, state: "applied" });
+      const applied = await observe();
+      requireBehavior(
+        applied.mirror?.claim === successor.claim &&
+          applied.mirror.supersedes === claim.claim &&
+          applied.mirror.run === successor.run &&
+          applied.mirror.owner === otherOwner &&
+          applied.ticket.assignee === otherOwner,
+        "Authorized successor was not mirrored",
+      );
+      await adapter.apply(successor);
+      requireBehavior((await observe()).writes === applied.writes, "Successor retry wrote again");
+      const restore = {
+        ticket: claim.ticket,
+        claim: successor.claim,
+        claimedOwner: otherOwner,
+        originalSnapshot: original.snapshot,
+      };
+      await adapter.restore(restore);
+      await adapter.verify({ ...restore, state: "restored" });
     }),
     scenario("preserve_human_change", async (fixture) => {
       const { adapter, claim, observe, changeOwner, otherOwner } = fixture;

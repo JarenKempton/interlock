@@ -16,7 +16,7 @@ describe("portable adapter conformance", () => {
     ]);
     expect(report.results.filter((result) => !result.ok)).toEqual([]);
     expect(report.ok).toBe(true);
-    expect(report.results.length).toBe(23);
+    expect(report.results.length).toBe(25);
   });
 
   test.each(["collision", "stale", "ambiguous"] as const)(
@@ -30,6 +30,64 @@ describe("portable adapter conformance", () => {
             !result.ok && result.name.includes(fault === "stale" ? "stale_version" : fault),
         ),
       ).toBe(true);
+    },
+  );
+
+  test("rejects a lock that corrupts the stored run or lease", async () => {
+    const report = await runConformance(
+      claimLockConformance(async () => {
+        const fixture = fakeLockFixture();
+        const read = fixture.adapter.read;
+        fixture.adapter.read = async (ticket) => {
+          const state = await read(ticket);
+          if (state.record)
+            state.record = {
+              ...state.record,
+              run: "interlock-run:corrupt",
+              leaseExpiresAt: "2000-01-01T00:00:00Z",
+            };
+          return state;
+        };
+        return fixture;
+      }),
+    );
+    expect(report.results.find((result) => result.name === "claim_lock.collision")).toMatchObject({
+      ok: false,
+    });
+    expect(
+      report.results.find((result) => result.name === "claim_lock.stale_version"),
+    ).toMatchObject({ ok: false });
+  });
+
+  test.each(["drop_artifacts", "reject_successor"] as const)(
+    "rejects tracker %s regression",
+    async (fault) => {
+      const report = await runConformance(
+        trackerConformance(async () => fakeTrackerFixture(fault)),
+      );
+      expect(
+        report.results.find(
+          (result) =>
+            result.name ===
+            `tracker.${fault === "drop_artifacts" ? "preserve_artifacts" : "authorized_successor"}`,
+        ),
+      ).toMatchObject({ ok: false });
+    },
+  );
+
+  test.each(["duplicate_retry", "global_ownership", "global_children"] as const)(
+    "rejects host %s regression",
+    async (fault) => {
+      const report = await runConformance(hostConformance(async () => fakeHostFixture(fault)));
+      const scenario =
+        fault === "duplicate_retry"
+          ? "ambiguous_launch"
+          : fault === "global_ownership"
+            ? "pr_ownership"
+            : "subagents";
+      expect(report.results.find((result) => result.name === `host.${scenario}`)).toMatchObject({
+        ok: false,
+      });
     },
   );
 
