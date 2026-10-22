@@ -261,19 +261,28 @@ describe("Git remote claim lock", () => {
   );
 
   test(
-    "the documented fallback namespace uses an ordinary branch ref",
+    "lock commits carry the empty tree and name the claimant as author",
     async () => {
-      const { fixture, lock } = await setup();
-      const subject = lock(fixture.alice, { namespace: "refs/heads/interlock/claims" });
-      expect(subject.ref(ticket)).toBe("refs/heads/interlock/claims/JWB-900");
-      await subject.claim(claimRequest(alice, "a"));
+      const { fixture, alice: first, bob: second } = await setup();
+      await first.claim(claimRequest(alice, "a"));
+      const claimed = await first.read(ticket);
+      await first.release({
+        ticket,
+        claim: claimRefSchema.parse("interlock-claim:a"),
+        originalSnapshot: { version: ABSENT_LOCK_VERSION, payload: null },
+        expectedVersion: claimed.version,
+        authorizedBy: alice,
+      });
+      await second.claim(claimRequest(bob, "b", (await second.read(ticket)).version));
       expect(
-        await checkedGit(
-          fixture.git,
-          ["rev-list", "--count", "refs/heads/interlock/claims/JWB-900"],
-          fixture.remote,
-        ),
-      ).toBe("1");
+        await checkedGit(fixture.git, ["log", "--format=%an %ae %cn %T", ref], fixture.remote),
+      ).toBe(
+        [
+          "bob interlock@invalid bob 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+          "alice interlock@invalid alice 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+          "alice interlock@invalid alice 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        ].join("\n"),
+      );
     },
     GIT_TEST_TIMEOUT_MS,
   );
@@ -281,13 +290,12 @@ describe("Git remote claim lock", () => {
   test(
     "rejects unsafe keys, past leases and records for another ticket",
     async () => {
-      const { fixture, alice: subject, lock } = await setup();
-      expect(() => subject.ref(ticketRefSchema.parse("jira:responsibid:JWB:ticket:a..b"))).toThrow(
-        "Ticket key cannot name a claim lock ref",
-      );
-      expect(() => lock(fixture.alice, { namespace: "refs/interlock/" })).toThrow(
-        "Invalid claim lock namespace",
-      );
+      const { alice: subject } = await setup();
+      expect(await subject.ref(ticket)).toBe(ref);
+      for (const key of ["a..b", "a/b", "a b", "x.lock", "a@{1}"])
+        await expect(
+          subject.ref(ticketRefSchema.parse(`jira:responsibid:JWB:ticket:${key}`)),
+        ).rejects.toThrow("Ticket key cannot name a claim lock ref");
       await expect(
         subject.claim({ ...claimRequest(alice, "a"), leaseExpiresAt: "2026-10-21T00:00:00.000Z" }),
       ).rejects.toThrow("Claim lease must expire in the future");

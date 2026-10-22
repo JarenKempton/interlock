@@ -77,8 +77,9 @@ append-only lock ref on the repository's Git remote:
 [`GitClaimLock`](../src/adapters/claims/git-lock.ts), composed with the tracker
 by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
 
-- The ref is `refs/interlock/claims/<KEY>`. If a host rejects that namespace,
-  configure the fallback `refs/heads/interlock/claims/<KEY>`.
+- The ref is `refs/interlock/claims/<KEY>`, validated by `git check-ref-format`.
+  There is no fallback namespace: a host that rejects `refs/interlock/*` fails
+  the claim with its own rejection.
 - Claim, renew, release and reclaim each append one commit whose message holds
   the claim record, built on the observed tip and sent with an ordinary
   fast-forward push. The remote applies it only while the ref is still at that

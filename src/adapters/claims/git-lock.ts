@@ -24,13 +24,6 @@ import {
 
 export const ABSENT_LOCK_VERSION = "absent";
 export const CLAIM_LOCK_NAMESPACE = "refs/interlock/claims";
-export const FALLBACK_CLAIM_LOCK_NAMESPACE = "refs/heads/interlock/claims";
-
-const EMPTY_TREES: Record<string, string> = {
-  sha1: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-  sha256: "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
-};
-const COMMIT_IDENTITY = ["-c", "user.name=Interlock", "-c", "user.email=interlock@invalid"];
 
 const lockRecordSchema = z.strictObject({
   action: z.enum(["claim", "renew", "release", "reclaim"]),
@@ -52,45 +45,40 @@ export interface ClaimLockState {
 export interface GitClaimLockOptions {
   repository: string;
   remote: string;
-  namespace?: string;
   git?: GitCommandExecutor;
   clock?: Clock;
 }
 
-/**
- * Append-only claim lock on a Git remote ref. Every write is an ordinary fast-forward push of a
- * commit built on the observed tip, so the server's old-value check is the compare-and-set.
- */
 export class GitClaimLock {
   readonly #repository: string;
   readonly #remote: string;
-  readonly #namespace: string;
   readonly #git: GitCommandExecutor;
   readonly #clock: Clock;
   #emptyTree?: string;
 
   constructor(options: GitClaimLockOptions) {
-    const namespace = options.namespace ?? CLAIM_LOCK_NAMESPACE;
-    if (!/^refs\/[A-Za-z0-9._/-]*[A-Za-z0-9]$/.test(namespace) || namespace.includes(".."))
-      throw new Error(`Invalid claim lock namespace: ${namespace}`);
     if (!options.repository || !options.remote)
       throw new Error("Claim lock repository and remote are required");
     this.#repository = options.repository;
     this.#remote = options.remote;
-    this.#namespace = namespace;
     this.#git = options.git ?? new BunGitCommandExecutor();
     this.#clock = options.clock ?? { now: () => new Date() };
   }
 
-  ref(ticket: TicketRef): string {
+  async ref(ticket: TicketRef): Promise<string> {
     const key = parseRef(ticket).nativeId;
-    if (!key || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(key))
+    const ref = `${CLAIM_LOCK_NAMESPACE}/${key}`;
+    if (
+      !key ||
+      key.includes("/") ||
+      (await this.#run(["git", "check-ref-format", ref])).exitCode !== 0
+    )
       throw new Error(`Ticket key cannot name a claim lock ref: ${ticket}`);
-    return `${this.#namespace}/${key}`;
+    return ref;
   }
 
   async read(ticket: TicketRef): Promise<ClaimLockState> {
-    const ref = this.ref(ticket);
+    const ref = await this.ref(ticket);
     const tip = await this.#remoteTip(ref);
     if (!tip) return { version: ABSENT_LOCK_VERSION, record: null };
     const record = await this.#record(ref, tip);
@@ -139,7 +127,6 @@ export class GitClaimLock {
     await this.#append(request.ticket, state, releaseRecord(state, request.authorizedBy));
   }
 
-  /** Compensation: release only a lock this claim still holds; anything else was never ours. */
   async restore(ticket: TicketRef, claim: ClaimRef): Promise<void> {
     const state = await this.read(ticket);
     if (heldClaim(state)?.claim !== claim) return;
@@ -172,11 +159,14 @@ export class GitClaimLock {
   }
 
   async #append(ticket: TicketRef, state: ClaimLockState, record: ClaimLockRecord): Promise<void> {
-    const ref = this.ref(ticket);
+    const ref = await this.ref(ticket);
     const parent = state.version === ABSENT_LOCK_VERSION ? [] : ["-p", state.version];
     const commit = await this.#checked([
       "git",
-      ...COMMIT_IDENTITY,
+      "-c",
+      `user.name=${record.owner}`,
+      "-c",
+      "user.email=interlock@invalid",
       "commit-tree",
       await this.#tree(),
       ...parent,
@@ -211,14 +201,7 @@ export class GitClaimLock {
 
   async #record(ref: string, tip: string): Promise<ClaimLockRecord> {
     if ((await this.#run(["git", "cat-file", "-e", `${tip}^{commit}`])).exitCode !== 0)
-      await this.#checked([
-        "git",
-        "fetch",
-        "--no-tags",
-        "--no-write-fetch-head",
-        this.#remote,
-        ref,
-      ]);
+      await this.#checked(["git", "fetch", "--no-tags", this.#remote, ref]);
     const commit = await this.#checked(["git", "cat-file", "commit", tip]);
     const message = commit.slice(commit.indexOf("\n\n") + 2);
     try {
@@ -229,12 +212,8 @@ export class GitClaimLock {
   }
 
   async #tree(): Promise<string> {
-    if (this.#emptyTree) return this.#emptyTree;
-    const format = await this.#checked(["git", "rev-parse", "--show-object-format"]);
-    const tree = EMPTY_TREES[format];
-    if (!tree) throw new Error(`Unsupported Git object format: ${format}`);
-    this.#emptyTree = tree;
-    return tree;
+    this.#emptyTree ??= await this.#checked(["git", "mktree"]);
+    return this.#emptyTree;
   }
 
   #requireFutureLease(leaseExpiresAt: string): void {
