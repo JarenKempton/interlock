@@ -136,6 +136,7 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
           adapter.claim({
             ...request,
             claim: "interlock-claim:other",
+            leaseExpiresAt: "2101-01-01T00:15:00.000Z",
             expectedVersion: held.version,
           }),
         "claim_collision",
