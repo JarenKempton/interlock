@@ -1,10 +1,15 @@
 import { resolve } from "node:path";
 import { z } from "zod";
-import { PendingJiraWriteError, pendingJiraWriteSchema } from "../adapters/trackers/jira.ts";
+import {
+  JiraTrackerAdapter,
+  PendingJiraWriteError,
+  pendingJiraWriteSchema,
+} from "../adapters/trackers/jira.ts";
 import { GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { parseRef } from "../domain/reference.ts";
 import { claimRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
+import { journalJiraWrite, verifyJournaledJiraWrite } from "./jira-write-journal.ts";
 import {
   executionStatePath,
   executionTracker,
@@ -46,7 +51,11 @@ export async function releaseClaim(
       throw new Error("Only the recorded claim owner can release it");
     if (!claim.currentVersion)
       throw new Error("Claim has no verified lock version; inspect recovery evidence");
-    const { tracker } = lockedTracker(repository, jira.tracker, services);
+    const mirror = new JiraTrackerAdapter({
+      ...jira.options,
+      journalWrite: (pending) => journalJiraWrite(store, run.ref, pending),
+    });
+    const { tracker } = lockedTracker(repository, mirror, services);
     await new GitWorkspaceAdapter(repository, services.execution?.git).preflightRepository();
     const request = {
       claim: claim.ref,
@@ -83,12 +92,24 @@ export async function releaseClaim(
       : undefined;
     if (pendingJiraWrite && pendingJiraWrite.ticket !== claim.ticket)
       throw new Error("Pending Jira write ticket does not match the claim");
+    const lastStep = z
+      .object({ state: z.string(), receipt_json: z.string().nullable() })
+      .parse(store.steps(run.ref).at(-1));
+    if (
+      lastStep.state === "releasing" &&
+      !z
+        .object({ journaledWrites: z.literal(true) })
+        .safeParse(JSON.parse(lastStep.receipt_json ?? "null")).success
+    )
+      throw new Error("Unfinished legacy release requires recovery; inspect run evidence");
     store.recordStep(run.ref, "releasing", {
       claim: claim.ref,
       expectedVersion: claim.currentVersion,
+      journaledWrites: true,
     });
     try {
-      if (pendingJiraWrite) await jira.tracker.verifyPendingWrite(pendingJiraWrite);
+      await verifyJournaledJiraWrite(store, run.ref, claim.ticket, mirror);
+      if (pendingJiraWrite) await mirror.verifyPendingWrite(pendingJiraWrite);
       if (!released) await tracker.releaseClaim(request);
       await tracker.verifyReleased(request);
       const verified = await tracker.snapshotClaimState(claim.ticket);

@@ -115,6 +115,13 @@ by [`GitLockedTrackerAdapter`](../src/adapters/claims/locked-tracker.ts).
   a restarted release verifies it before sending another write. Definite
   request rejections permit compensation, while acknowledged completed writes
   still require the normal per-field verification.
+- Before dispatching a Jira mutation, pickup and release commit its intent to
+  the local transaction journal. Only a completed response, definite rejection
+  or positive readback closes that journal entry. A process exit leaves an
+  unfinished entry even without an error receipt. Release verifies it before
+  continuing; competing journal writers and stale completions are rejected
+  transactionally. An interrupted older release without this journal requires
+  explicit recovery instead of an automatic retry.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
   `conditional_update` or `atomic_assignment`.

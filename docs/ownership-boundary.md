@@ -79,6 +79,9 @@ when an explicit local ledger is needed. Closing a T3 thread is not release.
 An uncertain Jira write's intended field value is retained in recovery evidence.
 Release retries first verify that pending write completed; unchanged pre-write
 state cannot establish restoration or authorize another write.
+The write intent is committed before dispatch, so this guard also applies when
+the process exits during the request without recording an error. The unfinished
+intent remains visible in `runs export`.
 
 Selection must identify one ticket or an explicit selection policy. Secrets
 cross through credential-provider handles or scoped secure channels, never

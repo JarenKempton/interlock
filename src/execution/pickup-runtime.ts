@@ -15,12 +15,13 @@ import { configurationOperations } from "../configuration/project-files.ts";
 import type { ResolvedConfiguration } from "../configuration/schema.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
-import type { RepositorySpec, Ticket, TicketRef } from "../domain/model.ts";
+import type { RepositorySpec, RunRef, Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
 import { evaluateFrontier } from "../frontier/evaluate.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
+import { journalJiraWrite } from "./jira-write-journal.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
 import { PickupCoordinator } from "./pickup.ts";
 import { planT3Models, validateT3Catalog } from "./t3-plan.ts";
@@ -238,27 +239,36 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   };
   validateT3Catalog(catalog, clock.now());
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" };
-  const mirror = new JiraTrackerAdapter({ ...jira.options, validateClaim: eligible });
-  const { tracker, claimLock } = lockedTracker(repository, mirror, services, () => {
-    validateT3Catalog(catalog, clock.now());
-  });
-  const getTicket = tracker.getTicket.bind(tracker);
-  tracker.getTicket = async (ref: TicketRef) => {
-    const current = await getTicket(ref);
-    await eligible(current);
-    validateT3Catalog(catalog, clock.now());
-    return current;
-  };
-  const claim = tracker.claim.bind(tracker);
-  tracker.claim = async (request) => {
-    await eligible(await jira.tracker.getTicket(request.ticket));
-    validateT3Catalog(catalog, clock.now());
-    await claim(request);
-  };
   return withExecutionStore(services, statePath, async (store) => {
+    let journalRun: RunRef | undefined;
+    const mirror = new JiraTrackerAdapter({
+      ...jira.options,
+      validateClaim: eligible,
+      journalWrite(pending) {
+        if (!journalRun) throw new Error("Jira write requires a recorded run");
+        return journalJiraWrite(store, journalRun, pending);
+      },
+    });
+    const { tracker, claimLock } = lockedTracker(repository, mirror, services, () => {
+      validateT3Catalog(catalog, clock.now());
+    });
+    const getTicket = tracker.getTicket.bind(tracker);
+    tracker.getTicket = async (ref: TicketRef) => {
+      const current = await getTicket(ref);
+      await eligible(current);
+      validateT3Catalog(catalog, clock.now());
+      return current;
+    };
+    const claim = tracker.claim.bind(tracker);
+    tracker.claim = async (request) => {
+      await eligible(await jira.tracker.getTicket(request.ticket));
+      validateT3Catalog(catalog, clock.now());
+      await claim(request);
+    };
     const ledger: Ledger = {
       saveRun(run) {
         store.saveRun(run);
+        journalRun = run.ref;
         if (!store.getExecutionConfiguration(run.ref))
           store.saveExecutionConfiguration(run.ref, configuration);
       },
