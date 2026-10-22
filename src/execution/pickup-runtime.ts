@@ -17,6 +17,7 @@ import type { Clock, Ledger } from "../domain/contracts.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
 import type { RepositorySpec, Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
+import { evaluateFrontier } from "../frontier/evaluate.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
@@ -74,6 +75,7 @@ export async function executionTracker(
   configuration: ResolvedConfiguration,
   workspace: string,
   services: RuntimeServices,
+  purpose: "pickup" | "release" = "pickup",
 ) {
   const site = new URL(configuration.project.tracker.jira.site);
   if (
@@ -90,25 +92,31 @@ export async function executionTracker(
     if (result.status !== 200 || !parsed.success) throw new Error(`Jira ${path} discovery failed`);
     return parsed.data;
   };
-  const fields = await read(
-    "field",
-    z.array(
-      z.object({ id: z.string(), schema: z.object({ custom: z.string().optional() }).optional() }),
-    ),
-  );
-  const ranks = fields.filter(
-    (f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-lexo-rank",
-  );
-  if (ranks.length !== 1 || !ranks[0]) throw new Error("Jira Rank field is missing or ambiguous");
-  const priorities = await read("priority", z.array(z.object({ name: z.string() })).min(1));
+  const discovery = async () => {
+    const fields = await read(
+      "field",
+      z.array(
+        z.object({
+          id: z.string(),
+          schema: z.object({ custom: z.string().optional() }).optional(),
+        }),
+      ),
+    );
+    const ranks = fields.filter(
+      (f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-lexo-rank",
+    );
+    if (ranks.length !== 1 || !ranks[0]) throw new Error("Jira Rank field is missing or ambiguous");
+    const priorities = await read("priority", z.array(z.object({ name: z.string() })).min(1));
+    return { rankField: ranks[0].id, priorityOrder: priorities.map((p) => p.name) };
+  };
+  const metadata = purpose === "pickup" ? await discovery() : {};
   const myself = await read("myself", z.object({ accountId: actorRefSchema }));
   const instance = site.hostname.replace(/\.atlassian\.net$/, "");
   const options = {
     instance,
     workspace,
     transport,
-    rankField: ranks[0].id,
-    priorityOrder: priorities.map((p) => p.name),
+    ...metadata,
   };
   return { tracker: new JiraTrackerAdapter(options), owner: myself.accountId, instance, options };
 }
@@ -156,7 +164,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   if (!map) throw new Error("Ticket map is not configured");
   if (map.claim_status !== "In Progress")
     throw new Error("Jira mirror supports only the In Progress claim status");
-  const eligible = (current: Ticket) => {
+  const eligible = async (current: Ticket) => {
     if (
       current.map !== ticket.map ||
       current.state !== "open" ||
@@ -166,8 +174,25 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       throw new Error("Ticket is not available in the configured map");
     if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
       throw new Error("Ticket changed during planning; retry pickup");
+    const graph = new Map<TicketRef, Ticket>([[current.ref, current]]);
+    for (const item of graph.values()) {
+      for (const dependency of item.dependencies ?? []) {
+        if (!graph.has(dependency.blocking))
+          graph.set(dependency.blocking, await jira.tracker.getTicket(dependency.blocking));
+      }
+    }
+    if (
+      evaluateFrontier(
+        [...graph.values()],
+        { ticket: current.ref },
+        {
+          availableStatuses: new Set(map.available_statuses),
+        },
+      ).length !== 1
+    )
+      throw new Error("Ticket is not available; unfinished dependencies block pickup");
   };
-  eligible(ticket);
+  await eligible(ticket);
   const repository = repositorySpec(configuration, map.repository);
   const workspace = new GitWorkspaceAdapter(repository, services.execution?.git);
   await workspace.preflight(ticket);
@@ -216,12 +241,13 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   const getTicket = tracker.getTicket.bind(tracker);
   tracker.getTicket = async (ref: TicketRef) => {
     const current = await getTicket(ref);
-    eligible(current);
+    await eligible(current);
     validateT3Catalog(catalog, clock.now());
     return current;
   };
   const claim = tracker.claim.bind(tracker);
   tracker.claim = async (request) => {
+    await eligible(await jira.tracker.getTicket(request.ticket));
     validateT3Catalog(catalog, clock.now());
     await claim(request);
   };

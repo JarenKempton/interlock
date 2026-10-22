@@ -715,3 +715,18 @@ test("an acknowledged no-op claim property write cannot advance assignment or st
   expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
   expect(api.mutationCount()).toBe(1);
 });
+
+test("Jira mirror without read configuration cannot advertise or perform normalized reads", async () => {
+  const api = new FakeJira();
+  const subject = new JiraTrackerAdapter({
+    instance: "responsibid",
+    workspace: "JWB",
+    transport: api,
+  });
+  expect(await subject.describe()).toEqual(capabilities());
+  await expect(subject.getTicket(ticket)).rejects.toThrow("normalized reads require");
+  await expect(subject.listMapTickets(map)).rejects.toThrow("normalized reads require");
+  expect(api.requests).toEqual([]);
+  expect((await subject.snapshotClaimState(ticket)).payload).toEqual(snapshot().payload);
+  expect(api.requests[0]?.path).not.toContain("customfield");
+});

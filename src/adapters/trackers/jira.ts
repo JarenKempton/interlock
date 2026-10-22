@@ -145,12 +145,12 @@ export interface JiraTrackerOptions {
   workspace: string;
   transport: JiraTransport;
   /** Jira's site-specific field id for the standard LexoRank Rank field. */
-  rankField: string;
+  rankField?: string;
   /** Highest-priority name first; Jira numeric IDs have no portable semantic ordering. */
-  priorityOrder: readonly string[];
+  priorityOrder?: readonly string[];
   claimProperty?: string;
   pageSize?: number;
-  validateClaim?: (ticket: Ticket) => void;
+  validateClaim?: (ticket: Ticket) => void | Promise<void>;
 }
 
 const MUTATION_CAPABILITIES = [
@@ -173,14 +173,16 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   readonly #transport: JiraTransport;
   readonly #prefix: string;
   readonly #claimProperty: string;
-  readonly #priorityOrder: readonly string[];
-  readonly #rankField: string;
+  readonly #priorityOrder: readonly string[] | undefined;
+  readonly #rankField: string | undefined;
   readonly #pageSize: number;
   readonly #validateClaim: JiraTrackerOptions["validateClaim"];
 
   constructor(options: JiraTrackerOptions) {
-    if (!options.rankField) throw new Error("Jira Rank field id is required");
-    if (options.priorityOrder.length === 0) throw new Error("Jira priority order is required");
+    if (options.rankField !== undefined && !options.rankField)
+      throw new Error("Jira Rank field id is required");
+    if (options.priorityOrder !== undefined && options.priorityOrder.length === 0)
+      throw new Error("Jira priority order is required");
     if (
       options.pageSize !== undefined &&
       (!Number.isInteger(options.pageSize) || options.pageSize < 1 || options.pageSize > 100)
@@ -196,15 +198,16 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   }
 
   async describe() {
-    return jiraCapabilities();
+    return this.#rankField && this.#priorityOrder ? jiraCapabilities() : capabilities();
   }
 
   async preflight(ticket: TicketRef): Promise<void> {
     const current = await this.getTicket(ticket);
-    this.#validateClaim?.(current);
+    await this.#validateClaim?.(current);
   }
 
   async getTicket(ticket: TicketRef): Promise<Ticket> {
+    this.#readConfiguration();
     const issue = await this.#issue(ticket);
     const parent = issue.fields.parent?.key;
     if (!parent) throw new Error("Jira ticket has no parent map");
@@ -216,6 +219,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
   }
 
   async listMapTickets(map: MapRef): Promise<Ticket[]> {
+    this.#readConfiguration();
     const mapKey = this.#mapKey(map);
     const issues: JiraIssue[] = [];
     let nextPageToken: string | undefined;
@@ -254,7 +258,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     if (this.#validateClaim) {
       const parent = issue.fields.parent?.key;
       if (!parent) throw new ClaimCollisionError("Jira ticket no longer has a parent map");
-      this.#validateClaim(
+      await this.#validateClaim(
         this.#normalize(
           issue,
           request.ticket,
@@ -369,12 +373,19 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
     this.#mutationUnavailable();
   }
 
+  #readConfiguration() {
+    if (!this.#rankField || !this.#priorityOrder)
+      throw new Error("Jira normalized reads require Rank and priority configuration");
+    return { rankField: this.#rankField, priorityOrder: this.#priorityOrder };
+  }
+
   #normalize(issue: JiraIssue, ref: TicketRef, map: MapRef, order: number): Ticket {
-    const rank = issue.fields[this.#rankField];
+    const { rankField, priorityOrder } = this.#readConfiguration();
+    const rank = issue.fields[rankField];
     if (typeof rank !== "string" || rank.length === 0)
-      throw new Error(`Jira Rank field is missing or invalid: ${this.#rankField}`);
+      throw new Error(`Jira Rank field is missing or invalid: ${rankField}`);
     const priorityName = issue.fields.priority?.name;
-    const priorityIndex = priorityName ? this.#priorityOrder.indexOf(priorityName) : -1;
+    const priorityIndex = priorityName ? priorityOrder.indexOf(priorityName) : -1;
     if (priorityName && priorityIndex < 0)
       throw new Error(`Jira priority is not configured: ${priorityName}`);
     const dependencies: Dependency[] = [];
@@ -401,7 +412,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
         : {}),
       dependencies,
       order,
-      ...(priorityIndex >= 0 ? { priority: this.#priorityOrder.length - priorityIndex } : {}),
+      ...(priorityIndex >= 0 ? { priority: priorityOrder.length - priorityIndex } : {}),
       metadata: {
         nativeKey: issue.key,
         version: issue.fields.updated,
@@ -507,7 +518,7 @@ export class JiraTrackerAdapter implements FrontierTrackerAdapter {
       "parent",
       "issuelinks",
       "priority",
-      this.#rankField,
+      ...(this.#rankField ? [this.#rankField] : []),
     ];
   }
 

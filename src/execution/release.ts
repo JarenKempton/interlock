@@ -39,6 +39,7 @@ export async function releaseClaim(
       configuration,
       parseRef(claim.ticket).workspace ?? "",
       services,
+      "release",
     );
     if (jira.owner !== claim.humanOwner)
       throw new Error("Only the recorded claim owner can release it");
