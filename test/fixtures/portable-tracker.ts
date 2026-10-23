@@ -58,24 +58,16 @@ export function fakeTrackerFixture(): TrackerFixture {
     },
     async apply(request) {
       checkedRead();
-      const replay = state.mirror?.claim === request.claim;
       const sameIdentity =
-        replay &&
-        state.mirror?.ticket === request.ticket &&
+        state.mirror?.claim === request.claim &&
         state.mirror.run === request.run &&
-        state.mirror.owner === request.owner &&
-        state.mirror.supersedes === request.supersedes;
-      if (replay && !sameIdentity) throw new ClaimCollisionError();
-      if (sameIdentity && state.ticket.assignee === request.owner) return;
-      const replacing =
-        request.supersedes !== undefined && state.mirror?.claim === request.supersedes;
-      const expectedOwner = replacing ? state.mirror?.owner : request.owner;
+        state.mirror.owner === request.owner;
       if (
-        (state.mirror && state.mirror.claim !== request.claim && !replacing) ||
-        (request.supersedes && !state.mirror) ||
-        (state.ticket.assignee && state.ticket.assignee !== expectedOwner)
+        (state.mirror && !sameIdentity) ||
+        (state.ticket.assignee && state.ticket.assignee !== request.owner)
       )
         throw new ClaimCollisionError();
+      if (sameIdentity) return;
       write(() => {
         state.mirror = structuredClone(request);
         state.ticket.assignee = request.owner;
@@ -89,7 +81,6 @@ export function fakeTrackerFixture(): TrackerFixture {
           current.mirror?.claim !== request.claim ||
           current.mirror.run !== request.run ||
           current.mirror.owner !== request.owner ||
-          current.mirror.supersedes !== request.supersedes ||
           current.ticket.assignee !== request.owner ||
           current.ticket.status !== "In Progress"
         )

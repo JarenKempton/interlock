@@ -11,5 +11,5 @@ test("fake tracker and claim lock pass conformance", async () => {
     ...claimLockConformance(async () => fakeLockFixture()),
   ]);
   expect(report.results.filter((result) => !result.ok)).toEqual([]);
-  expect(report.results.length).toBe(13);
+  expect(report.results.length).toBe(12);
 });

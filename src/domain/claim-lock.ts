@@ -1,9 +1,4 @@
-import type {
-  ClaimRequest,
-  ReclaimRequest,
-  ReleaseClaimRequest,
-  RenewLeaseRequest,
-} from "./contracts.ts";
+import type { ClaimRequest, ReleaseClaimRequest, RenewLeaseRequest } from "./contracts.ts";
 import type { ActorRef, ClaimRef, RunRef, TicketRef } from "./model.ts";
 
 export interface ClaimLockRecord {
@@ -32,6 +27,5 @@ export interface ClaimLock {
 
 export interface RecoverableClaimLock extends ClaimLock {
   releasable(request: ReleaseClaimRequest): Promise<ClaimLockState>;
-  reclaim(request: ReclaimRequest): Promise<void>;
   restore(ticket: TicketRef, claim: ClaimRef): Promise<void>;
 }

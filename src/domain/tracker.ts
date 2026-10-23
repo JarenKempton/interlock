@@ -30,7 +30,6 @@ export interface MirrorClaim {
   claim: ClaimRef;
   run: RunRef;
   owner: ActorRef;
-  supersedes?: ClaimRef | undefined;
 }
 
 export interface MirrorRestore {

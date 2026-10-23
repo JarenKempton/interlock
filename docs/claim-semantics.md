@@ -102,11 +102,7 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   Restarting the CLI does not resolve that recovery evidence or authorize a
   manual lock deletion.
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
-  property first, then assignee and `In Progress`, each read back. A successor
-  mirror records the predecessor owner and an assignment phase in the property
-  until assignment is verified, so a restart can resume or compensate; if the
-  predecessor is still assigned after assignment started, the lock stays held
-  for recovery. Restoration
+  property first, then assignee and `In Progress`, each read back. Restoration
   removes the property last, so a property that no longer names the claim means
   none of its writes remain. Otherwise it refuses assignee or status changes
   made outside Interlock and restores status, assignee, then the property.

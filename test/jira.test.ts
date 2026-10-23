@@ -662,7 +662,6 @@ test("Jira satisfies portable tracker conformance through its injected transport
               claim: claimRefSchema,
               run: runRefSchema,
               owner: actorRefSchema,
-              supersedes: claimRefSchema.optional(),
             })
             .nullable()
             .parse(api.claimProperty);
@@ -693,55 +692,6 @@ test("Jira satisfies portable tracker conformance through its injected transport
   );
   expect(report.results.filter((result) => !result.ok)).toEqual([]);
 });
-
-test(
-  "authorized reclaim bypasses pickup eligibility while preserving predecessor and owner guards",
-  async () => {
-    const api = new FakeJira();
-    let validations = 0;
-    const { first, clock } = await lockedJira(
-      api,
-      adapter(api, (ticket) => {
-        validations += 1;
-        if (ticket.assignee || ticket.status !== "To Do")
-          throw new Error("Ticket is not eligible for initial pickup");
-      }),
-    );
-    const original = await first.snapshotClaimState(ticket);
-    const initial = claimRequest(owner, "alice", original.version);
-    await first.claim(initial);
-    const held = await first.lock.read(ticket);
-    clock.set("2026-10-22T00:16:00.000Z");
-    const successor = {
-      ...claimRequest(actorRefSchema.parse("bob"), "bob", held.version),
-      leaseExpiresAt: "2026-10-22T00:45:00.000Z",
-      staleClaim: initial.claim,
-      authorizedBy: actorRefSchema.parse("operator"),
-      originalSnapshot: original,
-    };
-    await expect(
-      first.reclaim({ ...successor, staleClaim: "interlock-claim:unrelated" }),
-    ).rejects.toBeInstanceOf(ClaimCollisionError);
-    await first.reclaim(successor);
-    await first.verifyReclaimed(successor);
-    expect(validations).toBe(1);
-    expect(api.mirror()).toMatchObject({
-      assignee: "bob",
-      claim: { claim: successor.claim, supersedes: initial.claim, owner: "bob" },
-    });
-    const renewed = await first.lock.read(ticket);
-    await first.releaseClaim({
-      ticket,
-      claim: successor.claim,
-      claimedOwner: successor.owner,
-      authorizedBy: successor.owner,
-      expectedVersion: renewed.version,
-      originalSnapshot: original,
-    });
-    expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
-  },
-  GIT_TEST_TIMEOUT_MS,
-);
 
 test.each([
   ["release", "status"],
@@ -852,72 +802,6 @@ test("an acknowledged no-op claim property write cannot advance assignment or st
   expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
   expect(api.mutationCount()).toBe(1);
 });
-
-test.each(["resume", "compensate"])(
-  "interrupted successor mirror can %s after the property commits before assignment",
-  async (operation) => {
-    const api = new FakeJira();
-    const { first, clock } = await lockedJira(api);
-    const original = await first.snapshotClaimState(ticket);
-    const initial = claimRequest(owner, "predecessor", original.version);
-    await first.claim(initial);
-    const before = await first.lock.read(ticket);
-    clock.set("2026-10-22T00:16:00.000Z");
-    const successor = {
-      ...claimRequest(actorRefSchema.parse("bob"), "successor", before.version),
-      leaseExpiresAt: "2026-10-22T00:45:00.000Z",
-      staleClaim: initial.claim,
-      authorizedBy: actorRefSchema.parse("operator"),
-      originalSnapshot: original,
-    };
-    api.fail = (method, path) =>
-      method === "GET" &&
-      path.includes("/properties/") &&
-      z.object({ claim: z.string() }).safeParse(api.claimProperty).data?.claim === successor.claim
-        ? 503
-        : undefined;
-    await expect(first.reclaim(successor)).rejects.toThrow();
-    expect(api.mirror()).toMatchObject({ assignee: owner, claim: { claim: successor.claim } });
-    const held = await first.lock.read(ticket);
-    expect(held.record?.claim).toBe(successor.claim);
-    api.fail = () => undefined;
-    const restarted = new ClaimCoordinator(first.lock, adapter(api));
-    const writes = api.mutationCount();
-    await expect(restarted.verifyReclaimed(successor)).rejects.toThrow();
-    for (const changed of [
-      { run: runRefSchema.parse("interlock-run:unrelated") },
-      { owner: actorRefSchema.parse("unrelated") },
-      { supersedes: claimRefSchema.parse("interlock-claim:unrelated") },
-    ]) {
-      await expect(
-        restarted.tracker.apply({ ...successor, supersedes: initial.claim, ...changed }),
-      ).rejects.toBeInstanceOf(ClaimCollisionError);
-    }
-    expect(api.mutationCount()).toBe(writes);
-    const restore = {
-      ticket,
-      claim: successor.claim,
-      claimedOwner: successor.owner,
-      originalSnapshot: original,
-    };
-    if (operation === "resume") {
-      await restarted.tracker.apply({ ...successor, supersedes: initial.claim });
-      await restarted.verifyReclaimed(successor);
-      expect(api.mirror()).toMatchObject({ assignee: successor.owner });
-      reassign(api, owner);
-      await expect(restarted.restoreClaimState(restore)).rejects.toThrow(
-        "changed outside Interlock",
-      );
-      expect((await first.lock.read(ticket)).version).toBe(held.version);
-    } else {
-      await restarted.restoreClaimState(restore);
-      await restarted.verifyRestored(restore);
-      expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
-      expect((await first.lock.read(ticket)).record?.action).toBe("release");
-    }
-  },
-  GIT_TEST_TIMEOUT_MS,
-);
 
 test("Jira mirror without read configuration cannot advertise or perform normalized reads", async () => {
   const api = new FakeJira();

@@ -8,7 +8,6 @@ import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
   type ClaimRequest,
-  type ReclaimRequest,
   type ReleaseClaimRequest,
   type RenewLeaseRequest,
   type RestoreClaimRequest,
@@ -43,9 +42,7 @@ export class ClaimCoordinator {
   }
 
   async verifyClaim(request: ClaimRequest): Promise<void> {
-    await this.#requireHeld(request.ticket, request.claim, (held) =>
-      sameHolder(held, request, undefined),
-    );
+    await this.#requireHeld(request.ticket, request.claim, (held) => sameHolder(held, request));
     await this.tracker.verify({ ...request, state: "applied" });
   }
 
@@ -87,18 +84,6 @@ export class ClaimCoordinator {
     await this.#requireNotHeld(request.ticket, request.claim);
   }
 
-  async reclaim(request: ReclaimRequest): Promise<void> {
-    await this.lock.reclaim(request);
-    await mirrorHeldLock(() => this.tracker.apply({ ...request, supersedes: request.staleClaim }));
-  }
-
-  async verifyReclaimed(request: ReclaimRequest): Promise<void> {
-    await this.#requireHeld(request.ticket, request.claim, (held) =>
-      sameHolder(held, request, request.staleClaim),
-    );
-    await this.tracker.verify({ ...request, supersedes: request.staleClaim, state: "applied" });
-  }
-
   async #requireHeld(
     ticket: TicketRef,
     claim: ClaimRef,
@@ -129,13 +114,12 @@ async function mirrorHeldLock(write: () => Promise<void>): Promise<void> {
 function sameHolder(
   held: ClaimLockRecord,
   request: Pick<ClaimRequest, "run" | "owner" | "leaseExpiresAt">,
-  supersedes: ClaimRef | undefined,
 ): boolean {
   return (
     held.run === request.run &&
     held.owner === request.owner &&
     held.leaseExpiresAt === request.leaseExpiresAt &&
-    held.supersedes === supersedes
+    held.supersedes === undefined
   );
 }
 

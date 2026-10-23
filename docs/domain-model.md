@@ -39,10 +39,9 @@ check the exact required set through `requireCapabilities`, which raises
 already holds. `list_work` and `read` never mutate. `apply` installs the claim,
 run and owner; `verify` checks an applied or restored mirror by readback;
 `restore` returns the original snapshot and refuses to overwrite human changes.
-Repeating `apply` or `restore` writes nothing. `supersedes` is set only for an
-authorized lock replacement. Trackers never claim, renew or release, and never
-advertise `conditional_update`. Optional `transition` and `link_artifact` must
-be read back and idempotent.
+Repeating `apply` or `restore` writes nothing. Trackers never claim, renew or
+release, and never advertise `conditional_update`. Optional `transition` and
+`link_artifact` must be read back and idempotent.
 
 ## Claim lock
 

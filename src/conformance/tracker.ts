@@ -79,36 +79,6 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
       await adapter.restore(restore);
       requireBehavior((await observe()).writes === restored.writes, "Repeated restore wrote");
     }),
-    scenario("authorized_successor", async (fixture) => {
-      const { adapter, claim, otherOwner, observe } = fixture;
-      const original = await adapter.read(claim.ticket);
-      await adapter.apply(claim);
-      const successor: MirrorClaim = {
-        ...claim,
-        claim: "interlock-claim:successor",
-        run: "interlock-run:successor",
-        owner: otherOwner,
-        supersedes: claim.claim,
-      };
-      await requireRejection(
-        () => adapter.apply({ ...successor, supersedes: "interlock-claim:unrelated" }),
-        "claim_collision",
-      );
-      await adapter.apply(successor);
-      await adapter.verify({ ...successor, state: "applied" });
-      requireBehavior(
-        (await observe()).ticket.assignee === otherOwner,
-        "Authorized successor was not mirrored",
-      );
-      const restore = {
-        ticket: claim.ticket,
-        claim: successor.claim,
-        claimedOwner: otherOwner,
-        originalSnapshot: original.snapshot,
-      };
-      await adapter.restore(restore);
-      await adapter.verify({ ...restore, state: "restored" });
-    }),
     scenario("preserve_human_change", async (fixture) => {
       const { adapter, claim, observe, changeOwner, otherOwner } = fixture;
       const original = await adapter.read(claim.ticket);

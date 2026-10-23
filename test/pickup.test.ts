@@ -12,7 +12,6 @@ import {
   HarnessLaunchError,
   type LaunchReceipt,
   type Ledger,
-  type ReclaimRequest,
   type ReleaseClaimRequest,
   type RestoreClaimRequest,
   type WorkspaceAdapter,
@@ -174,9 +173,6 @@ class FakeLock implements RecoverableClaimLock {
         authorizedBy: state.record.owner,
         originalSnapshot: { version: "opaque", payload: null },
       });
-  }
-  async reclaim(_request: ReclaimRequest): Promise<void> {
-    throw new Error("Reclaim is not used by pickup");
   }
 }
 
