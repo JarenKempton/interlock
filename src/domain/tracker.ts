@@ -18,7 +18,6 @@ export type TrackerCapabilities = Partial<Record<TrackerCapability, true>>;
 export interface TrackerRead {
   ticket: Ticket;
   snapshot: TrackerSnapshot;
-  artifacts: readonly string[];
 }
 
 export interface TrackerReader {
@@ -31,7 +30,7 @@ export interface MirrorClaim {
   claim: ClaimRef;
   run: RunRef;
   owner: ActorRef;
-  supersedes?: ClaimRef;
+  supersedes?: ClaimRef | undefined;
 }
 
 export interface MirrorRestore {

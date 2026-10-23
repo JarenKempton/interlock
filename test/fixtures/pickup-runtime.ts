@@ -52,9 +52,7 @@ export class PickupJira implements JiraTransport {
         (issue) => jql === `parent = ${JSON.stringify(issue.fields.parent?.key)} ORDER BY Rank ASC`,
       );
       response = { status: 200, body: { issues, isLast: true } };
-    } else if (path.endsWith("/remotelink") && method === "GET")
-      response = { status: 200, body: [] };
-    else if (path.includes("/properties/")) {
+    } else if (path.includes("/properties/")) {
       if (method === "PUT") this.property = body;
       if (method === "DELETE") this.property = null;
       response =

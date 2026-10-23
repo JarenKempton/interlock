@@ -73,9 +73,8 @@ and prevents duplicate launch.
 Trackers without a conditional write, such as Jira Cloud, claim through an
 append-only lock ref on the repository's Git remote:
 [`GitClaimLock`](../src/adapters/claims/git-lock.ts), composed with the tracker
-by the portable [`ClaimCoordinator`](../src/execution/claims.ts). The coordinator
-does not advertise tracker capabilities: ownership writes go to the lock, and
-claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
+by [`ClaimCoordinator`](../src/execution/claims.ts): ownership writes go to the
+lock, and the [tracker](domain-model.md#tracker) only mirrors them.
 
 - The ref is `refs/interlock/claims/<KEY>`, validated by `git check-ref-format`.
   There is no fallback namespace: a host that rejects `refs/interlock/*` fails
@@ -103,23 +102,17 @@ claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
   Restarting the CLI does not resolve that recovery evidence or authorize a
   manual lock deletion.
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
-  property first, then assignee and `In Progress`, each read back. During an
-  authorized succession the property temporarily retains the verified predecessor
-  owner and a pending assignment phase, so interrupted property installation can
-  resume or compensate after a restart. Before dispatching successor assignment,
-  it persists and verifies the started phase. Only the pending phase authorizes
-  predecessor-owner recovery. If the predecessor is assigned with a started or
-  legacy unknown phase, Interlock cannot distinguish an incomplete assignment
-  from a later human reassignment and retains the lock for recovery. Current
-  successor ownership still permits resuming or compensating the attempt.
-  Successful application clears that evidence with readback; it never permits
-  overwriting later human reassignments. Restoration
+  property first, then assignee and `In Progress`, each read back. A successor
+  mirror records the predecessor owner and an assignment phase in the property
+  until assignment is verified, so a restart can resume or compensate; if the
+  predecessor is still assigned after assignment started, the lock stays held
+  for recovery. Restoration
   removes the property last, so a property that no longer names the claim means
   none of its writes remain. Otherwise it refuses assignee or status changes
   made outside Interlock and restores status, assignee, then the property.
   Verification accepts human changes but no remaining trace of the claim.
-  Release restores and verifies the mirror before appending the release commit; a refused or
-  failed mirror restoration keeps the lock held and requires recovery.
+  Release restores and verifies the mirror before appending the release commit;
+  a refused or failed mirror restoration keeps the lock held and requires recovery.
 - A Jira write with a lost response, HTTP 202 or a server error can still be
   pending. The adapter retains its intended field value and refuses restoration
   until readback observes that value. The lock stays held while the outcome is
@@ -146,9 +139,9 @@ claim mirrors go to the separate [tracker contract](domain-model.md#tracker).
   `conditional_update` or `atomic_assignment`.
 
 [Lock tests](../test/git-claim-lock.test.ts) and
-[portable lock conformance](../test/claim-lock-conformance.test.ts) run against
-real local bare remotes; [Jira tests](../test/jira.test.ts) cover the mirror,
-composition, and portable tracker conformance with an injected transport.
+[lock conformance](../test/claim-lock-conformance.test.ts) run against real
+local bare remotes; [Jira tests](../test/jira.test.ts) cover the mirror,
+composition and tracker conformance.
 
 ## Tracker guarantees
 
@@ -163,10 +156,8 @@ each restored field when assignment, metadata, and workflow status use separate
 operations. Concurrent human changes must not be overwritten.
 
 The CLI supplies the Git lock as the pickup claim authority and requires its
-`conditional_update` capability. The lock contract also requires claim identity
-and lease verification; Jira need not advertise conditional writes, atomic
-assignment or comments. Tracker mirror snapshots and revisions do not imply conditional
-write capability.
+`conditional_update` capability; Jira need not advertise conditional writes,
+atomic assignment or comments.
 [Tracker write policy](adr/0002-tracker-write-minimalism.md) keeps ownership in
 structured storage and makes resolution comments optional. Capability checks
 and tests must reflect an adapter's actual behavior.

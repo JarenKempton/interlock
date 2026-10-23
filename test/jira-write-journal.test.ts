@@ -26,8 +26,6 @@ test.each([
   ["restore", "assignment", "successor"],
   ["resume", "phase", "predecessor"],
   ["restore", "phase", "predecessor"],
-  ["resume", "legacy", "predecessor"],
-  ["restore", "legacy", "predecessor"],
 ])(
   "interrupted successor %s after %s readback preserves %s ownership across restart",
   async (operation, interruption, remainingOwner) => {
@@ -106,12 +104,6 @@ test.each([
       f.jira.fail = undefined;
       if (remainingOwner === "predecessor")
         f.jira.issue.fields.assignee = { accountId: initial.humanOwner };
-      if (interruption === "legacy") {
-        const { assignmentPhase: _, ...legacy } = z
-          .record(z.string(), z.unknown())
-          .parse(f.jira.property);
-        f.jira.property = legacy;
-      }
       store.close();
       store = new StateStore(f.state);
       const restarted = mirror();

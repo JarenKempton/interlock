@@ -13,8 +13,8 @@ export interface ClaimLockRecord {
   run: RunRef;
   owner: ActorRef;
   leaseExpiresAt: string;
-  supersedes?: ClaimRef;
-  authorizedBy?: ActorRef;
+  supersedes?: ClaimRef | undefined;
+  authorizedBy?: ActorRef | undefined;
 }
 
 export interface ClaimLockState {

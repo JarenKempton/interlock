@@ -3,15 +3,14 @@ import type { ClaimLock, ClaimLockRecord, ClaimLockState } from "../../src/domai
 import { AmbiguousTrackerResultError, ClaimCollisionError } from "../../src/domain/contracts.ts";
 import { actorRefSchema, ticketRefSchema } from "../../src/domain/identifiers.ts";
 
-export function fakeLockFixture(fault?: "collision" | "stale" | "ambiguous"): ClaimLockFixture {
+export function fakeLockFixture(): ClaimLockFixture {
   let state: ClaimLockState = { version: "absent", record: null };
   let writes = 0;
   let failReadback = false;
   let unreadable = false;
   let expired = false;
   function expectVersion(expected: string) {
-    if (fault !== "stale" && fault !== "collision" && state.version !== expected)
-      throw new ClaimCollisionError();
+    if (state.version !== expected) throw new ClaimCollisionError();
   }
   function held(claim: string) {
     if (!state.record || state.record.action === "release" || state.record.claim !== claim)
@@ -21,7 +20,7 @@ export function fakeLockFixture(fault?: "collision" | "stale" | "ambiguous"): Cl
   function commit(record: ClaimLockRecord) {
     state = { version: String(++writes), record };
     if (failReadback) unreadable = true;
-    if (unreadable && fault !== "ambiguous") throw new AmbiguousTrackerResultError();
+    if (unreadable) throw new AmbiguousTrackerResultError();
   }
   function adapter(): ClaimLock {
     return {
@@ -34,8 +33,7 @@ export function fakeLockFixture(fault?: "collision" | "stale" | "ambiguous"): Cl
       },
       async claim(request) {
         expectVersion(request.expectedVersion);
-        if (fault !== "collision" && state.record && state.record.action !== "release")
-          throw new ClaimCollisionError();
+        if (state.record && state.record.action !== "release") throw new ClaimCollisionError();
         if (expired) throw new ClaimCollisionError();
         commit({
           action: "claim",

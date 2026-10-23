@@ -60,7 +60,6 @@ export interface PickupCoordinatorOptions {
   tracker: Tracker;
   claimLock: RecoverableClaimLock;
   validateTicket?: (ticket: Ticket) => void | Promise<void>;
-  beforeClaim?: () => void | Promise<void>;
   workspace: WorkspaceAdapter;
   harness?: HarnessAdapter;
   ledger: Ledger;
@@ -158,7 +157,10 @@ export class PickupCoordinator {
     });
     try {
       try {
-        await this.#options.beforeClaim?.();
+        if (this.#options.validateTicket)
+          await this.#options.validateTicket(
+            (await this.#options.tracker.read(request.ticket)).ticket,
+          );
         await this.#claims.claim(claimRequest);
       } catch (error) {
         if (error instanceof ClaimCollisionError) {

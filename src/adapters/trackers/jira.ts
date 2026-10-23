@@ -230,17 +230,9 @@ export class JiraTrackerAdapter implements Tracker {
     const latest = await this.#issue(ticket);
     if (latest.fields.parent?.key !== parent)
       throw new Error("Jira ticket changed maps during read; retry pickup");
-    const links = await this.#required(
-      "GET",
-      `/rest/api/3/issue/${this.#ticketKey(ticket)}/remotelink`,
-      undefined,
-      "read artifact links",
-      z.array(z.object({ object: z.object({ url: z.string() }) })),
-    );
     return {
       ticket: this.#normalize(latest, ticket, map, found.order),
       snapshot: { version: latest.fields.updated, payload: await this.#claimState(ticket, latest) },
-      artifacts: links.map((link) => link.object.url),
     };
   }
 

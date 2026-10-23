@@ -286,7 +286,6 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       tracker: mirror,
       claimLock,
       validateTicket,
-      beforeClaim: async () => validateTicket((await jira.tracker.read(ref)).ticket),
       workspace,
       ledger,
       clock,

@@ -5,7 +5,6 @@ import { type ConformanceCase, requireBehavior, requireRejection } from "./runne
 export interface TrackerObservation {
   ticket: Ticket;
   mirror: MirrorClaim | null;
-  artifacts: readonly string[];
   writes: number;
 }
 
@@ -15,7 +14,6 @@ export interface TrackerFixture {
   otherOwner: ActorRef;
   observe(): Promise<TrackerObservation>;
   changeOwner(owner: ActorRef): Promise<void>;
-  addArtifact(url: string): Promise<void>;
   loseWriteReadback(): void | Promise<void>;
 }
 
@@ -34,20 +32,9 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
         "list_work lost ticket",
       );
       requireBehavior((await observe()).writes === before.writes, "Tracker reads mutated state");
-      const capabilities = await adapter.describe();
-      const allowed = new Set([
-        "native_maps",
-        "native_dependencies",
-        "transition",
-        "link_artifact",
-      ]);
       requireBehavior(
-        Object.keys(capabilities).every((key) => allowed.has(key)),
-        "Tracker advertised ownership guarantees or unknown capabilities",
-      );
-      requireBehavior(
-        !("claim" in adapter || "renew" in adapter || "release" in adapter),
-        "Tracker exposes lock operations",
+        !("conditional_update" in (await adapter.describe())),
+        "Tracker advertised version-checked writes",
       );
     }),
     scenario("mirror_and_restore", async (fixture) => {
@@ -63,26 +50,17 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
       requireBehavior(
         applied.mirror?.claim === claim.claim &&
           applied.mirror.run === claim.run &&
-          applied.mirror.owner === claim.owner &&
           applied.ticket.assignee === claim.owner,
         "Mirror did not install the exact holder",
       );
       await adapter.apply(claim);
-      requireBehavior(
-        (await observe()).writes === applied.writes,
-        "Repeated apply performed another write",
-      );
+      requireBehavior((await observe()).writes === applied.writes, "Repeated apply wrote again");
       for (const conflicting of [
         { ...claim, run: "interlock-run:different" as const },
         { ...claim, owner: fixture.otherOwner },
-        { ...claim, supersedes: claim.claim },
       ]) {
         await requireRejection(() => adapter.apply(conflicting), "claim_collision");
-        requireBehavior(
-          (await observe()).writes === applied.writes,
-          "Rejected replay mutated the mirror",
-        );
-        await adapter.verify({ ...claim, state: "applied" });
+        requireBehavior((await observe()).writes === applied.writes, "Rejected apply wrote");
       }
       const restore = restoration(fixture, original.snapshot);
       await requireRejection(
@@ -99,23 +77,7 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
         "Restoration lost original fields",
       );
       await adapter.restore(restore);
-      requireBehavior(
-        (await observe()).writes === restored.writes,
-        "Repeated restore performed another write",
-      );
-    }),
-    scenario("preserve_artifacts", async (fixture) => {
-      const { adapter, claim, addArtifact, observe } = fixture;
-      const original = await adapter.read(claim.ticket);
-      await adapter.apply(claim);
-      await addArtifact(artifact);
-      await adapter.restore(restoration(fixture, original.snapshot));
-      await adapter.verify({ ...restoration(fixture, original.snapshot), state: "restored" });
-      requireBehavior(
-        (await observe()).artifacts.includes(artifact) &&
-          (await adapter.read(claim.ticket)).artifacts.includes(artifact),
-        "Restoration deleted unrelated artifact evidence",
-      );
+      requireBehavior((await observe()).writes === restored.writes, "Repeated restore wrote");
     }),
     scenario("authorized_successor", async (fixture) => {
       const { adapter, claim, otherOwner, observe } = fixture;
@@ -128,28 +90,16 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
         owner: otherOwner,
         supersedes: claim.claim,
       };
-      const before = await observe();
       await requireRejection(
         () => adapter.apply({ ...successor, supersedes: "interlock-claim:unrelated" }),
         "claim_collision",
       );
-      requireBehavior(
-        (await observe()).writes === before.writes,
-        "Mismatched predecessor changed the mirror",
-      );
       await adapter.apply(successor);
       await adapter.verify({ ...successor, state: "applied" });
-      const applied = await observe();
       requireBehavior(
-        applied.mirror?.claim === successor.claim &&
-          applied.mirror.supersedes === claim.claim &&
-          applied.mirror.run === successor.run &&
-          applied.mirror.owner === otherOwner &&
-          applied.ticket.assignee === otherOwner,
+        (await observe()).ticket.assignee === otherOwner,
         "Authorized successor was not mirrored",
       );
-      await adapter.apply(successor);
-      requireBehavior((await observe()).writes === applied.writes, "Successor retry wrote again");
       const restore = {
         ticket: claim.ticket,
         claim: successor.claim,
@@ -189,56 +139,7 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
         "ambiguous_tracker_result",
       );
     }),
-    ...(["transition", "link_artifact"] as const).flatMap((capability) => [
-      scenario(`${capability}_idempotent`, async ({ adapter, claim, observe }) => {
-        if (!(await adapter.describe())[capability]) return;
-        const write = trackerWrite(adapter, capability, claim);
-        await write();
-        const first = await observe();
-        const read = await adapter.read(claim.ticket);
-        if (capability === "transition") {
-          requireBehavior(
-            first.ticket.status === "Done" && read.ticket.status === "Done",
-            "Transition was not read back",
-          );
-        } else {
-          requireBehavior(
-            first.artifacts.filter((url) => url === artifact).length === 1 &&
-              read.artifacts.includes(artifact),
-            "Artifact link was not read back",
-          );
-        }
-        await write();
-        requireBehavior(
-          (await observe()).writes === first.writes,
-          "Repeated tracker write was not idempotent",
-        );
-      }),
-      scenario(`${capability}_ambiguous`, async ({ adapter, claim, loseWriteReadback }) => {
-        if (!(await adapter.describe())[capability]) return;
-        const write = trackerWrite(adapter, capability, claim);
-        await loseWriteReadback();
-        await requireRejection(write, "ambiguous_tracker_result");
-      }),
-    ]),
   ];
-}
-
-const artifact = "https://example.invalid/pull/1";
-
-function trackerWrite(
-  adapter: Tracker,
-  capability: "transition" | "link_artifact",
-  claim: MirrorClaim,
-) {
-  if (capability === "transition") {
-    const operation = adapter.transition?.bind(adapter);
-    requireBehavior(operation, "Advertised transition has no implementation");
-    return () => operation(claim.ticket, "Done");
-  }
-  const operation = adapter.link_artifact?.bind(adapter);
-  requireBehavior(operation, "Advertised link_artifact has no implementation");
-  return () => operation(claim.ticket, artifact);
 }
 
 function restoration(

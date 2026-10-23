@@ -3,7 +3,7 @@ import { AmbiguousTrackerResultError, ClaimCollisionError } from "../../src/doma
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "../../src/domain/identifiers.ts";
 import type { MirrorClaim, MirrorRestore, Tracker } from "../../src/domain/tracker.ts";
 
-export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"): TrackerFixture {
+export function fakeTrackerFixture(): TrackerFixture {
   const claim: MirrorClaim = {
     ticket: ticketRefSchema.parse("fake:test:WORK:ticket:T-1"),
     claim: "interlock-claim:conformance",
@@ -20,7 +20,6 @@ export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"
       order: 0,
     },
     mirror: null,
-    artifacts: [],
     writes: 0,
   };
   const snapshots = new Map<string, TrackerObservation>();
@@ -43,7 +42,7 @@ export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"
   }
   const adapter: Tracker = {
     async describe() {
-      return { transition: true, link_artifact: true };
+      return {};
     },
     async list_work() {
       return [checkedRead().ticket];
@@ -55,7 +54,6 @@ export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"
       return {
         ticket: value.ticket,
         snapshot: { version, payload: { token: version } },
-        artifacts: value.artifacts,
       };
     },
     async apply(request) {
@@ -70,9 +68,7 @@ export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"
       if (replay && !sameIdentity) throw new ClaimCollisionError();
       if (sameIdentity && state.ticket.assignee === request.owner) return;
       const replacing =
-        fault !== "reject_successor" &&
-        request.supersedes !== undefined &&
-        state.mirror?.claim === request.supersedes;
+        request.supersedes !== undefined && state.mirror?.claim === request.supersedes;
       const expectedOwner = replacing ? state.mirror?.owner : request.owner;
       if (
         (state.mirror && state.mirror.claim !== request.claim && !replacing) ||
@@ -124,19 +120,6 @@ export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"
         state.ticket.status = saved.ticket.status;
         if (saved.ticket.assignee) state.ticket.assignee = saved.ticket.assignee;
         else delete state.ticket.assignee;
-        if (fault === "drop_artifacts") state.artifacts = saved.artifacts;
-      });
-    },
-    async transition(_ticket, status) {
-      if (checkedRead().ticket.status === status) return;
-      write(() => {
-        state.ticket.status = status;
-      });
-    },
-    async link_artifact(_ticket, url) {
-      if (checkedRead().artifacts.includes(url)) return;
-      write(() => {
-        state.artifacts = [...state.artifacts, url];
       });
     },
   };
@@ -145,9 +128,6 @@ export function fakeTrackerFixture(fault?: "drop_artifacts" | "reject_successor"
     claim,
     otherOwner: actorRefSchema.parse("other-human"),
     observe: async () => structuredClone(state),
-    addArtifact: async (url) => {
-      state.artifacts = [...state.artifacts, url];
-    },
     changeOwner: async (owner) => {
       state.ticket.assignee = owner;
     },

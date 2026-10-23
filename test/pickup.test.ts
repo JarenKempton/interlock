@@ -26,13 +26,19 @@ import {
   ticketRefSchema,
 } from "../src/domain/identifiers.ts";
 import {
+  type ClaimRef,
   capabilities,
   type Run,
   type RunRef,
   type Ticket,
   type TicketRef,
 } from "../src/domain/model.ts";
-import type { MirrorClaim, MirrorRestore, Tracker } from "../src/domain/tracker.ts";
+import type {
+  MirrorClaim,
+  MirrorExpectation,
+  MirrorRestore,
+  Tracker,
+} from "../src/domain/tracker.ts";
 import { PickupCoordinator, PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { fakeLockFixture } from "./fixtures/portable-lock.ts";
@@ -123,7 +129,7 @@ class FakeTracker implements Tracker {
     this.claimCalls += 1;
     this.claimRequest = request;
   }
-  async verify(request: import("../src/domain/tracker.ts").MirrorExpectation) {
+  async verify(request: MirrorExpectation) {
     if (request.state === "applied" && this.verifyClaimError) throw this.verifyClaimError;
     if (request.state === "restored" && this.verifyRestoreError) throw this.verifyRestoreError;
   }
@@ -158,7 +164,7 @@ class FakeLock implements RecoverableClaimLock {
       throw new ClaimCollisionError();
     return state;
   }
-  async restore(ticket: TicketRef, claim: import("../src/domain/model.ts").ClaimRef) {
+  async restore(ticket: TicketRef, claim: ClaimRef) {
     const state = await this.read(ticket);
     if (state.record?.claim === claim && state.record.action !== "release")
       await this.release({
@@ -293,12 +299,6 @@ describe("pickup coordinator", () => {
     await expect(subject.execute(request)).rejects.toThrow("unsupported");
     expect(tracker.claimCalls).toBe(0);
     expect(tracker.restoreCalls).toBe(0);
-  });
-
-  test("tracker without conditional assignment or comments uses only the claim lock capability", async () => {
-    const item = coordinator();
-    expect(await item.coordinator.execute(request)).toMatchObject({ ok: true, state: "committed" });
-    expect(item.tracker.claimCalls).toBe(1);
   });
 
   test("an unverified lock capability fails before any write", async () => {

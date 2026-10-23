@@ -1,5 +1,9 @@
 import { z } from "zod";
-import type { ClaimLockRecord, RecoverableClaimLock } from "../domain/claim-lock.ts";
+import type {
+  ClaimLockRecord,
+  ClaimLockState,
+  RecoverableClaimLock,
+} from "../domain/claim-lock.ts";
 import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
@@ -144,6 +148,6 @@ function trackerRequest<T extends RestoreClaimRequest>(
   return { ...request, claimedOwner: request.claimedOwner, originalSnapshot: parsed.data.tracker };
 }
 
-function heldClaim(state: import("../domain/claim-lock.ts").ClaimLockState) {
+function heldClaim(state: ClaimLockState) {
   return state.record && state.record.action !== "release" ? state.record : undefined;
 }

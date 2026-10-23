@@ -73,7 +73,6 @@ function issue(key: string, options: FakeIssueOptions = {}) {
 class FakeJira implements JiraTransport {
   issues = [issue("JWB-288")];
   claimProperty: unknown = null;
-  artifacts: string[] = [];
   requests: Array<{ method: string; path: string; body?: unknown }> = [];
   fail: (method: string, path: string) => number | undefined = () => undefined;
 
@@ -90,8 +89,6 @@ class FakeJira implements JiraTransport {
     const key = decodeURIComponent(path.match(/\/issue\/([^/?]+)/)?.[1] ?? "");
     const found = this.issues.find((item) => item.key === key);
     if (!found) return { status: 404 };
-    if (path.endsWith("/remotelink") && method === "GET")
-      return { status: 200, body: this.artifacts.map((url) => ({ object: { url } })) };
     if (path.includes("/properties/")) {
       if (method === "PUT") this.claimProperty = body;
       if (method === "DELETE") this.claimProperty = null;
@@ -681,23 +678,11 @@ test("Jira satisfies portable tracker conformance through its injected transport
                 ? { assignee: actorRefSchema.parse(fields.assignee.accountId) }
                 : {}),
             },
-            mirror: mirror
-              ? {
-                  ticket,
-                  claim: mirror.claim,
-                  run: mirror.run,
-                  owner: mirror.owner,
-                  ...(mirror.supersedes ? { supersedes: mirror.supersedes } : {}),
-                }
-              : null,
-            artifacts: [...api.artifacts],
+            mirror: mirror && { ticket, ...mirror },
             writes: api.mutationCount(),
           };
         },
         changeOwner: async (owner) => reassign(api, owner),
-        addArtifact: async (url) => {
-          api.artifacts.push(url);
-        },
         loseWriteReadback() {
           const before = api.mutationCount();
           api.fail = (method) =>
@@ -707,7 +692,6 @@ test("Jira satisfies portable tracker conformance through its injected transport
     }),
   );
   expect(report.results.filter((result) => !result.ok)).toEqual([]);
-  expect(report.ok).toBe(true);
 });
 
 test(

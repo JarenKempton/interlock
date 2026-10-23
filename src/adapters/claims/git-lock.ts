@@ -41,8 +41,6 @@ const lockRecordSchema = z.strictObject({
   authorizedBy: actorRefSchema.optional(),
 });
 
-export type { ClaimLockRecord, ClaimLockState } from "../../domain/claim-lock.ts";
-
 export interface GitClaimLockOptions {
   repository: string;
   remote: string;
@@ -293,17 +291,7 @@ export class GitClaimLock implements RecoverableClaimLock {
     const commit = await this.#checked(["git", "cat-file", "commit", tip]);
     const message = commit.slice(commit.indexOf("\n\n") + 2);
     try {
-      const record = lockRecordSchema.parse(JSON.parse(message.slice(message.indexOf("\n\n") + 2)));
-      return {
-        action: record.action,
-        ticket: record.ticket,
-        claim: record.claim,
-        run: record.run,
-        owner: record.owner,
-        leaseExpiresAt: record.leaseExpiresAt,
-        ...(record.supersedes ? { supersedes: record.supersedes } : {}),
-        ...(record.authorizedBy ? { authorizedBy: record.authorizedBy } : {}),
-      };
+      return lockRecordSchema.parse(JSON.parse(message.slice(message.indexOf("\n\n") + 2)));
     } catch {
       throw new Error(`Invalid claim lock record at ${ref} ${tip}`);
     }
