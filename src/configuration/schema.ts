@@ -54,6 +54,9 @@ const jiraSite = configText.refine((site) => {
     return false;
   }
 });
+export const userSettingsSchema = z.strictObject({ jira_site: jiraSite }).partial();
+export type UserSettings = z.infer<typeof userSettingsSchema>;
+export type UserSettingKey = keyof UserSettings;
 const roleModelSchema = z.strictObject({
   provider: configText,
   model: configText,
@@ -162,6 +165,9 @@ function parseConfiguration<S extends z.ZodType>(
 }
 export function validatePersonalSettings(value: unknown): PersonalSettings {
   return parseConfiguration(personalSettingsSchema, value, "settings");
+}
+export function validateUserSettings(value: unknown): UserSettings {
+  return parseConfiguration(userSettingsSchema, value, "user");
 }
 export function validateProjectConfiguration(value: unknown): ProjectConfiguration {
   return parseConfiguration(projectConfigurationSchema, value, "project");

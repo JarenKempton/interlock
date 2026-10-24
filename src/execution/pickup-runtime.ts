@@ -21,6 +21,7 @@ import { lockExecution } from "../persistence/execution-lock.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
+import { requireCredentials, trackerSignIns } from "../sign-in/credentials.ts";
 import { ClaimCoordinator } from "./claims.ts";
 import { journalJiraWrite } from "./jira-write-journal.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
@@ -91,8 +92,13 @@ export async function executionTracker(
     new URL(process.env.JIRA_SITE).origin !== site.origin
   )
     throw new Error("JIRA_SITE does not match the project configuration");
+  const { adapter } = trackerSignIns(services).jira;
   const transport =
-    services.execution?.jira ?? jiraBasicAuthTransport({ ...process.env, JIRA_SITE: site.origin });
+    services.execution?.jira ??
+    jiraBasicAuthTransport(
+      { site: site.origin, ...(await requireCredentials(services, "jira", adapter, site.origin)) },
+      services.signIn?.http,
+    );
   const read = async <T>(path: string, schema: z.ZodType<T>): Promise<T> => {
     const result = await transport.request("GET", `/rest/api/3/${path}`);
     const parsed = schema.safeParse(result.body);
