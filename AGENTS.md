@@ -15,7 +15,7 @@ transaction logic should remain ordinary TypeScript.
 ## Non-negotiable behavior
 
 - Tracker state is durable coordination truth; chat history is not.
-- Frontier reads do not mutate anything.
+- Ticket reads do not mutate anything.
 - Claim before work and use conditional mutations where a tracker supports them.
 - Do not advertise capabilities an adapter cannot verify.
 - Never automatically release or reassign an expired claim.
