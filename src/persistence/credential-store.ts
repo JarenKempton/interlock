@@ -9,6 +9,7 @@ export interface CredentialStore {
 export type SecretCommand = (argv: readonly string[], stdin?: string) => Promise<CommandResult>;
 
 const SERVICE = "interlock";
+const MAC_ITEM_NOT_FOUND = 44;
 
 export const spawnSecretCommand: SecretCommand = async (argv, stdin) => {
   const child = Bun.spawn([...argv], {
@@ -35,48 +36,58 @@ export function osCredentialStore(
       throw new Error(`${storeName(platform)} is unavailable: ${argv[0]} could not run`);
     }
   };
-  const checked = async (argv: readonly string[], stdin?: string) => {
+  const checked = async (
+    argv: readonly string[],
+    stdin?: string,
+    absent: (result: CommandResult) => boolean = () => false,
+  ) => {
     const result = await run(argv, stdin);
-    if (result.exitCode !== 0)
-      throw new Error(`${storeName(platform)} ${argv[1] ?? argv[0]} failed (${result.exitCode})`);
-    return result.stdout;
+    if (result.exitCode === 0) return result.stdout;
+    if (absent(result)) return undefined;
+    throw new Error(`${storeName(platform)} ${argv[1] ?? argv[0]} failed (${result.exitCode})`);
   };
-  if (platform === "darwin")
+  if (platform === "darwin") {
+    const absent = (result: CommandResult) => result.exitCode === MAC_ITEM_NOT_FOUND;
     return {
       async read(name) {
-        const result = await run(macCommand("find-generic-password", name, ["-w"]));
-        return result.exitCode === 0 ? result.stdout.replace(/\n$/, "") : undefined;
+        const output = await checked(
+          macCommand("find-generic-password", name, ["-w"]),
+          undefined,
+          absent,
+        );
+        return output === undefined ? undefined : Buffer.from(output.trim(), "base64").toString();
       },
       async write(name, secret) {
-        const hex = Buffer.from(secret, "utf8").toString("hex");
-        const line = [...macCommand("add-generic-password", name, ["-U", "-X", hex])].slice(1);
+        const envelope = Buffer.from(Buffer.from(secret).toString("base64")).toString("hex");
+        const line = macCommand("add-generic-password", name, ["-U", "-X", envelope]).slice(1);
         await checked(["security", "-i"], `${line.join(" ")}\n`);
       },
       async delete(name) {
-        await run(macCommand("delete-generic-password", name));
+        await checked(macCommand("delete-generic-password", name), undefined, absent);
       },
     };
+  }
   if (platform === "win32")
     return {
       async read(name) {
-        const output = (await checked(windowsCommand("read", name))).trim();
-        return output ? Buffer.from(output, "base64").toString("utf8") : undefined;
+        const output = (await checked(windowsCommand("read", name)))?.trim();
+        return output ? Buffer.from(output, "base64").toString() : undefined;
       },
       async write(name, secret) {
-        await checked(
-          windowsCommand("write", name),
-          Buffer.from(secret, "utf8").toString("base64"),
-        );
+        await checked(windowsCommand("write", name), Buffer.from(secret).toString("base64"));
       },
       async delete(name) {
         await checked(windowsCommand("delete", name));
       },
     };
   const attributes = (name: string) => ["service", SERVICE, "account", account(name)];
+  const absent = (result: CommandResult) => result.exitCode === 1 && !result.stderr.trim();
   return {
     async read(name) {
-      const result = await run(["secret-tool", "lookup", ...attributes(name)]);
-      return result.exitCode === 0 && result.stdout ? result.stdout : undefined;
+      return (
+        (await checked(["secret-tool", "lookup", ...attributes(name)], undefined, absent)) ||
+        undefined
+      );
     },
     async write(name, secret) {
       await checked(
@@ -85,7 +96,7 @@ export function osCredentialStore(
       );
     },
     async delete(name) {
-      await run(["secret-tool", "clear", ...attributes(name)]);
+      await checked(["secret-tool", "clear", ...attributes(name)], undefined, absent);
     },
   };
 }

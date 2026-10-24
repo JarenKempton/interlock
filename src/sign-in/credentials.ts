@@ -60,7 +60,9 @@ export async function lookupCredentials<C extends Record<string, string>>(
   site: string,
 ) {
   const { store, environment } = signInPlatform(services);
-  const stored = storedCredentials(await store.read(credentialName(tracker, site)));
+  const stored = adapter.fields.every((field) => environment[field.environment])
+    ? {}
+    : storedCredentials(await store.read(credentialName(tracker, site)));
   const values: Record<string, string> = {};
   const sources = new Set<"environment" | "credential store">();
   const missing: string[] = [];

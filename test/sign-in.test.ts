@@ -13,7 +13,7 @@ import { executionTracker } from "../src/execution/pickup-runtime.ts";
 import { type CredentialStore, osCredentialStore } from "../src/persistence/credential-store.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import type { RuntimeServices } from "../src/runtime-services.ts";
-import { hiddenInput, type Terminal } from "../src/sign-in/terminal.ts";
+import { lineInput, type Terminal } from "../src/sign-in/terminal.ts";
 
 const TOKEN = `ATATT3x${"A".repeat(176)}=0A1B2C3D`;
 const SITE = "https://example.atlassian.net";
@@ -149,11 +149,21 @@ test("Jira tokens lose trailing paste junk and terminal escape sequences", () =>
   expect(jiraApiToken(`  ${TOKEN}~]x\n`)).toBe(TOKEN);
   expect(jiraApiToken(`${TOKEN}abc`)).toBe(TOKEN);
   expect(jiraApiToken("short-token")).toBe("short-token");
-  const input = hiddenInput();
+  const input = lineInput();
   expect(input.feed(`\u001b[200~${TOKEN}x\u007f\u001b[201~`)).toBeUndefined();
-  expect(input.feed("\r")).toBe("done");
+  expect(input.feed("\r\nnext-line\r")).toEqual({ state: "done", rest: "next-line\r" });
   expect(input.value()).toBe(TOKEN);
-  expect(hiddenInput().feed("\u0003")).toBe("cancelled");
+  expect(lineInput().feed("\u0003")).toEqual({ state: "cancelled", rest: "" });
+  const split = lineInput();
+  split.feed("\u001b[20");
+  split.feed(`0~${TOKEN}\u001b`);
+  split.feed("[201~");
+  expect(split.feed("\r")).toEqual({ state: "done", rest: "" });
+  expect(split.value()).toBe(TOKEN);
+  const echoed: string[] = [];
+  const visible = lineInput((text) => echoed.push(text));
+  visible.feed("ab\u007f\r");
+  expect(echoed.join("")).toBe("ab\b \b");
 });
 
 test("login asks for the site, opens the token page, verifies, stores, and prints the name", async () => {
@@ -213,10 +223,10 @@ test("doctor names the missing sign-in, Jira permissions, and claim-lock push ac
   expect(await doctor(signedOut)).toMatchObject({
     ok: false,
     jira: { site: null, signedIn: false },
-    claimLock: { repository: "/work/repo", push: false },
+    claimLock: { repository: "/work/repo", dryRunPush: false },
     missing: [
       "Jira sign-in: run interlock login jira",
-      "Git claim lock: no push access to origin from /work/repo",
+      "Git claim lock: origin refuses a dry-run push from /work/repo",
     ],
   });
   expect(signedOut.git.calls.at(-1)).toEqual([
@@ -239,13 +249,13 @@ test("doctor names the missing sign-in, Jira permissions, and claim-lock push ac
       from: ["credential store"],
       permissions: { project: "JWB" },
     },
-    claimLock: { push: true },
+    claimLock: { dryRunPush: true },
     missing: ["Jira permission Edit issues (issue properties) (EDIT_ISSUES) in JWB"],
   });
   expect(signedIn.jira.calls.at(-1)).toContain("projectKey=JWB");
 });
 
-test("environment variables override the store and need no login or project config", async () => {
+test("environment variables bypass the store and need no login or project config", async () => {
   const subject = harness({
     environment: {
       JIRA_SITE: "example.atlassian.net",
@@ -254,10 +264,9 @@ test("environment variables override the store and need no login or project conf
     },
     granted: ["BROWSE_PROJECTS", "TRANSITION_ISSUES", "ASSIGN_ISSUES", "EDIT_ISSUES"],
   });
-  await subject.store.write(
-    "jira:example.atlassian.net",
-    JSON.stringify({ email: "lane@example.com", token: TOKEN }),
-  );
+  subject.store.read = async () => {
+    throw new Error("Linux Secret Service (secret-tool) is unavailable");
+  };
   expect(await doctor(subject)).toMatchObject({
     ok: true,
     jira: { signedIn: true, from: ["environment"] },
@@ -327,3 +336,47 @@ test.skipIf(process.env.INTERLOCK_TEST_OS_CREDENTIAL_STORE !== "1")(
   },
   30_000,
 );
+
+test("a failed permission check keeps the verified sign-in", async () => {
+  const subject = harness({ answers: [SITE, "lane@example.com", TOKEN] });
+  await subject.cli("login", "jira");
+  const http = subject.jira.http;
+  subject.services.signIn = {
+    ...subject.services.signIn,
+    http: async (url, request) =>
+      url.includes("mypermissions") ? new Response(null, { status: 403 }) : http(url, request),
+  };
+  expect(await doctor(subject)).toMatchObject({
+    jira: { signedIn: true, account: "Lane Person" },
+    missing: [`Jira permission check at ${SITE}: Jira permission check failed (403)`],
+  });
+});
+
+test("OS credential stores tell a missing entry from a failed command", async () => {
+  const result = (exitCode: number, stderr = "") => ({ exitCode, stdout: "", stderr });
+  const linuxMissing = osCredentialStore("linux", async () => result(1));
+  expect(await linuxMissing.read("jira:x")).toBeUndefined();
+  await linuxMissing.delete("jira:x");
+  const linuxBroken = osCredentialStore("linux", async () => result(1, "Cannot autolaunch D-Bus"));
+  await expect(linuxBroken.read("jira:x")).rejects.toThrow("lookup failed (1)");
+  await expect(linuxBroken.delete("jira:x")).rejects.toThrow("clear failed (1)");
+  const macMissing = osCredentialStore("darwin", async () => result(44));
+  expect(await macMissing.read("jira:x")).toBeUndefined();
+  await macMissing.delete("jira:x");
+  const macLocked = osCredentialStore("darwin", async () => result(36));
+  await expect(macLocked.read("jira:x")).rejects.toThrow("find-generic-password failed (36)");
+  await expect(macLocked.delete("jira:x")).rejects.toThrow("delete-generic-password failed (36)");
+});
+
+test("macOS Keychain entries round-trip non-ASCII credentials through an ASCII envelope", async () => {
+  let stored = "";
+  const store = osCredentialStore("darwin", async (argv, stdin) => {
+    if (argv[1] === "-i")
+      stored = Buffer.from(stdin?.trim().split(" ").at(-1) ?? "", "hex").toString();
+    return { exitCode: 0, stdout: `${stored}\n`, stderr: "" };
+  });
+  const secret = JSON.stringify({ email: "jörg@example.com", token: TOKEN });
+  await store.write("jira:example.atlassian.net", secret);
+  expect(stored).toMatch(/^[A-Za-z0-9+/=]+$/);
+  expect(await store.read("jira:example.atlassian.net")).toBe(secret);
+});

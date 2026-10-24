@@ -1,5 +1,3 @@
-import { createInterface } from "node:readline/promises";
-
 export interface Terminal {
   interactive(): boolean;
   say(text: string): void;
@@ -7,7 +5,7 @@ export interface Terminal {
   open(url: string): void;
 }
 
-const ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, "g");
+const ESCAPE = String.fromCharCode(27);
 
 export const processTerminal: Terminal = {
   interactive: () => Boolean(process.stdin.isTTY && process.stderr.isTTY),
@@ -16,7 +14,7 @@ export const processTerminal: Terminal = {
   },
   async ask(label, options) {
     const prompt = `${label}${options.default ? ` [${options.default}]` : ""}: `;
-    const answer = options.hidden ? await readHidden(prompt) : await readVisible(prompt);
+    const answer = await readLine(prompt, options.hidden);
     return answer.trim() || options.default || "";
   },
   open(url) {
@@ -32,27 +30,28 @@ export const processTerminal: Terminal = {
   },
 };
 
-async function readVisible(prompt: string): Promise<string> {
-  const lines = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    return await lines.question(prompt);
-  } finally {
-    lines.close();
-  }
-}
-
-export function hiddenInput(): {
-  feed(chunk: string): "done" | "cancelled" | undefined;
-  value(): string;
-} {
+export function lineInput(echo: (text: string) => void = () => {}) {
   let value = "";
+  let skipping: "" | "escape" | "parameters" = "";
   return {
-    feed(chunk) {
-      for (const character of chunk.replace(ESCAPE_SEQUENCE, "")) {
-        if (character === "\r" || character === "\n") return "done";
-        if (character === "\u0003") return "cancelled";
-        if (character === "\u007f" || character === "\b") value = value.slice(0, -1);
-        else if (character >= " ") value += character;
+    feed(chunk: string): { state: "done" | "cancelled"; rest: string } | undefined {
+      for (let index = 0; index < chunk.length; index++) {
+        const character = chunk.charAt(index);
+        if (skipping === "escape") skipping = character === "[" ? "parameters" : "";
+        else if (skipping === "parameters")
+          skipping = character >= "@" && character <= "~" ? "" : skipping;
+        else if (character === ESCAPE) skipping = "escape";
+        else if (character === "\r" || character === "\n") {
+          const rest = chunk.slice(index + 1);
+          return { state: "done", rest: character === "\r" ? rest.replace(/^\n/, "") : rest };
+        } else if (character === "\u0003") return { state: "cancelled", rest: "" };
+        else if (character === "\u007f" || character === "\b") {
+          if (value) echo("\b \b");
+          value = value.slice(0, -1);
+        } else if (character >= " ") {
+          value += character;
+          echo(character);
+        }
       }
       return undefined;
     },
@@ -60,23 +59,29 @@ export function hiddenInput(): {
   };
 }
 
-async function readHidden(prompt: string): Promise<string> {
-  process.stderr.write(prompt);
-  const input = hiddenInput();
+let typedAhead = "";
+
+async function readLine(prompt: string, hidden: boolean): Promise<string> {
+  const input = lineInput(hidden ? undefined : (text) => process.stderr.write(text));
   process.stdin.setRawMode(true);
   process.stdin.setEncoding("utf8");
   process.stdin.resume();
+  process.stderr.write(prompt);
   try {
     return await new Promise<string>((resolve, reject) => {
       const onData = (chunk: string) => {
-        const state = input.feed(chunk);
-        if (!state) return;
+        const result = input.feed(chunk);
+        if (!result) return;
         process.stdin.off("data", onData);
+        typedAhead = result.rest;
         process.stderr.write("\n");
-        if (state === "cancelled") reject(new Error("Sign-in cancelled"));
+        if (result.state === "cancelled") reject(new Error("Sign-in cancelled"));
         else resolve(input.value());
       };
       process.stdin.on("data", onData);
+      const pending = typedAhead;
+      typedAhead = "";
+      if (pending) onData(pending);
     });
   } finally {
     process.stdin.setRawMode(false);
