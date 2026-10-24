@@ -3,7 +3,7 @@ import type { PreparedWorkspace, RunRef, Ticket, TicketRef } from "./model.ts";
 export type HostCapability = "message" | "interrupt" | "focus" | "subagents" | "pr_ownership";
 export type HostCapabilities = Partial<Record<HostCapability, true>>;
 
-export interface LaunchRequest {
+interface LaunchRequest {
   run: RunRef;
   ticket: Ticket;
   workspace: PreparedWorkspace;
