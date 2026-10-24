@@ -18,11 +18,6 @@ export const choice = <const T extends readonly string[]>(description: string, v
     .enum(values)
     .describe(description)
     .meta({ metavar: values.join("|") });
-export const pair = <A extends z.ZodType, B extends z.ZodType>(
-  first: A,
-  second: B,
-  description: string,
-) => z.tuple([first, second]).describe(description);
 export type RawInput<S extends z.ZodRawShape> = z.input<z.ZodObject<S>>;
 export type Input<S extends z.ZodRawShape> = z.output<z.ZodObject<S>>;
 

@@ -109,7 +109,6 @@ const issueSchema = z.object({
         }),
       )
       .optional(),
-    priority: z.object({ name: z.string().optional() }).optional(),
   }),
 });
 type JiraIssue = z.infer<typeof issueSchema>;
@@ -156,8 +155,6 @@ export interface JiraTrackerOptions {
   transport: JiraTransport;
   /** Jira's site-specific field id for the standard LexoRank Rank field. */
   rankField?: string;
-  /** Highest-priority name first; Jira numeric IDs have no portable semantic ordering. */
-  priorityOrder?: readonly string[];
   claimProperty?: string;
   pageSize?: number;
   validateClaim?: (ticket: Ticket) => void | Promise<void>;
@@ -168,7 +165,6 @@ export class JiraTrackerAdapter implements Tracker {
   readonly #transport: JiraTransport;
   readonly #prefix: string;
   readonly #claimProperty: string;
-  readonly #priorityOrder: readonly string[] | undefined;
   readonly #rankField: string | undefined;
   readonly #pageSize: number;
   readonly #validateClaim: JiraTrackerOptions["validateClaim"];
@@ -179,8 +175,6 @@ export class JiraTrackerAdapter implements Tracker {
   constructor(options: JiraTrackerOptions) {
     if (options.rankField !== undefined && !options.rankField)
       throw new Error("Jira Rank field id is required");
-    if (options.priorityOrder !== undefined && options.priorityOrder.length === 0)
-      throw new Error("Jira priority order is required");
     if (
       options.pageSize !== undefined &&
       (!Number.isInteger(options.pageSize) || options.pageSize < 1 || options.pageSize > 100)
@@ -189,7 +183,6 @@ export class JiraTrackerAdapter implements Tracker {
     this.#transport = options.transport;
     this.#prefix = `jira:${options.instance}:${options.workspace}`;
     this.#claimProperty = options.claimProperty ?? "interlock.claim";
-    this.#priorityOrder = options.priorityOrder;
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
     this.#validateClaim = options.validateClaim;
@@ -345,20 +338,15 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   #readConfiguration() {
-    if (!this.#rankField || !this.#priorityOrder)
-      throw new Error("Jira normalized reads require Rank and priority configuration");
-    return { rankField: this.#rankField, priorityOrder: this.#priorityOrder };
+    if (!this.#rankField) throw new Error("Jira normalized reads require Rank configuration");
+    return this.#rankField;
   }
 
   #normalize(issue: JiraIssue, ref: TicketRef, map: MapRef, order: number): Ticket {
-    const { rankField, priorityOrder } = this.#readConfiguration();
+    const rankField = this.#readConfiguration();
     const rank = issue.fields[rankField];
     if (typeof rank !== "string" || rank.length === 0)
       throw new Error(`Jira Rank field is missing or invalid: ${rankField}`);
-    const priorityName = issue.fields.priority?.name;
-    const priorityIndex = priorityName ? priorityOrder.indexOf(priorityName) : -1;
-    if (priorityName && priorityIndex < 0)
-      throw new Error(`Jira priority is not configured: ${priorityName}`);
     const dependencies: Dependency[] = [];
     for (const link of issue.fields.issuelinks ?? []) {
       if (link.inwardIssue && link.type.inward.toLowerCase().includes("blocked by")) {
@@ -383,13 +371,11 @@ export class JiraTrackerAdapter implements Tracker {
         : {}),
       dependencies,
       order,
-      ...(priorityIndex >= 0 ? { priority: priorityOrder.length - priorityIndex } : {}),
       metadata: {
         nativeKey: issue.key,
         version: issue.fields.updated,
         versionSource: "jira.fields.updated",
         rank,
-        priorityName,
       },
     };
   }
@@ -559,7 +545,6 @@ export class JiraTrackerAdapter implements Tracker {
       "issuetype",
       "parent",
       "issuelinks",
-      "priority",
       ...(this.#rankField ? [this.#rankField] : []),
     ];
   }

@@ -11,9 +11,6 @@ export function registeredActions(tree: ActionTree, prefix: string[] = []): Regi
     return isAction(entry) ? [{ command, action: entry }] : registeredActions(entry, command);
   });
 }
-export function availableActions(tree: ActionTree): RegisteredAction[] {
-  return registeredActions(tree).filter((entry) => entry.action.availability.available);
-}
 export function actionUsage({ command, action }: RegisteredAction): string {
   return formatUsage(command.join(" "), invocationParser(action).usage);
 }
@@ -22,7 +19,6 @@ export function describeAction(entry: RegisteredAction) {
     command: entry.command,
     description: entry.action.description,
     usage: actionUsage(entry),
-    availability: entry.action.availability,
     input: Object.fromEntries(
       Object.entries(entry.action.fields).map(([key, schema]) => [key, fieldDescription(schema)]),
     ),

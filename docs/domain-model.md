@@ -15,10 +15,8 @@ and the contracts below define the portable contract. Adapters translate vendor 
 | run | `interlock-run:<id>` | Local execution identity |
 | claim | `interlock-claim:<id>` | Ownership held by the claim lock, mirrored by the tracker |
 
-Qualification prevents collisions across tracker installations. Dependency
-evaluation can cross maps within a workspace; Interlock rejects evaluation
-across workspaces. A ticket belongs to one map. Group nesting and native tracker
-references do not change frontier or ownership rules.
+Qualification prevents collisions across tracker installations. A ticket
+belongs to one map; its blockers can sit in other maps.
 
 A claim names a human owner and a run, and retains the original tracker snapshot.
 A run never substitutes for its human assignee. See [claim semantics](claim-semantics.md).
@@ -26,9 +24,8 @@ A run never substitutes for its human assignee. See [claim semantics](claim-sema
 ## Capabilities
 
 Each boundary owns its vocabulary: `TrackerCapabilities`, `HostCapabilities`,
-and the claim lock's `conditional_update`. `CAPABILITIES` in the domain model
-keeps existing published names. Identifiers are additive; published names
-cannot be repurposed. An adapter advertises only behavior it can verify; a
+and the claim lock's `conditional_update`, the only entry in `CAPABILITIES`.
+Identifiers are additive; published names cannot be repurposed. An adapter advertises only behavior it can verify; a
 method's presence or successful authentication is not evidence. Operations
 check the exact required set through `requireCapabilities`, which raises
 `UnsupportedCapabilityError` before invoking anything.
@@ -39,14 +36,13 @@ check the exact required set through `requireCapabilities`, which raises
 already holds. `list_work` and `read` never mutate. `apply` installs the claim,
 run and owner; `verify` checks an applied or restored mirror by readback;
 `restore` returns the original snapshot and refuses to overwrite human changes.
-Repeating `apply` or `restore` writes nothing. Trackers never claim, renew or
+Repeating `apply` or `restore` writes nothing. Trackers never claim or
 release, and never advertise `conditional_update`. Optional `transition` and
 `link_artifact` must be read back and idempotent.
 
 ## Claim lock
 
-[`ClaimLock`](../src/domain/claim-lock.ts) owns `read`, `claim`, `renew` and
-`release`, and is the only contract with version-checked writes. A competing
+[`ClaimLock`](../src/domain/claim-lock.ts) owns `read`, `claim` and `release`, and is the only contract with version-checked writes. A competing
 claim or stale version is a `ClaimCollisionError`; an outcome readback cannot
 confirm is an `AmbiguousTrackerResultError`. Expiry never releases or reassigns.
 See [claim semantics](claim-semantics.md).

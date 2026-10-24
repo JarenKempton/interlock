@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import {
-  DirtyWorkspaceError,
   type GitCommandExecutor,
   GitWorkspaceAdapter,
   normalizeGitRemote,
   type PreparedGitWorkspace,
   parseWorktrees,
-  ticketIdentity,
   WorkspaceConflictError,
   type WorkspaceFileSystem,
 } from "../src/adapters/workspaces/git.ts";
@@ -18,7 +16,6 @@ class FakeGit implements GitCommandExecutor {
   readonly calls: { argv: readonly string[]; cwd: string }[] = [];
   worktrees = "";
   branchExists = false;
-  dirty = false;
   remote = "git@example.test:team/repo.git";
 
   async run(argv: readonly string[], cwd: string) {
@@ -29,15 +26,10 @@ class FakeGit implements GitCommandExecutor {
     if (command === "git remote get-url origin") return ok(this.remote);
     if (command === "git worktree list --porcelain") return ok(this.worktrees);
     if (command.startsWith("git show-ref")) return this.branchExists ? ok("") : fail();
-    if (command.includes(" status --porcelain")) return ok(this.dirty ? " M owned.txt\n" : "");
     if (command.startsWith("git worktree add")) {
       const path = argv.at(-2);
       const branch = this.branchExists ? argv.at(-1) : argv.at(-3);
       this.worktrees = `worktree ${path}\nbranch refs/heads/${branch}\n`;
-      return ok("");
-    }
-    if (command.startsWith("git worktree remove")) {
-      this.worktrees = "";
       return ok("");
     }
     return fail("unexpected command");
@@ -46,14 +38,9 @@ class FakeGit implements GitCommandExecutor {
 
 class FakeFileSystem implements WorkspaceFileSystem {
   existing = new Set<string>();
-  realpaths = new Map<string, string>();
 
   async exists(path: string) {
     return this.existing.has(path);
-  }
-
-  async realpath(path: string) {
-    return this.realpaths.get(path) ?? resolve(path);
   }
 }
 
@@ -73,9 +60,8 @@ const ticket: Ticket = {
   status: "To Do",
   order: 0,
 };
-const identity = ticketIdentity(ticket.ref);
-const worktreePath = resolve(repository.worktreeRoot, identity);
-const branch = `interlock/${identity}`;
+const worktreePath = resolve(repository.worktreeRoot, "ABC-123");
+const branch = "task/ABC-123";
 
 function ok(stdout: string) {
   return { exitCode: 0, stdout, stderr: "" };
@@ -94,32 +80,13 @@ async function preparedWorkspace(workspace: GitWorkspaceAdapter): Promise<Prepar
 }
 
 describe("Git workspace adapter", () => {
-  test("maps the fully qualified ticket to canonical native path and branch", async () => {
+  test("maps the ticket key to canonical native path and branch", async () => {
     const { workspace } = subject();
     expect(await workspace.plan(ticket)).toEqual({
       ticket: ticket.ref,
       path: worktreePath,
       branch,
     });
-  });
-
-  test("qualified identities cannot collide across instances or workspaces", async () => {
-    const { workspace } = subject();
-    const otherInstance = {
-      ...ticket,
-      ref: ticketRefSchema.parse("jira:other:TEAM:ticket:ABC-123"),
-    };
-    const otherWorkspace = {
-      ...ticket,
-      ref: ticketRefSchema.parse("jira:example:OTHER:ticket:ABC-123"),
-    };
-    const plans = await Promise.all([
-      workspace.plan(ticket),
-      workspace.plan(otherInstance),
-      workspace.plan(otherWorkspace),
-    ]);
-    expect(new Set(plans.map((plan) => plan.path)).size).toBe(3);
-    expect(new Set(plans.map((plan) => plan.branch)).size).toBe(3);
   });
 
   test("rejects tampered paths and branches before any Git mutation or read", async () => {
@@ -221,50 +188,6 @@ describe("Git workspace adapter", () => {
       argv: ["git", "worktree", "add", worktreePath, branch],
       cwd: repositoryPath,
     });
-  });
-
-  test("delete requires the exact canonical prepared record", async () => {
-    const candidate = subject();
-    candidate.git.worktrees = record();
-    const canonical = { ticket: ticket.ref, path: worktreePath, branch };
-    await expect(
-      candidate.workspace.delete({ ...canonical, path: resolve("/unrelated/worktree") }),
-    ).rejects.toBeInstanceOf(WorkspaceConflictError);
-    await expect(
-      candidate.workspace.delete({ ...canonical, branch: "interlock/unrelated" }),
-    ).rejects.toBeInstanceOf(WorkspaceConflictError);
-    expect(candidate.git.calls).toHaveLength(0);
-  });
-
-  test("delete rejects root escapes, symlinks, and ambiguous ownership", async () => {
-    const escaped = subject();
-    escaped.fileSystem.realpaths.set(resolve(repository.worktreeRoot), resolve("/real/root"));
-    escaped.fileSystem.realpaths.set(worktreePath, resolve("/outside/target"));
-    await expect(
-      escaped.workspace.delete({ ticket: ticket.ref, path: worktreePath, branch }),
-    ).rejects.toBeInstanceOf(WorkspaceConflictError);
-    expect(escaped.git.calls).toHaveLength(0);
-
-    const ambiguous = subject();
-    ambiguous.git.worktrees = `${record()}\n${record()}`;
-    await expect(
-      ambiguous.workspace.delete({ ticket: ticket.ref, path: worktreePath, branch }),
-    ).rejects.toBeInstanceOf(WorkspaceConflictError);
-  });
-
-  test("explicit deletion refuses dirty work and removes only verified clean work", async () => {
-    const dirty = subject();
-    dirty.git.worktrees = record();
-    dirty.git.dirty = true;
-    await expect(
-      dirty.workspace.delete({ ticket: ticket.ref, path: worktreePath, branch }),
-    ).rejects.toBeInstanceOf(DirtyWorkspaceError);
-    expect(dirty.git.calls.some((call) => call.argv[2] === "remove")).toBeFalse();
-
-    const clean = subject();
-    clean.git.worktrees = record();
-    await clean.workspace.delete({ ticket: ticket.ref, path: worktreePath, branch });
-    expect(clean.git.calls.at(-1)?.argv).toEqual(["git", "worktree", "remove", worktreePath]);
   });
 
   test("parses CRLF porcelain output and retains prunable metadata", () => {

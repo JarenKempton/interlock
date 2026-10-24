@@ -30,7 +30,6 @@ import {
   personalSettingsSchema,
   projectConfigurationSchema,
   type ResolvedConfiguration,
-  requireAvailableSelections,
   resolveProjectConfiguration,
   SETTING_KEYS,
   validateProjectConfiguration,
@@ -226,20 +225,6 @@ test("execution snapshots persist independently and cannot be silently replaced"
     store.close();
   }
 });
-
-test.each(["host", "agent"] as const)(
-  "unavailable %s shows alternatives without substitution",
-  (key) => {
-    const configuration = resolve(INITIAL_CONFIGURATION, { [key]: "missing" });
-    expect(() =>
-      requireAvailableSelections(configuration, {
-        hosts: key === "host" ? ["supported-host"] : ["t3"],
-        agents: ["supported-agent"],
-      }),
-    ).toThrow("Available supported alternatives");
-    expect(configuration.settings[key]).toBe("missing");
-  },
-);
 
 test.each(["version = 2", 'token = "DO_NOT_ECHO"', 'version = "DO_NOT_ECHO"'])(
   "malformed project values are rejected without echoing them: %s",

@@ -2,8 +2,8 @@
 
 [Pickup](../src/execution/pickup.ts), the [Git claim lock](../src/adapters/claims/git-lock.ts),
 and [claim types](../src/domain/model.ts) implement these transitions.
-[Claim tests](../test/claim.test.ts), [pickup tests](../test/pickup.test.ts),
-and [lock tests](../test/git-claim-lock.test.ts) exercise failure paths.
+[Pickup tests](../test/pickup.test.ts) and [lock tests](../test/git-claim-lock.test.ts)
+exercise failure paths.
 
 ## Identity and leases
 
@@ -13,23 +13,17 @@ Local state alone never establishes ownership.
 
 | Claim state | Meaning |
 | --- | --- |
-| `active` | Current claim with an unexpired lease |
-| `stale` | Lease expired; derived by reading time, with no mutation |
+| `active` | Held by the claim lock and mirrored by the tracker |
 | `released` | Explicit, verified restoration of the pre-claim fields |
-| `superseded` | Explicit stale reclaim installed a successor identity |
 
-Renewal requires a matching active claim and extends its lease under the
-current lock version. Expiry never authorizes automatic renewal, release, or
-reassignment.
-
-Reclaim requires authorization, the stale claim identity, a fresh read, and a
-conditional write. A mismatch is a collision. The successor retains the original
-pre-claim snapshot and predecessor identity for later restoration and audit.
+Each claim records a lease expiry. Nothing renews it, and expiry never
+authorizes release, reassignment, or a takeover: the claim stays held until it
+is released explicitly.
 
 ## Release and recovery
 
 Release explicitly returns ownership by conditionally restoring and verifying
-the original claim-related fields. The ticket re-enters the frontier only if
+the original claim-related fields. The ticket can be picked up again only if
 the restored state is eligible. Closing a lane, stopping an agent, and deleting
 a workspace are separate from release.
 
@@ -39,11 +33,9 @@ assertion is not itself proof of the remote outcome.
 
 ## Pickup and compensation
 
-Pickup persists each transition before beginning the next side effect:
-
-The executable T3 pickup stops after workspace preparation and records the run
-as `claimed`, with launch arguments in its plan. It does not connect T3 to the
-generic launch/stop path below. Preflights are read-only; the local recovery
+Pickup persists each transition before beginning the next side effect. It
+stops after workspace preparation and records the run as `claimed`, with T3
+launch arguments in its plan; the T3 caller launches the lane. Preflights are read-only; the local recovery
 intent (including the original snapshot) is journaled before the first remote
 claim write. No workspace or agent side effect precedes the verified lock and
 Jira mirror. Verified compensation marks the run `compensated` and its local
@@ -54,19 +46,12 @@ claim `released`; an uncertain outcome retains recovery evidence.
 | `planning` | Complete preflights; capture snapshot | `claiming` | No tracker mutation |
 | `claiming` | Conditional claim and readback | `claimed` | Definite collision ends `collision`; ambiguous result enters compensation |
 | `claimed` | Prepare workspace | `workspace_prepared` | Compensation |
-| `workspace_prepared` | Launch agent | `launched` | Compensation, including a partial launch receipt |
-| `launched` | Persist active run and receipt | `committed` | Compensation |
+| `workspace_prepared` | Persist the `claimed` run | `prepared` | Compensation |
 
-The generic coordinator persists `compensating`, attempts to stop a recorded
-launch, then attempts guarded restoration and readback of the original tracker
-snapshot. It attempts restoration even if stop fails. Only verified side-effect
-resolution permits `compensated`; uncertain stop, restoration, or persistence
-produces `recovery_required`.
-
-That compensation behavior is unsafe for a host that may commit a launch
-without returning a receipt or cannot verify stop. Such a host must not be
-connected to generic pickup without a recovery path that retains ownership
-and prevents duplicate launch.
+Compensation persists `compensating`, then attempts guarded restoration and
+readback of the original tracker snapshot. Only verified restoration permits
+`compensated`; uncertain restoration or persistence produces
+`recovery_required`. Compensation never deletes the prepared workspace.
 
 ## Git-remote claim lock
 
@@ -83,13 +68,13 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   destination. Divergent or multiple remote URLs fail closed. Literal remotes
   with applicable push rewriting must use a named remote whose destinations
   can be verified; compensation cannot infer ownership from another repository.
-- Claim, renew, release and reclaim each append one commit whose message holds
+- Claim and release each append one commit whose message holds
   the claim record, built on the observed tip and sent with an ordinary
   fast-forward push. The remote applies it only while the ref is still at that
   tip, and claim creates the ref only while it is absent. A losing writer gets
   `ClaimCollisionError`. Forced pushes, hook bypasses and ref deletion are never used.
 - The lock version is the tip commit, or `absent`. It is the snapshot version
-  that claim, renewal and release must match.
+  that claim and release must match.
 - A push that fails without a definite rejection is resolved with
   `git ls-remote` and the tip's record: our commit means it landed; a different
   tip means a collision; an unchanged tip or an unreadable remote remains

@@ -21,7 +21,6 @@ export class PickupJira implements JiraTransport {
       status: { name: "To Do", statusCategory: { key: "new" } },
       issuetype: { name: "Task" },
       parent: { key: "TEST-470" },
-      priority: { name: "Medium" },
       customfield_rank: "0|a:",
       issuelinks: z.array(z.unknown()).parse([]),
     },
@@ -42,8 +41,6 @@ export class PickupJira implements JiraTransport {
           { id: "customfield_rank", schema: { custom: "com.pyxis.greenhopper.jira:gh-lexo-rank" } },
         ],
       };
-    else if (path === "/rest/api/3/priority")
-      response = { status: 200, body: [{ name: "Medium" }] };
     else if (path === "/rest/api/3/myself")
       response = { status: 200, body: { accountId: this.owner } };
     else if (path === "/rest/api/3/search/jql") {

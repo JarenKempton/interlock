@@ -1,7 +1,6 @@
 import type {
   ActorRef,
   AdapterRef,
-  CapabilitySet,
   ClaimRef,
   PreparedWorkspace,
   Run,
@@ -20,13 +19,6 @@ export interface ClaimRequest {
   expectedVersion: string;
 }
 
-export interface RenewLeaseRequest {
-  claim: ClaimRef;
-  ticket: TicketRef;
-  leaseExpiresAt: string;
-  expectedVersion: string;
-}
-
 export interface ReleaseClaimRequest {
   claim: ClaimRef;
   ticket: TicketRef;
@@ -35,18 +27,6 @@ export interface ReleaseClaimRequest {
   originalSnapshot: TrackerSnapshot;
   expectedVersion: string;
   authorizedBy: ActorRef;
-}
-
-export interface ReclaimRequest {
-  staleClaim: ClaimRef;
-  claim: ClaimRef;
-  run: RunRef;
-  ticket: TicketRef;
-  owner: ActorRef;
-  authorizedBy: ActorRef;
-  leaseExpiresAt: string;
-  expectedVersion: string;
-  originalSnapshot: TrackerSnapshot;
 }
 
 export interface RestoreClaimRequest {
@@ -87,38 +67,6 @@ export interface WorkspaceAdapter {
   prepare(plan: WorkspacePlan): Promise<PreparedWorkspace>;
 }
 
-export interface LaunchRequest {
-  run: RunRef;
-  ticket: Ticket;
-  workspace: PreparedWorkspace;
-  model?: string;
-  effort?: string;
-  context?: string;
-}
-
-export interface LaunchReceipt {
-  sessionId?: string;
-  pid?: number;
-  tier: "prepare" | "launch" | "managed" | "lifecycle";
-}
-
-export class HarnessLaunchError extends Error {
-  constructor(
-    message: string,
-    readonly receipt?: LaunchReceipt,
-  ) {
-    super(message);
-    this.name = "HarnessLaunchError";
-  }
-}
-
-export interface HarnessAdapter {
-  describe(): Promise<CapabilitySet>;
-  preflight(request: LaunchRequest): Promise<void>;
-  launch(request: LaunchRequest): Promise<LaunchReceipt>;
-  stop(receipt: LaunchReceipt): Promise<void>;
-}
-
 export interface Ledger {
   saveRun(run: Run): void | Promise<void>;
   saveClaim(claim: import("./model.ts").Claim): void | Promise<void>;
@@ -147,7 +95,4 @@ export interface PickupRequest {
   owner: ActorRef;
   harness: AdapterRef;
   model?: string;
-  effort?: string;
-  context?: string;
-  requiredCapabilities?: CapabilitySet;
 }

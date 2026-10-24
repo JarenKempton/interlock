@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { adapterActions } from "./adapters/commands.ts";
-import { builtInAdapters } from "./adapters/registry.ts";
 import { composeActions } from "./cli/catalog.ts";
 import { completionCandidates, completionScript } from "./cli/completions.ts";
 import { type ActionTree, defineAction } from "./cli/definition.ts";
@@ -9,7 +7,6 @@ import { choice, positional } from "./cli/schema.ts";
 import { configurationActions } from "./configuration/commands.ts";
 import { VERSION } from "./distribution/version.ts";
 import { runActions } from "./execution/commands.ts";
-import { frontierActions } from "./frontier/commands.ts";
 import { withStore } from "./persistence/command-store.ts";
 import { databasePath } from "./persistence/paths.ts";
 import type { RuntimeServices } from "./runtime-services.ts";
@@ -18,14 +15,13 @@ export function createApplication(services: RuntimeServices = {}) {
   let tree: ActionTree;
   const core = {
     doctor: defineAction({
-      description: "Check local state storage and adapter discovery.",
+      description: "Check local state storage.",
       input: {},
       handler: () =>
         withStore(services, () => ({
           ok: true,
           version: VERSION,
           database: services.statePath ?? databasePath(),
-          adapters: builtInAdapters().length,
         })),
     }),
     version: defineAction({
@@ -35,7 +31,7 @@ export function createApplication(services: RuntimeServices = {}) {
       handler: () => VERSION,
     }),
     completions: defineAction({
-      description: "Print shell completion for currently available actions.",
+      description: "Print shell completion for the registered actions.",
       input: {
         shell: positional(choice("Completion shell.", ["bash", "zsh", "fish"] as const)),
         at: z
@@ -50,7 +46,7 @@ export function createApplication(services: RuntimeServices = {}) {
           : completionCandidates(tree, input.at.split(" ").filter(Boolean)).join("\n"),
     }),
     man: defineAction({
-      description: "Print the manual for currently available actions.",
+      description: "Print the manual for the registered actions.",
       input: {},
       handler: (): string => manPage(VERSION, tree),
     }),
@@ -61,12 +57,7 @@ export function createApplication(services: RuntimeServices = {}) {
       ...(services.statePath ? { statePath: services.statePath } : {}),
     },
   );
-  const discovery = composeActions(frontierActions(), adapterActions());
-  const execution = runActions(services);
-  const actions = composeActions(
-    composeActions(configuration, discovery),
-    composeActions(execution, core),
-  );
+  const actions = composeActions(configuration, composeActions(runActions(services), core));
   tree = actions;
   return actions;
 }

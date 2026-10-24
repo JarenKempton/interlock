@@ -1,19 +1,14 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { z } from "zod";
 import { createApplication } from "../src/application.ts";
-import { availableActions, composeActions, registeredActions } from "../src/cli/catalog.ts";
+import { composeActions, registeredActions } from "../src/cli/catalog.ts";
 import { actionHelp, dispatch } from "../src/cli/command-line.ts";
 import { completionCandidates } from "../src/cli/completions.ts";
-import { defineAction, dependency } from "../src/cli/definition.ts";
+import { defineAction } from "../src/cli/definition.ts";
 import { manPage } from "../src/cli/manpage.ts";
 import { optional, positional, text } from "../src/cli/schema.ts";
-import type { RuntimeServices } from "../src/runtime-services.ts";
 
-function example(service?: (name: string) => string) {
-  const greet = dependency(service, "greeting service");
+function example(greet: (name: string) => string) {
   return {
     sample: {
       greet: defineAction({
@@ -22,8 +17,7 @@ function example(service?: (name: string) => string) {
           name: positional(text("Person to greet.", "NAME")),
           punctuation: optional(text("Ending punctuation.", "TEXT")),
         },
-        dependencies: [greet],
-        handler: (input) => greet.get()(input.name) + (input.punctuation ?? "!"),
+        handler: (input) => greet(input.name) + (input.punctuation ?? "!"),
       }),
     },
   };
@@ -45,57 +39,6 @@ test("one added action supplies typed calls, CLI dispatch, help, manual and comp
   expect(completionCandidates(app, ["sample", "greet"])).toContain("--punctuation");
   const json = JSON.parse(actionHelp(app, [], true));
   expect(json.actions[0].input.punctuation.values).toEqual(["TEXT"]);
-});
-
-test("unbound actions are unavailable to every interface and fail before invocation", async () => {
-  const app = example();
-  expect(availableActions(app)).toEqual([]);
-  expect(completionCandidates(app, [])).toEqual([]);
-  expect(actionHelp(app)).not.toContain("sample greet");
-  expect(manPage("test", app)).not.toContain("sample greet");
-  expect(app.sample.greet.availability).toEqual({
-    available: false,
-    reasons: ["no greeting service is composed"],
-  });
-  await expect(app.sample.greet.execute({ name: "Jaren" })).rejects.toThrow("no greeting service");
-  await expect(dispatch(app, ["sample", "greet", "Jaren"], () => {})).rejects.toThrow(
-    "no greeting service",
-  );
-});
-
-test("runtime dependencies govern actual application help, manual, completion and dispatch together", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "wf-actions-"));
-  try {
-    const services: RuntimeServices = {
-      statePath: join(directory, "state.db"),
-      configuration: { cwd: directory, statePath: join(directory, "state.db") },
-    };
-    const application = createApplication(services);
-    expect(availableActions(application)).toEqual(registeredActions(application));
-    const unavailable = composeActions(application, example());
-    expect(actionHelp(unavailable)).not.toContain("sample");
-    expect(completionCandidates(unavailable, [])).not.toContain("sample");
-    expect(completionCandidates(unavailable, ["claim"])).toEqual(["release", "show"]);
-    await expect(unavailable.sample.greet.execute({ name: "Jaren" })).rejects.toThrow(
-      "no greeting service",
-    );
-    expect(readdirSync(directory)).toEqual([]);
-    let greetings = 0;
-    const available = composeActions(
-      createApplication(services),
-      example((name) => {
-        greetings++;
-        return name;
-      }),
-    );
-    expect(actionHelp(available)).toContain("sample");
-    expect(manPage("test", available)).toContain("Greet through");
-    expect(completionCandidates(available, [])).toContain("sample");
-    expect(greetings).toBe(0);
-    expect(readdirSync(directory)).toEqual([]);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 });
 
 test.each(

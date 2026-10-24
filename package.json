@@ -2,7 +2,7 @@
   "name": "@jarenkempton/interlock",
   "version": "0.1.0-dev",
   "private": true,
-  "description": "Portable work orchestration for Interlock maps across trackers, agent harnesses, and models.",
+  "description": "Claims tracker tickets and prepares Git worktrees for agents in T3 Code lanes.",
   "type": "module",
   "bin": {
     "interlock": "./src/cli.ts"

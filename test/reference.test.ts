@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CAPABILITIES } from "../src/domain/model.ts";
-import { parseRef, workspaceRefOf } from "../src/domain/reference.ts";
+import { parseRef } from "../src/domain/reference.ts";
 
 describe("parseRef", () => {
   test.each([
@@ -13,28 +12,8 @@ describe("parseRef", () => {
     ["interlock-claim:018f", "claim"],
   ] as const)("parses %s", (raw, kind) => expect(parseRef(raw).kind).toBe(kind));
 
-  test.each([
-    "JWB-245",
-    "jira:",
-    "jira:x:y:map",
-    "jira:x:y:other:z",
-    "interlock-run:",
-    "nav-run:018f",
-    "nav-claim:018f",
-  ])("rejects %s", (raw) => expect(() => parseRef(raw)).toThrow());
-});
-
-test("derives the same qualified workspace from workspace-owned references", () => {
-  expect(workspaceRefOf("jira:responsibid:JWB")).toBe("jira:responsibid:JWB");
-  expect(workspaceRefOf("jira:responsibid:JWB:group:JWB-100")).toBe("jira:responsibid:JWB");
-  expect(workspaceRefOf("jira:responsibid:JWB:map:JWB-239")).toBe("jira:responsibid:JWB");
-  expect(workspaceRefOf("jira:responsibid:JWB:ticket:JWB-245")).toBe("jira:responsibid:JWB");
-  expect(() => workspaceRefOf("jira:responsibid")).toThrow("not owned by a workspace");
-});
-
-test("capability vocabulary is unique and protocol-safe", () => {
-  expect(new Set(CAPABILITIES).size).toBe(CAPABILITIES.length);
-  for (const capability of CAPABILITIES) {
-    expect(capability).toMatch(/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/);
-  }
+  test.each(["JWB-245", "jira:", "jira:x:y:map", "jira:x:y:other:z", "interlock-run:"])(
+    "rejects %s",
+    (raw) => expect(() => parseRef(raw)).toThrow(),
+  );
 });

@@ -1,4 +1,4 @@
-import { realpath, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { WorkspaceAdapter, WorkspacePlan } from "../../domain/contracts.ts";
 import type { PreparedWorkspace, RepositorySpec, Ticket, TicketRef } from "../../domain/model.ts";
@@ -16,7 +16,6 @@ export interface GitCommandExecutor {
 
 export interface WorkspaceFileSystem {
   exists(path: string): Promise<boolean>;
-  realpath(path: string): Promise<string>;
 }
 
 export interface PreparedGitWorkspace extends PreparedWorkspace {
@@ -45,15 +44,6 @@ export class WorkspaceConflictError extends Error {
   }
 }
 
-export class DirtyWorkspaceError extends Error {
-  readonly code = "dirty_workspace";
-
-  constructor(readonly path: string) {
-    super(`Refusing to delete dirty workspace: ${path}`);
-    this.name = "DirtyWorkspaceError";
-  }
-}
-
 interface WorktreeRecord {
   path: string;
   branch?: string;
@@ -62,7 +52,6 @@ interface WorktreeRecord {
 
 const nativeFileSystem: WorkspaceFileSystem = {
   exists: pathExists,
-  realpath,
 };
 
 /** Git-backed workspaces with deterministic paths and fail-closed resumption. */
@@ -82,7 +71,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   }
 
   async preflight(ticket: Ticket): Promise<void> {
-    ticketIdentity(ticket.ref);
+    workspaceIdentity(ticket.ref);
     await this.preflightRepository();
     await this.#gitChecked(["git", "rev-parse", "--verify", this.#repository.baseBranch]);
   }
@@ -174,34 +163,6 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
     return prepared(canonical);
   }
 
-  /** Destruction requires the exact Interlock-owned record returned by prepare. */
-  async delete(workspace: PreparedGitWorkspace): Promise<void> {
-    const canonical = canonicalPlan(this.#repository, workspace.ticket);
-    requireCanonicalPlan(workspace, canonical);
-    const [root, target] = await Promise.all([
-      this.#fileSystem.realpath(this.#repository.worktreeRoot),
-      this.#fileSystem.realpath(canonical.path),
-    ]);
-    const expectedTarget = resolve(root, workspaceIdentity(this.#repository, workspace.ticket));
-    if (target !== expectedTarget) {
-      throw new WorkspaceConflictError(
-        `Workspace resolves outside its canonical ownership boundary: ${canonical.path}`,
-      );
-    }
-
-    const records = (await this.#worktrees()).filter((item) => item.path === canonical.path);
-    if (
-      records.length !== 1 ||
-      records[0]?.branch !== canonical.branch ||
-      records[0]?.prunable !== undefined
-    ) {
-      throw new WorkspaceConflictError(`Workspace ownership is missing or ambiguous: ${target}`);
-    }
-    const status = await this.#gitChecked(["git", "-C", target, "status", "--porcelain"]);
-    if (status.length > 0) throw new DirtyWorkspaceError(target);
-    await this.#gitChecked(["git", "worktree", "remove", target]);
-  }
-
   async #worktrees(): Promise<WorktreeRecord[]> {
     return parseWorktrees(await this.#gitChecked(["git", "worktree", "list", "--porcelain"]));
   }
@@ -220,16 +181,15 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
 }
 
 function canonicalPlan(repository: RepositorySpec, ticket: TicketRef): WorkspacePlan {
-  const identity = workspaceIdentity(repository, ticket);
+  const identity = workspaceIdentity(ticket);
   return {
     ticket,
     path: resolve(repository.worktreeRoot, identity),
-    branch: `${repository.ticketKeyWorkspaces ? "task" : "interlock"}/${identity}`,
+    branch: `task/${identity}`,
   };
 }
 
-function workspaceIdentity(repository: RepositorySpec, ticket: TicketRef): string {
-  if (!repository.ticketKeyWorkspaces) return ticketIdentity(ticket);
+function workspaceIdentity(ticket: TicketRef): string {
   const key = parseRef(ticket).nativeId;
   if (!key || !/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(key))
     throw new WorkspaceConflictError("Workspace requires a canonical ticket key");
@@ -252,23 +212,6 @@ function requireCanonicalPlan(
   ) {
     throw new WorkspaceConflictError("Workspace plan does not match its canonical ticket identity");
   }
-}
-
-/** Injective, filesystem/Git-safe encoding of the qualified ticket identity. */
-export function ticketIdentity(ticket: TicketRef): string {
-  const parsed = parseRef(ticket);
-  if (
-    parsed.kind !== "ticket" ||
-    !parsed.adapter ||
-    !parsed.instance ||
-    !parsed.workspace ||
-    !parsed.nativeId
-  ) {
-    throw new Error("Expected a qualified ticket reference");
-  }
-  return [parsed.adapter, parsed.instance, parsed.workspace, parsed.nativeId]
-    .map((component) => Buffer.from(component, "utf8").toString("base64url"))
-    .join(".");
 }
 
 /** Canonical host/path identity shared by SSH, HTTPS, and scp-style Git URLs. */

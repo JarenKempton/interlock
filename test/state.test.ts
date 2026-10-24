@@ -17,14 +17,11 @@ test("SQLite store round-trips runs", () => {
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     model: "gpt",
-    effort: "high",
-    context: "repository",
     workspace: { path: "/tmp/work", branch: "task/A" },
-    capabilities: capabilities("model_selection"),
-    status: "active",
+    capabilities: capabilities("conditional_update"),
+    status: "claimed",
     createdAt: now,
     updatedAt: now,
-    execution: { sessionId: "session", tier: "managed" },
   };
   try {
     store.saveRun(run);
@@ -50,7 +47,6 @@ test("SQLite store round-trips runs", () => {
     };
     store.commitRun(committed, "recovery_required", { reason: "test" });
     expect(store.run(run.ref)).toEqual(committed);
-    expect(store.run(run.ref)).toMatchObject({ effort: "high", context: "repository" });
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
@@ -66,7 +62,7 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities("model_selection"),
+    capabilities: capabilities(),
     status: "planning",
     createdAt: now,
     updatedAt: now,
@@ -165,7 +161,7 @@ test("SQLite recovery-required transaction rolls back every row on a mid-transac
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities("model_selection"),
+    capabilities: capabilities(),
     status: "planning",
     createdAt: now,
     updatedAt: now,

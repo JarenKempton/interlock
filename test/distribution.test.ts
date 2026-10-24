@@ -13,7 +13,7 @@ describe("distribution documentation", () => {
     expect(script).toContain("interlock");
     expect(script).toContain("--complete");
     expect(script).toContain(shell);
-    expect(completionCandidates(createApplication(), [])).toContain("frontier");
+    expect(completionCandidates(createApplication(), [])).toContain("pickup");
     expect(script.endsWith("\n")).toBe(true);
   });
 
@@ -25,7 +25,7 @@ describe("distribution documentation", () => {
     const page = manPage("1.2.3-rc.1", createApplication());
     expect(page).toContain('.TH "INTERLOCK" 1');
     expect(page).toContain("interlock 1.2.3-rc.1");
-    expect(page).toContain("Print shell completion for currently available actions.");
+    expect(page).toContain("Print shell completion for the registered actions.");
   });
 });
 
