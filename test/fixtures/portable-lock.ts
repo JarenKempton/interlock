@@ -44,10 +44,6 @@ export function fakeLockFixture(): ClaimLockFixture {
           leaseExpiresAt: request.leaseExpiresAt,
         });
       },
-      async renew(request) {
-        expectVersion(request.expectedVersion);
-        commit({ ...held(request.claim), action: "renew", leaseExpiresAt: request.leaseExpiresAt });
-      },
       async release(request) {
         expectVersion(request.expectedVersion);
         const record = held(request.claim);

@@ -1,7 +1,6 @@
 import { formatDocPage, getDocPageSync, object, parseSync } from "@optique/core";
 import {
   actionUsage,
-  availableActions,
   describeAction,
   type RegisteredAction,
   registeredActions,
@@ -14,7 +13,7 @@ export function actionHelp(tree: ActionTree, prefix: string[] = [], json = false
   if (json)
     return JSON.stringify(
       {
-        actions: availableActions(tree)
+        actions: registeredActions(tree)
           .filter((entry) => prefix.every((part, i) => entry.command[i] === part))
           .map(describeAction),
       },
@@ -81,8 +80,6 @@ export async function dispatch(
     return;
   }
   const entry = { command: selected.command, action: selected.node };
-  if (!entry.action.availability.available)
-    throw new Error(`Action is unavailable: ${entry.action.availability.reasons.join("; ")}`);
   const parsed = parseArguments(entry, selected.args);
   if (parsed.help) {
     write(

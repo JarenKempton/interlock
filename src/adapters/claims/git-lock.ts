@@ -9,9 +9,7 @@ import {
   ClaimCollisionError,
   type ClaimRequest,
   type Clock,
-  type ReclaimRequest,
   type ReleaseClaimRequest,
-  type RenewLeaseRequest,
 } from "../../domain/contracts.ts";
 import {
   actorRefSchema,
@@ -31,13 +29,12 @@ export const ABSENT_LOCK_VERSION = "absent";
 export const CLAIM_LOCK_NAMESPACE = "refs/interlock/claims";
 
 const lockRecordSchema = z.strictObject({
-  action: z.enum(["claim", "renew", "release", "reclaim"]),
+  action: z.enum(["claim", "release"]),
   ticket: ticketRefSchema,
   claim: claimRefSchema,
   run: runRefSchema,
   owner: actorRefSchema,
   leaseExpiresAt: z.string(),
-  supersedes: claimRefSchema.optional(),
   authorizedBy: actorRefSchema.optional(),
 });
 
@@ -112,21 +109,6 @@ export class GitClaimLock implements RecoverableClaimLock {
     });
   }
 
-  async renew(request: RenewLeaseRequest): Promise<void> {
-    this.#requireFutureLease(request.leaseExpiresAt);
-    const state = await this.#expect(request.ticket, request.expectedVersion);
-    const held = heldBy(state, request.claim);
-    await this.#append(request.ticket, state, {
-      action: "renew",
-      ticket: held.ticket,
-      claim: held.claim,
-      run: held.run,
-      owner: held.owner,
-      leaseExpiresAt: request.leaseExpiresAt,
-      ...(held.supersedes ? { supersedes: held.supersedes } : {}),
-    });
-  }
-
   async releasable(request: ReleaseClaimRequest): Promise<ClaimLockState> {
     const state = await this.#expect(request.ticket, request.expectedVersion);
     if (heldBy(state, request.claim).owner !== request.authorizedBy)
@@ -143,24 +125,6 @@ export class GitClaimLock implements RecoverableClaimLock {
     const state = await this.read(ticket);
     if (heldClaim(state)?.claim !== claim) return;
     await this.#append(ticket, state, releaseRecord(state));
-  }
-
-  async reclaim(request: ReclaimRequest): Promise<void> {
-    this.#requireFutureLease(request.leaseExpiresAt);
-    const state = await this.#expect(request.ticket, request.expectedVersion);
-    const stale = heldBy(state, request.staleClaim);
-    if (Date.parse(stale.leaseExpiresAt) > this.#clock.now().getTime())
-      throw new ClaimCollisionError("Claim lock lease is not stale");
-    await this.#append(request.ticket, state, {
-      action: "reclaim",
-      ticket: request.ticket,
-      claim: request.claim,
-      run: request.run,
-      owner: request.owner,
-      leaseExpiresAt: request.leaseExpiresAt,
-      supersedes: request.staleClaim,
-      authorizedBy: request.authorizedBy,
-    });
   }
 
   async #expect(ticket: TicketRef, expectedVersion: string): Promise<ClaimLockState> {

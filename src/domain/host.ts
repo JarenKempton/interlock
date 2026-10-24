@@ -1,8 +1,16 @@
-import type { LaunchRequest } from "./contracts.ts";
-import type { PreparedWorkspace, RunRef, TicketRef } from "./model.ts";
+import type { PreparedWorkspace, RunRef, Ticket, TicketRef } from "./model.ts";
 
 export type HostCapability = "message" | "interrupt" | "focus" | "subagents" | "pr_ownership";
 export type HostCapabilities = Partial<Record<HostCapability, true>>;
+
+export interface LaunchRequest {
+  run: RunRef;
+  ticket: Ticket;
+  workspace: PreparedWorkspace;
+  model?: string;
+  effort?: string;
+  context?: string;
+}
 
 export interface HostSession {
   id: string;

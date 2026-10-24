@@ -8,9 +8,6 @@ import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
   type ClaimRequest,
-  type HarnessAdapter,
-  HarnessLaunchError,
-  type LaunchReceipt,
   type Ledger,
   type ReleaseClaimRequest,
   type RestoreClaimRequest,
@@ -24,14 +21,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../src/domain/identifiers.ts";
-import {
-  type ClaimRef,
-  capabilities,
-  type Run,
-  type RunRef,
-  type Ticket,
-  type TicketRef,
-} from "../src/domain/model.ts";
+import type { ClaimRef, Run, RunRef, Ticket, TicketRef } from "../src/domain/model.ts";
 import type {
   MirrorClaim,
   MirrorExpectation,
@@ -144,7 +134,6 @@ class FakeLock implements RecoverableClaimLock {
   claimRequest?: ClaimRequest;
   describe = this.core.describe.bind(this.core);
   read = this.core.read.bind(this.core);
-  renew = this.core.renew.bind(this.core);
   release = this.core.release.bind(this.core);
   async claim(request: ClaimRequest) {
     this.claimRequest = request;
@@ -187,54 +176,24 @@ class FakeWorkspace implements WorkspaceAdapter {
   }
 }
 
-class FakeHarness implements HarnessAdapter {
-  launchError?: Error;
-  stopError?: Error;
-  stopped = false;
-  describedCapabilities = capabilities();
-  preflightRequest?: Parameters<HarnessAdapter["preflight"]>[0];
-  launchRequest?: Parameters<HarnessAdapter["launch"]>[0];
-  async describe() {
-    return this.describedCapabilities;
-  }
-  async preflight(request: Parameters<HarnessAdapter["preflight"]>[0]) {
-    this.preflightRequest = request;
-  }
-  async launch(request: Parameters<HarnessAdapter["launch"]>[0]): Promise<LaunchReceipt> {
-    this.launchRequest = request;
-    if (this.launchError) throw this.launchError;
-    return { sessionId: "s", tier: "launch" };
-  }
-  async stop() {
-    this.stopped = true;
-    if (this.stopError) throw this.stopError;
-  }
-}
-
 const request = {
   ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
   owner: actorRefSchema.parse("human"),
   harness: adapterRefSchema.parse("codex"),
 };
 
-function coordinator(
-  tracker = new FakeTracker(),
-  workspace = new FakeWorkspace(),
-  harness = new FakeHarness(),
-) {
+function coordinator(tracker = new FakeTracker(), workspace = new FakeWorkspace()) {
   const ledger = new FakeLedger();
   const claimLock = new FakeLock();
   return {
     claimLock,
     tracker,
     workspace,
-    harness,
     ledger,
     coordinator: new PickupCoordinator({
       tracker,
       claimLock,
       workspace,
-      harness,
       ledger,
       ids: {
         run: () => runRefSchema.parse("interlock-run:test"),
@@ -247,7 +206,7 @@ function coordinator(
 
 async function failure(subject: PickupCoordinator): Promise<PickupResultError> {
   try {
-    await subject.execute(request);
+    await subject.prepare(request);
     throw new Error("Expected pickup to fail");
   } catch (error) {
     expect(error).toBeInstanceOf(PickupResultError);
@@ -256,9 +215,9 @@ async function failure(subject: PickupCoordinator): Promise<PickupResultError> {
 }
 
 describe("pickup coordinator", () => {
-  test("commits a verified pickup with a default 15-minute lease", async () => {
+  test("prepares a verified pickup with a default 15-minute lease", async () => {
     const { coordinator: subject, ledger, claimLock } = coordinator();
-    expect(await subject.execute(request)).toMatchObject({ ok: true, state: "committed" });
+    expect(await subject.prepare(request)).toMatchObject({ ok: true, state: "workspace_prepared" });
     expect(claimLock.claimRequest?.leaseExpiresAt).toBe("2026-08-10T12:15:00.000Z");
     expect(ledger.committedClaim).toEqual({
       ref: claimRefSchema.parse("interlock-claim:test"),
@@ -282,8 +241,7 @@ describe("pickup coordinator", () => {
       "claiming",
       "claimed",
       "workspace_prepared",
-      "launched",
-      "committed",
+      "prepared",
     ]);
   });
 
@@ -291,7 +249,7 @@ describe("pickup coordinator", () => {
     const tracker = new FakeTracker();
     tracker.preflightError = new Error("unsupported");
     const { coordinator: subject } = coordinator(tracker);
-    await expect(subject.execute(request)).rejects.toThrow("unsupported");
+    await expect(subject.prepare(request)).rejects.toThrow("unsupported");
     expect(tracker.claimCalls).toBe(0);
     expect(tracker.restoreCalls).toBe(0);
   });
@@ -299,72 +257,17 @@ describe("pickup coordinator", () => {
   test("an unverified lock capability fails before any write", async () => {
     const item = coordinator();
     Object.assign(item.claimLock, { describe: async () => ({}) });
-    await expect(item.coordinator.execute(request)).rejects.toThrow(
+    await expect(item.coordinator.prepare(request)).rejects.toThrow(
       "Unsupported capabilities: conditional_update",
     );
     expect(item.tracker.claimCalls).toBe(0);
     expect(item.claimLock.claimRequest).toBeUndefined();
   });
 
-  test("requested routing capabilities are rejected before claim", async () => {
-    const harness = new FakeHarness();
-    harness.describedCapabilities = capabilities("model_selection");
-    const {
-      coordinator: subject,
-      tracker,
-      workspace,
-    } = coordinator(new FakeTracker(), new FakeWorkspace(), harness);
-    await expect(
-      subject.execute({
-        ...request,
-        model: "gpt",
-        effort: "high",
-        context: "repo",
-        requiredCapabilities: capabilities("workspace_prepare"),
-      }),
-    ).rejects.toThrow(
-      "Unsupported capabilities: reasoning_selection, context_selection, workspace_prepare",
-    );
-    expect(tracker.claimCalls).toBe(0);
-    expect(workspace).toBeDefined();
-    expect(harness.preflightRequest).toBeUndefined();
-  });
-
-  test("validated routing settings reach preflight, launch, and the run ledger", async () => {
-    const harness = new FakeHarness();
-    harness.describedCapabilities = capabilities(
-      "model_selection",
-      "reasoning_selection",
-      "context_selection",
-    );
-    const { coordinator: subject, ledger } = coordinator(
-      new FakeTracker(),
-      new FakeWorkspace(),
-      harness,
-    );
-    await subject.execute({
-      ...request,
-      model: "gpt",
-      effort: "high",
-      context: "repo",
-    });
-    expect(harness.preflightRequest).toMatchObject({
-      model: "gpt",
-      effort: "high",
-      context: "repo",
-    });
-    expect(harness.launchRequest).toMatchObject({
-      model: "gpt",
-      effort: "high",
-      context: "repo",
-    });
-    expect(ledger.savedRun).toMatchObject({
-      model: "gpt",
-      effort: "high",
-      context: "repo",
-      capabilities: harness.describedCapabilities,
-      status: "active",
-    });
+  test("the selected model is recorded on the prepared run", async () => {
+    const { coordinator: subject, ledger } = coordinator();
+    await subject.prepare({ ...request, model: "gpt" });
+    expect(ledger.savedRun).toMatchObject({ model: "gpt", status: "claimed" });
   });
 
   test("definite claim collision does not compensate", async () => {
@@ -429,7 +332,6 @@ describe("pickup coordinator", () => {
       tracker,
       claimLock: new FakeLock(),
       workspace,
-      harness: new FakeHarness(),
       ledger: store,
       ids: {
         run: () => runRefSchema.parse("interlock-run:test"),
@@ -523,34 +425,5 @@ describe("pickup coordinator", () => {
     expect((await failure(coordinator(tracker, workspace).coordinator)).receipt.state).toBe(
       "recovery_required",
     );
-  });
-
-  test("launch failure restores the tracker claim", async () => {
-    const harness = new FakeHarness();
-    harness.launchError = new Error("launch failed");
-    const { coordinator: subject, tracker } = coordinator(
-      new FakeTracker(),
-      new FakeWorkspace(),
-      harness,
-    );
-    expect((await failure(subject)).receipt.state).toBe("compensated");
-    expect(tracker.restoreCalls).toBe(1);
-  });
-
-  test("uncertain partial launch stop still restores tracker and requires recovery", async () => {
-    const harness = new FakeHarness();
-    harness.launchError = new HarnessLaunchError("launch response lost", {
-      sessionId: "partial",
-      tier: "launch",
-    });
-    harness.stopError = new Error("cannot verify stop");
-    const { coordinator: subject, tracker } = coordinator(
-      new FakeTracker(),
-      new FakeWorkspace(),
-      harness,
-    );
-    expect((await failure(subject)).receipt.state).toBe("recovery_required");
-    expect(harness.stopped).toBeTrue();
-    expect(tracker.restoreCalls).toBe(1);
   });
 });

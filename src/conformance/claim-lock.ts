@@ -78,40 +78,21 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
       const initial = await adapter.read(request.ticket);
       await adapter.claim({ ...request, expectedVersion: initial.version });
       const held = await adapter.read(request.ticket);
-      const renew = {
-        ticket: request.ticket,
-        claim: request.claim,
-        leaseExpiresAt: "2099-01-01T01:00:00.000Z",
-        expectedVersion: initial.version,
-      };
-      await requireRejection(() => adapter.renew(renew), "claim_collision");
-      requireUnchanged(await adapter.read(request.ticket), held);
       await requireRejection(
         () => adapter.release(release(fixture, initial.version)),
         "claim_collision",
       );
       requireUnchanged(await adapter.read(request.ticket), held);
-      await adapter.renew({ ...renew, expectedVersion: held.version });
-      const renewed = await adapter.read(request.ticket);
-      requireBehavior(renewed.version !== held.version, "Renewal did not change the version");
-      requireRecord(renewed.record, {
-        action: "renew",
-        ticket: request.ticket,
-        claim: request.claim,
-        run: request.run,
-        owner: request.owner,
-        leaseExpiresAt: renew.leaseExpiresAt,
-      });
-      await adapter.release(release(fixture, renewed.version));
+      await adapter.release(release(fixture, held.version));
       const released = await adapter.read(request.ticket);
-      requireBehavior(released.version !== renewed.version, "Release did not change the version");
+      requireBehavior(released.version !== held.version, "Release did not change the version");
       requireRecord(released.record, {
         action: "release",
         ticket: request.ticket,
         claim: request.claim,
         run: request.run,
         owner: request.owner,
-        leaseExpiresAt: renew.leaseExpiresAt,
+        leaseExpiresAt: request.leaseExpiresAt,
         authorizedBy: request.owner,
       });
       await requireRejection(
@@ -141,17 +122,6 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
         "claim_collision",
       );
       requireUnchanged(await adapter.read(request.ticket), held);
-      await requireRejection(
-        () =>
-          adapter.renew({
-            ticket: request.ticket,
-            claim: "interlock-claim:other",
-            expectedVersion: held.version,
-            leaseExpiresAt: request.leaseExpiresAt,
-          }),
-        "claim_collision",
-      );
-      requireUnchanged(await adapter.read(request.ticket), held);
     }),
     scenario("expiry_is_observational", async ({ adapter, request, expireLease }) => {
       await adapter.claim(request);
@@ -176,7 +146,7 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
         "Expired claim was reassigned automatically",
       );
     }),
-    ...(["claim", "renew", "release"] as const).map((operation) =>
+    ...(["claim", "release"] as const).map((operation) =>
       scenario(`ambiguous_${operation}`, async (fixture) => {
         const { adapter, request, loseWriteReadback } = fixture;
         if (operation !== "claim") await adapter.claim(request);
@@ -185,13 +155,7 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
         await requireRejection(() => {
           if (operation === "claim")
             return adapter.claim({ ...request, expectedVersion: state.version });
-          if (operation === "release") return adapter.release(release(fixture, state.version));
-          return adapter.renew({
-            ticket: request.ticket,
-            claim: request.claim,
-            expectedVersion: state.version,
-            leaseExpiresAt: "2099-01-01T01:00:00.000Z",
-          });
+          return adapter.release(release(fixture, state.version));
         }, "ambiguous_tracker_result");
       }),
     ),
@@ -218,7 +182,6 @@ function requireRecord(actual: ClaimLockRecord | null, expected: ClaimLockRecord
       actual.run === expected.run &&
       actual.owner === expected.owner &&
       actual.leaseExpiresAt === expected.leaseExpiresAt &&
-      actual.supersedes === expected.supersedes &&
       actual.authorizedBy === expected.authorizedBy,
     "Lock record does not preserve the exact identity and lease",
   );

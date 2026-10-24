@@ -9,7 +9,6 @@ import {
   ClaimCollisionError,
   type ClaimRequest,
   type ReleaseClaimRequest,
-  type RenewLeaseRequest,
   type RestoreClaimRequest,
 } from "../domain/contracts.ts";
 import type { ClaimRef, Ticket, TicketRef, TrackerSnapshot } from "../domain/model.ts";
@@ -56,19 +55,6 @@ export class ClaimCoordinator {
   async verifyRestored(request: RestoreClaimRequest): Promise<void> {
     await this.tracker.verify({ ...trackerRequest(request), state: "restored" });
     await this.#requireNotHeld(request.ticket, request.claim);
-  }
-
-  async renewLease(request: RenewLeaseRequest): Promise<void> {
-    await this.lock.renew(request);
-  }
-
-  async verifyLease(request: RenewLeaseRequest): Promise<void> {
-    const held = await this.#requireHeld(
-      request.ticket,
-      request.claim,
-      (held) => held.leaseExpiresAt === request.leaseExpiresAt,
-    );
-    await this.tracker.verify({ ...held, state: "applied" });
   }
 
   async releaseClaim(request: ReleaseClaimRequest): Promise<void> {
@@ -118,8 +104,7 @@ function sameHolder(
   return (
     held.run === request.run &&
     held.owner === request.owner &&
-    held.leaseExpiresAt === request.leaseExpiresAt &&
-    held.supersedes === undefined
+    held.leaseExpiresAt === request.leaseExpiresAt
   );
 }
 
