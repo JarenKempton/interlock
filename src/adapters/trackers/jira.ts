@@ -1,15 +1,13 @@
 import { z } from "zod";
 import { AmbiguousTrackerResultError, ClaimCollisionError } from "../../domain/contracts.ts";
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "../../domain/identifiers.ts";
-import {
-  type ActorRef,
-  capabilities,
-  type Dependency,
-  type MapRef,
-  type Ticket,
-  type TicketKind,
-  type TicketRef,
-  UnsupportedCapabilityError,
+import type {
+  ActorRef,
+  Dependency,
+  MapRef,
+  Ticket,
+  TicketKind,
+  TicketRef,
 } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
 import type {
@@ -17,7 +15,6 @@ import type {
   MirrorExpectation,
   MirrorRestore,
   Tracker,
-  TrackerCapabilities,
   TrackerRead,
 } from "../../domain/tracker.ts";
 import { fetchTransport, type HttpTransport } from "./http.ts";
@@ -167,18 +164,6 @@ export interface JiraTrackerOptions {
   journalWrite?: (pending: PendingJiraWrite) => () => void;
 }
 
-const MUTATION_CAPABILITIES = [
-  "atomic_assignment",
-  "conditional_update",
-  "claim_identity",
-  "claim_comments",
-  "lease_metadata",
-] as const;
-
-export function jiraCapabilities(): TrackerCapabilities {
-  return capabilities("native_maps", "native_dependencies");
-}
-
 export class JiraTrackerAdapter implements Tracker {
   readonly #transport: JiraTransport;
   readonly #prefix: string;
@@ -212,7 +197,7 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   async describe() {
-    return this.#rankField && this.#priorityOrder ? jiraCapabilities() : capabilities();
+    return {};
   }
 
   async read(ticket: TicketRef): Promise<TrackerRead> {
@@ -357,14 +342,6 @@ export class JiraTrackerAdapter implements Tracker {
       (current.status === CLAIMED_STATUS && current.status !== original.status)
     )
       throw new AmbiguousTrackerResultError("Jira restored state could not be verified");
-  }
-
-  async addComment(_ticket: TicketRef, _text: string): Promise<void> {
-    this.#mutationUnavailable();
-  }
-
-  async resolve(_ticket: TicketRef, _status = "Done"): Promise<void> {
-    this.#mutationUnavailable();
   }
 
   #readConfiguration() {
@@ -630,10 +607,6 @@ export class JiraTrackerAdapter implements Tracker {
   #kind(name: string): TicketKind {
     const value = name.toLowerCase();
     return value === "research" || value === "prototype" || value === "decision" ? value : "task";
-  }
-
-  #mutationUnavailable(): never {
-    throw new UnsupportedCapabilityError(MUTATION_CAPABILITIES);
   }
 }
 

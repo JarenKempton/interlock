@@ -8,11 +8,7 @@ import type {
   TrackerSnapshot,
 } from "./model.ts";
 
-export type TrackerCapability =
-  | "native_maps"
-  | "native_dependencies"
-  | "transition"
-  | "link_artifact";
+export type TrackerCapability = "transition" | "link_artifact";
 export type TrackerCapabilities = Partial<Record<TrackerCapability, true>>;
 
 export interface TrackerRead {

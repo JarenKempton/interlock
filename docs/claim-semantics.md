@@ -132,7 +132,7 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   moving or copying an active ledger cannot transfer a running operation.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
-  `conditional_update` or `atomic_assignment`.
+  `conditional_update`.
 
 [Lock tests](../test/git-claim-lock.test.ts) and
 [lock conformance](../test/claim-lock-conformance.test.ts) run against real
@@ -152,8 +152,7 @@ each restored field when assignment, metadata, and workflow status use separate
 operations. Concurrent human changes must not be overwritten.
 
 The CLI supplies the Git lock as the pickup claim authority and requires its
-`conditional_update` capability; Jira need not advertise conditional writes,
-atomic assignment or comments.
+`conditional_update` capability; Jira need not advertise conditional writes.
 [Tracker write policy](adr/0002-tracker-write-minimalism.md) keeps ownership in
 structured storage and makes resolution comments optional. Capability checks
 and tests must reflect an adapter's actual behavior.

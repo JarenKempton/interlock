@@ -25,13 +25,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../src/domain/identifiers.ts";
-import {
-  type ActorRef,
-  capabilities,
-  requireCapabilities,
-  type TrackerSnapshot,
-  UnsupportedCapabilityError,
-} from "../src/domain/model.ts";
+import { type ActorRef, capabilities, type TrackerSnapshot } from "../src/domain/model.ts";
 import type { MirrorRestore } from "../src/domain/tracker.ts";
 import { ClaimCoordinator } from "../src/execution/claims.ts";
 import { evaluateFrontier, selectFrontierTicket } from "../src/frontier/evaluate.ts";
@@ -223,20 +217,11 @@ describe("Jira tracker read adapter", () => {
     expect((await adapter(api).read(ticket)).ticket).toMatchObject({ ref: ticket, map, order: 1 });
   });
 
-  test("advertises only implemented read capabilities and remains registry-unavailable", async () => {
-    const subject = adapter(new FakeJira());
-    const described = await subject.describe();
-    expect(described).toEqual(capabilities("native_maps", "native_dependencies"));
+  test("remains registry-unavailable", async () => {
     expect(builtInAdapters().find((item) => item.name === "jira")).toMatchObject({
       available: false,
       capabilities: {},
     });
-    expect(() =>
-      requireCapabilities(
-        described,
-        capabilities("atomic_assignment", "conditional_update", "claim_identity"),
-      ),
-    ).toThrow(UnsupportedCapabilityError);
   });
 
   test("read reads the ticket without mutation", async () => {
@@ -263,16 +248,12 @@ describe("Jira tracker read adapter", () => {
     });
   });
 
-  test("restoration requires the persisted owner; comments and resolution still fail closed", async () => {
+  test("restoration requires the persisted owner", async () => {
     const api = new FakeJira();
     const subject = adapter(api);
     await expect(
       subject.restore(Object.assign(restoreRequest(), { claimedOwner: undefined })),
     ).rejects.toThrow("Persisted claimed owner is required");
-    await expect(subject.addComment(ticket, "x")).rejects.toBeInstanceOf(
-      UnsupportedCapabilityError,
-    );
-    await expect(subject.resolve(ticket)).rejects.toBeInstanceOf(UnsupportedCapabilityError);
     expect(api.mutationCount()).toBe(0);
   });
 
@@ -366,7 +347,6 @@ describe("Jira mirror behind the Git claim lock", () => {
       const { first } = await lockedJira(new FakeJira());
       const described = await first.lock.describe();
       expect(described).toMatchObject(capabilities("conditional_update"));
-      expect(described).not.toHaveProperty("atomic_assignment");
       expect(await adapter(new FakeJira()).describe()).not.toHaveProperty("conditional_update");
     },
     GIT_TEST_TIMEOUT_MS,

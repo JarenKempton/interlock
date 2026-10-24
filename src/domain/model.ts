@@ -10,13 +10,7 @@ export type AdapterRef = string & { readonly __kind: "AdapterRef" };
 
 /** Capability identifiers adapters may advertise. Additions are backward compatible; renames are not. */
 export const CAPABILITIES = [
-  "native_maps",
-  "native_dependencies",
-  "atomic_assignment",
   "conditional_update",
-  "claim_comments",
-  "claim_identity",
-  "lease_metadata",
   "model_selection",
   "reasoning_selection",
   "context_selection",

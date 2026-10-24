@@ -85,7 +85,6 @@ class FakeLedger implements Ledger {
 }
 
 class FakeTracker implements Tracker {
-  describedCapabilities = capabilities("native_maps", "native_dependencies");
   preflightError?: Error;
   restoreError?: Error;
   verifyClaimError?: Error;
@@ -97,7 +96,7 @@ class FakeTracker implements Tracker {
   snapshotCalls = 0;
 
   async describe() {
-    return this.describedCapabilities;
+    return {};
   }
   async list_work() {
     return [];
