@@ -30,22 +30,33 @@ export const processTerminal: Terminal = {
   },
 };
 
-export function lineInput(echo: (text: string) => void = () => {}) {
+export function lineInput(echo: (text: string) => void = () => {}, afterReturn = false) {
   let value = "";
-  let skipping: "" | "escape" | "parameters" = "";
+  let skipping: "" | "escape" | "parameters" | "newline" = afterReturn ? "newline" : "";
   return {
-    feed(chunk: string): { state: "done" | "cancelled"; rest: string } | undefined {
+    feed(
+      chunk: string,
+    ): { state: "done" | "cancelled"; rest: string; afterReturn?: boolean } | undefined {
       for (let index = 0; index < chunk.length; index++) {
         const character = chunk.charAt(index);
+        if (character === "\u0003") return { state: "cancelled", rest: "" };
+        if (skipping === "newline") {
+          skipping = "";
+          if (character === "\n") continue;
+        }
         if (skipping === "escape") skipping = character === "[" ? "parameters" : "";
         else if (skipping === "parameters")
           skipping = character >= "@" && character <= "~" ? "" : skipping;
         else if (character === ESCAPE) skipping = "escape";
         else if (character === "\r" || character === "\n") {
           const rest = chunk.slice(index + 1);
-          return { state: "done", rest: character === "\r" ? rest.replace(/^\n/, "") : rest };
-        } else if (character === "\u0003") return { state: "cancelled", rest: "" };
-        else if (character === "\u007f" || character === "\b") {
+          const crlf = character === "\r" && rest.startsWith("\n");
+          return {
+            state: "done",
+            rest: crlf ? rest.slice(1) : rest,
+            afterReturn: character === "\r" && !rest,
+          };
+        } else if (character === "\u007f" || character === "\b") {
           if (value) echo("\b \b");
           value = value.slice(0, -1);
         } else if (character >= " ") {
@@ -60,9 +71,13 @@ export function lineInput(echo: (text: string) => void = () => {}) {
 }
 
 let typedAhead = "";
+let lastEndedWithReturn = false;
 
 async function readLine(prompt: string, hidden: boolean): Promise<string> {
-  const input = lineInput(hidden ? undefined : (text) => process.stderr.write(text));
+  const input = lineInput(
+    hidden ? undefined : (text) => process.stderr.write(text),
+    lastEndedWithReturn,
+  );
   process.stdin.setRawMode(true);
   process.stdin.setEncoding("utf8");
   process.stdin.resume();
@@ -74,6 +89,7 @@ async function readLine(prompt: string, hidden: boolean): Promise<string> {
         if (!result) return;
         process.stdin.off("data", onData);
         typedAhead = result.rest;
+        lastEndedWithReturn = result.afterReturn === true;
         process.stderr.write("\n");
         if (result.state === "cancelled") reject(new Error("Sign-in cancelled"));
         else resolve(input.value());

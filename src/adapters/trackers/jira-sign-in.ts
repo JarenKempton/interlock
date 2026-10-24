@@ -15,9 +15,12 @@ const permissionsSchema = z.object({
   permissions: z.record(z.string(), z.object({ havePermission: z.boolean() })),
 });
 
+const JIRA_TOKEN_LENGTH = 192;
+
 export function jiraApiToken(pasted: string): string {
   const token = pasted.trim();
-  return /^.+=[0-9A-Fa-f]{8}/.exec(token)?.[0] ?? token;
+  const valid = token.slice(0, JIRA_TOKEN_LENGTH);
+  return token.length > JIRA_TOKEN_LENGTH && /=[0-9A-Fa-f]{8}$/.test(valid) ? valid : token;
 }
 
 const jiraCredentialsSchema = z.object({ email: z.string().min(1), token: z.string().min(1) });
