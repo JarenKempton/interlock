@@ -11,9 +11,9 @@ import { claimRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { journalJiraWrite, verifyJournaledJiraWrite } from "./jira-write-journal.ts";
 import {
+  claimCoordination,
   executionStatePath,
   executionTracker,
-  lockedTracker,
   repositorySpec,
   withExecutionStore,
 } from "./pickup-runtime.ts";
@@ -55,7 +55,7 @@ export async function releaseClaim(
       ...jira.options,
       journalWrite: (pending) => journalJiraWrite(store, run.ref, pending),
     });
-    const { tracker } = lockedTracker(repository, mirror, services);
+    const { claims, claimLock } = claimCoordination(repository, mirror, services);
     await new GitWorkspaceAdapter(repository, services.execution?.git).preflightRepository();
     const request = {
       claim: claim.ref,
@@ -65,21 +65,12 @@ export async function releaseClaim(
       expectedVersion: claim.currentVersion,
       authorizedBy: jira.owner,
     };
-    const before = await tracker.snapshotClaimState(claim.ticket);
-    const lock = z
-      .object({
-        lock: z.object({
-          record: z
-            .object({ action: z.string(), claim: z.string(), run: z.string(), owner: z.string() })
-            .nullable(),
-        }),
-      })
-      .parse(before.payload);
+    const before = await claimLock.read(claim.ticket);
     const released =
-      lock.lock.record?.action === "release" &&
-      lock.lock.record.claim === claim.ref &&
-      lock.lock.record.run === run.ref &&
-      lock.lock.record.owner === claim.humanOwner;
+      before.record?.action === "release" &&
+      before.record.claim === claim.ref &&
+      before.record.run === run.ref &&
+      before.record.owner === claim.humanOwner;
     if (!released && (claim.status !== "active" || before.version !== claim.currentVersion))
       throw new Error("Claim lock changed; release refused");
     const latest =
@@ -110,9 +101,9 @@ export async function releaseClaim(
     try {
       await verifyJournaledJiraWrite(store, run.ref, claim.ticket, mirror);
       if (pendingJiraWrite) await mirror.verifyPendingWrite(pendingJiraWrite);
-      if (!released) await tracker.releaseClaim(request);
-      await tracker.verifyReleased(request);
-      const verified = await tracker.snapshotClaimState(claim.ticket);
+      if (!released) await claims.releaseClaim(request);
+      await claims.verifyReleased(request);
+      const verified = await claimLock.read(claim.ticket);
       claim.status = "released";
       claim.currentVersion = verified.version;
       run.status = "released";

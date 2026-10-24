@@ -1,4 +1,9 @@
 import { z } from "zod";
+import type {
+  ClaimLockRecord,
+  ClaimLockState,
+  RecoverableClaimLock,
+} from "../../domain/claim-lock.ts";
 import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
@@ -14,7 +19,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../domain/identifiers.ts";
-import { type ClaimRef, capabilities, type TicketRef } from "../../domain/model.ts";
+import type { ClaimRef, TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
 import {
   BunGitCommandExecutor,
@@ -35,12 +40,6 @@ const lockRecordSchema = z.strictObject({
   supersedes: claimRefSchema.optional(),
   authorizedBy: actorRefSchema.optional(),
 });
-export type ClaimLockRecord = z.infer<typeof lockRecordSchema>;
-
-export interface ClaimLockState {
-  version: string;
-  record: ClaimLockRecord | null;
-}
 
 export interface GitClaimLockOptions {
   repository: string;
@@ -50,7 +49,7 @@ export interface GitClaimLockOptions {
   beforeClaimWrite?: () => void;
 }
 
-export class GitClaimLock {
+export class GitClaimLock implements RecoverableClaimLock {
   readonly #repository: string;
   readonly #remote: string;
   readonly #git: GitCommandExecutor;
@@ -69,8 +68,8 @@ export class GitClaimLock {
     this.#beforeClaimWrite = options.beforeClaimWrite;
   }
 
-  async describe() {
-    return capabilities("conditional_update", "claim_identity", "lease_metadata");
+  async describe(): Promise<{ conditional_update: true }> {
+    return { conditional_update: true };
   }
 
   async ref(ticket: TicketRef): Promise<string> {

@@ -15,6 +15,7 @@ executable behavior stays at platform boundaries.
 | Input validation, invocation, help, completion | [CLI](../src/cli/) |
 | Project requirements and personal choices | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml) |
 | Entities, references, capabilities, adapter interfaces | [Domain](../src/domain/) |
+| Adapter conformance suites | [Conformance](../src/conformance/) |
 | Read-only eligibility and stable selection | [Frontier](../src/frontier/) |
 | Pickup, T3 launch plan, launch prompt | [Execution](../src/execution/) |
 | Run history, receipts, recovery evidence | [Persistence](../src/persistence/) |
@@ -55,6 +56,9 @@ registration, and a clean workspace. See the [Git adapter](../src/adapters/works
 - Design rationale: [execution boundaries](adr/0001-lanes-environments-and-session-hosts.md),
   [tracker writes](adr/0002-tracker-write-minimalism.md), and
   [organization policy](adr/0003-organization-policy-and-enforced-configuration.md).
+
+Tracker, claim-lock, host and lane contracts are plain TypeScript interfaces;
+see the [domain model](domain-model.md#tracker).
 
 ## Verification
 

@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  CAPABILITIES,
-  capabilities,
-  missingCapabilities,
-  requireCapabilities,
-} from "../src/domain/model.ts";
+import { CAPABILITIES } from "../src/domain/model.ts";
 import { parseRef, workspaceRefOf } from "../src/domain/reference.ts";
 
 describe("parseRef", () => {
@@ -37,30 +32,9 @@ test("derives the same qualified workspace from workspace-owned references", () 
   expect(() => workspaceRefOf("jira:responsibid")).toThrow("not owned by a workspace");
 });
 
-test("reports missing capabilities", () => {
-  expect(
-    missingCapabilities(capabilities("native_maps"), capabilities("native_maps", "claim_comments")),
-  ).toEqual(["claim_comments"]);
-});
-
 test("capability vocabulary is unique and protocol-safe", () => {
   expect(new Set(CAPABILITIES).size).toBe(CAPABILITIES.length);
   for (const capability of CAPABILITIES) {
     expect(capability).toMatch(/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/);
   }
-});
-
-test("unsupported capabilities fail explicitly with a stable code", () => {
-  expect(() =>
-    requireCapabilities(
-      capabilities("native_maps"),
-      capabilities("native_maps", "conditional_update", "claim_comments"),
-    ),
-  ).toThrow(
-    expect.objectContaining({
-      name: "UnsupportedCapabilityError",
-      code: "unsupported_capability",
-      missing: ["conditional_update", "claim_comments"],
-    }),
-  );
 });

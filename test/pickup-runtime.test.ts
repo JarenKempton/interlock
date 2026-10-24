@@ -86,17 +86,24 @@ test.each(["remote-read", "commit-preparation"])(
     await writeFile(f.t3Catalog, JSON.stringify(catalog));
     const observed = Date.parse(catalog.observedAt);
     let now = observed;
-    let reads = 0;
+    let claiming = false;
+    class ClaimingStore extends StateStore {
+      override recordStep(...args: Parameters<StateStore["recordStep"]>) {
+        super.recordStep(...args);
+        if (args[1] === "claiming") claiming = true;
+      }
+    }
     let pushes = 0;
     f.services.execution = {
       ...f.services.execution,
       clock: { now: () => new Date(now) },
+      openStore: (path) => new ClaimingStore(path),
       git: {
         async run(argv, cwd) {
           if (argv[1] === "push") pushes += 1;
           const result = await f.git.run(argv, cwd);
           if (
-            (stage === "remote-read" && argv[1] === "ls-remote" && ++reads === 3) ||
+            (stage === "remote-read" && claiming && argv[1] === "ls-remote") ||
             (stage === "commit-preparation" && argv.includes("commit-tree"))
           )
             now = observed + 60_001;
@@ -105,6 +112,7 @@ test.each(["remote-read", "commit-preparation"])(
       },
     };
     await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow("catalog");
+    expect(now).toBe(observed + 60_001);
     expect(pushes).toBe(0);
     expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
     expect(f.jira.property).toBeNull();

@@ -75,28 +75,6 @@ export class AmbiguousTrackerResultError extends Error {
   }
 }
 
-export interface TrackerAdapter {
-  describe(): Promise<CapabilitySet>;
-  preflight(ticket: TicketRef): Promise<void>;
-  getTicket(ticket: TicketRef): Promise<Ticket>;
-  snapshotClaimState(ticket: TicketRef): Promise<TrackerSnapshot>;
-  claim(request: ClaimRequest): Promise<void>;
-  verifyClaim(request: ClaimRequest): Promise<void>;
-  restoreClaimState(request: RestoreClaimRequest): Promise<void>;
-  verifyRestored(request: RestoreClaimRequest): Promise<void>;
-  renewLease(request: RenewLeaseRequest): Promise<void>;
-  verifyLease(request: RenewLeaseRequest): Promise<void>;
-  releaseClaim(request: ReleaseClaimRequest): Promise<void>;
-  verifyReleased(request: ReleaseClaimRequest): Promise<void>;
-  reclaim(request: ReclaimRequest): Promise<void>;
-  verifyReclaimed(request: ReclaimRequest): Promise<void>;
-}
-
-/** Optional read surface implemented by adapters that can hydrate a complete map frontier. */
-export interface FrontierTrackerAdapter extends TrackerAdapter {
-  listMapTickets(map: import("./model.ts").MapRef): Promise<Ticket[]>;
-}
-
 export interface WorkspacePlan {
   ticket: TicketRef;
   path: string;
