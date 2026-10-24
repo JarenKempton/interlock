@@ -532,10 +532,10 @@ test("Jira requests and normalizes summary and ADF acceptance context without mu
   expect(api.mutationCount()).toBe(0);
 });
 
-const jiraEnvironment = {
-  JIRA_SITE: "responsibid.atlassian.net",
-  JIRA_USER_EMAIL: "lane@example.com",
-  JIRA_API_TOKEN: "token-value",
+const jiraCredentials = {
+  site: "responsibid.atlassian.net",
+  email: "lane@example.com",
+  token: "token-value",
 };
 
 function recordingHttp(api: FakeJira, calls: Array<{ url: string; request: HttpRequest }>) {
@@ -555,7 +555,7 @@ function recordingHttp(api: FakeJira, calls: Array<{ url: string; request: HttpR
 }
 
 describe("Jira basic-auth transport", () => {
-  test("authenticates from environment and hydrates summary and description into Ticket", async () => {
+  test("authenticates with explicit credentials and hydrates summary and description into Ticket", async () => {
     const api = new FakeJira();
     Object.assign(api.issues[0]?.fields ?? {}, {
       summary: "Live summary",
@@ -569,7 +569,7 @@ describe("Jira basic-auth transport", () => {
     const subject = new JiraTrackerAdapter({
       instance: "responsibid",
       workspace: "JWB",
-      transport: jiraBasicAuthTransport(jiraEnvironment, recordingHttp(api, calls)),
+      transport: jiraBasicAuthTransport(jiraCredentials, recordingHttp(api, calls)),
       rankField: "customfield_rank",
       priorityOrder: ["Highest", "High", "Medium", "Low", "Lowest"],
     });
@@ -588,11 +588,7 @@ describe("Jira basic-auth transport", () => {
     expect(api.mutationCount()).toBe(0);
   });
 
-  test("names a missing variable without echoing any credential", () => {
-    for (const name of Object.keys(jiraEnvironment)) {
-      const environment = { ...jiraEnvironment, [name]: undefined };
-      expect(() => jiraBasicAuthTransport(environment)).toThrow(`${name} is required for Jira`);
-    }
+  test("rejects a non-origin site without echoing any credential", () => {
     for (const site of [
       "http://responsibid.atlassian.net",
       "https://u:p@x.net",
@@ -600,18 +596,18 @@ describe("Jira basic-auth transport", () => {
     ]) {
       let message = "";
       try {
-        jiraBasicAuthTransport({ ...jiraEnvironment, JIRA_SITE: site });
+        jiraBasicAuthTransport({ ...jiraCredentials, site });
       } catch (error) {
         message = String(error);
       }
-      expect(message).toContain("JIRA_SITE must be an https Jira site origin");
+      expect(message).toContain("Jira site must be an https site origin");
       expect(message).not.toContain("token-value");
     }
   });
 
   test("refuses non-REST paths and keeps status for non-JSON responses", async () => {
     const http: HttpTransport = async () => new Response("<html>gateway</html>", { status: 502 });
-    const transport = jiraBasicAuthTransport(jiraEnvironment, http);
+    const transport = jiraBasicAuthTransport(jiraCredentials, http);
     await expect(transport.request("GET", "//evil.example/rest")).rejects.toThrow(
       "Jira request path must be a REST path",
     );
