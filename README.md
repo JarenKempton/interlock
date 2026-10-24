@@ -15,10 +15,14 @@ From this checkout, with [Bun](https://bun.sh) installed:
 ```sh
 bun install
 bun run src/cli.ts --help
+bun run src/cli.ts login jira
+bun run src/cli.ts doctor
 bun run src/cli.ts init
 bun run src/cli.ts config show
 ```
 
+`login jira` keeps your Jira credentials in the OS credential store; `doctor`
+names any missing sign-in, Jira permission or claim-lock push access.
 `init` creates a commented `interlock.toml` without replacing an existing file.
 Edit its placeholder tracker and add your repository and map. Keep credentials
 out of this file.

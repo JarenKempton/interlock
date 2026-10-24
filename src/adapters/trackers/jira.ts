@@ -29,13 +29,18 @@ export interface JiraTransport {
   request(method: string, path: string, body?: unknown): Promise<JiraResponse>;
 }
 
+export interface JiraCredentials {
+  site: string;
+  email: string;
+  token: string;
+}
+
 export function jiraBasicAuthTransport(
-  environment: Record<string, string | undefined> = process.env,
+  credentials: JiraCredentials,
   http: HttpTransport = fetchTransport,
 ): JiraTransport {
-  const origin = jiraOrigin(requiredVariable(environment, "JIRA_SITE"));
-  const credentials = `${requiredVariable(environment, "JIRA_USER_EMAIL")}:${requiredVariable(environment, "JIRA_API_TOKEN")}`;
-  const authorization = `Basic ${Buffer.from(credentials).toString("base64")}`;
+  const origin = jiraOrigin(credentials.site);
+  const authorization = `Basic ${Buffer.from(`${credentials.email}:${credentials.token}`).toString("base64")}`;
   return {
     async request(method, path, body) {
       if (!path.startsWith("/rest/")) throw new Error("Jira request path must be a REST path");
@@ -59,18 +64,12 @@ export function jiraBasicAuthTransport(
   };
 }
 
-function requiredVariable(environment: Record<string, string | undefined>, name: string): string {
-  const value = environment[name];
-  if (!value) throw new Error(`${name} is required for Jira`);
-  return value;
-}
-
-function jiraOrigin(site: string): string {
+export function jiraOrigin(site: string): string {
   let url: URL;
   try {
     url = new URL(site.includes("://") ? site : `https://${site}`);
   } catch {
-    throw new Error("JIRA_SITE must be an https Jira site origin");
+    throw new Error("Jira site must be an https site origin");
   }
   if (
     url.protocol !== "https:" ||
@@ -80,7 +79,7 @@ function jiraOrigin(site: string): string {
     url.hash ||
     url.pathname !== "/"
   )
-    throw new Error("JIRA_SITE must be an https Jira site origin");
+    throw new Error("Jira site must be an https site origin");
   return url.origin;
 }
 

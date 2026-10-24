@@ -5,8 +5,10 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import {
+  type UserSettingKey,
   validatePersonalSettings,
   validateResolvedConfiguration,
+  validateUserSettings,
 } from "../configuration/schema.ts";
 
 export const configurationOverrides = sqliteTable("configuration_overrides", {
@@ -17,6 +19,11 @@ export const executionConfigurations = sqliteTable("execution_configurations", {
   run_ref: text().primaryKey(),
   snapshot_json: text().notNull(),
 });
+export const userSettings = sqliteTable("user_settings", {
+  name: text().primaryKey(),
+  value: text().notNull(),
+});
+const userSettingRow = createSelectSchema(userSettings);
 function decode(content: string): unknown {
   try {
     return JSON.parse(content);
@@ -75,6 +82,32 @@ export function configurationStore(database: Database) {
       }
       return settings;
     },
+    readUser() {
+      const rows = z
+        .array(userSettingRow)
+        .parse(databaseOperation(database, "all", db.select().from(userSettings).toSQL()));
+      return validateUserSettings(Object.fromEntries(rows.map((row) => [row.name, row.value])));
+    },
+    saveUser(name: UserSettingKey, value: string | undefined) {
+      if (value === undefined) {
+        databaseOperation(
+          database,
+          "run",
+          db.delete(userSettings).where(eq(userSettings.name, name)).toSQL(),
+        );
+        return;
+      }
+      validateUserSettings({ [name]: value });
+      databaseOperation(
+        database,
+        "run",
+        db
+          .insert(userSettings)
+          .values({ name, value })
+          .onConflictDoUpdate({ target: userSettings.name, set: { value } })
+          .toSQL(),
+      );
+    },
     saveSnapshot(run: string, input: unknown) {
       const snapshot = validateResolvedConfiguration(input);
       databaseOperation(
@@ -104,7 +137,11 @@ export function configurationStore(database: Database) {
 // Drizzle 0.45's Bun driver leaves one-shot prepared statements to GC. On Bun
 // 1.3 that keeps Windows database files locked after close. Generate SQL with
 // Drizzle, execute on the caller's connection, and always finalize explicitly.
-function databaseOperation(database: Database, method: "get" | "run", query: Query): unknown {
+function databaseOperation(
+  database: Database,
+  method: "all" | "get" | "run",
+  query: Query,
+): unknown {
   try {
     // These configuration tables bind only text; row JSON is validated separately.
     const params = z.array(z.string()).parse(query.params);

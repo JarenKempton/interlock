@@ -1,5 +1,10 @@
 import { Database } from "bun:sqlite";
-import type { PersonalSettings, ResolvedConfiguration } from "../configuration/schema.ts";
+import type {
+  PersonalSettings,
+  ResolvedConfiguration,
+  UserSettingKey,
+  UserSettings,
+} from "../configuration/schema.ts";
 import type { Claim, ClaimRef, Run, RunRef } from "../domain/model.ts";
 import { configurationStore } from "./configuration.ts";
 
@@ -7,6 +12,10 @@ const schema = `
 CREATE TABLE IF NOT EXISTS configuration_overrides (
   project_path TEXT PRIMARY KEY,
   settings_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_settings (
+  name TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS execution_configurations (
   run_ref TEXT PRIMARY KEY REFERENCES runs(ref),
@@ -102,6 +111,14 @@ export class StateStore {
     return this.#database
       .transaction(() => config.savePersonal(projectPath, update(config.readPersonal(projectPath))))
       .immediate();
+  }
+
+  userSettings(): UserSettings {
+    return configurationStore(this.#database).readUser();
+  }
+
+  saveUserSetting(name: UserSettingKey, value: string | undefined): void {
+    configurationStore(this.#database).saveUser(name, value);
   }
 
   /** Initial snapshots are insert-only and retain the existing run foreign key. */
