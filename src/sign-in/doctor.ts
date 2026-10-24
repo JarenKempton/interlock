@@ -8,7 +8,7 @@ export async function doctorChecks(services: RuntimeServices, project: string | 
   const claimLock = await pushAccess(services);
   return {
     jira: jira.report,
-    claimLock: { repository: claimLock.repository, push: claimLock.missing === undefined },
+    claimLock: { repository: claimLock.repository, dryRunPush: claimLock.missing === undefined },
     missing: [...jira.missing, ...(claimLock.missing ? [claimLock.missing] : [])],
   };
 }
@@ -27,23 +27,27 @@ async function jiraSignIn(services: RuntimeServices, project: string | undefined
       return signedOut(
         `${label} credentials for ${site}: run interlock login jira or set ${found.missing.join(" and ")}`,
       );
-    const account = await adapter.verify(site, found.credentials);
-    const missing = await adapter.missingPermissions(site, found.credentials, project);
-    return {
-      report: {
-        site,
-        signedIn: true,
-        account: account.name,
-        from: found.sources,
-        permissions: { project: project ?? "any", missing },
-      },
-      missing,
-    };
+    const account = (await adapter.verify(site, found.credentials)).name;
+    const signedIn = { site, signedIn: true, account, from: found.sources };
+    try {
+      const missing = await adapter.missingPermissions(site, found.credentials, project);
+      return {
+        report: { ...signedIn, permissions: { project: project ?? "any", missing } },
+        missing,
+      };
+    } catch (error) {
+      return {
+        report: signedIn,
+        missing: [`${label} permission check at ${site}: ${message(error)}`],
+      };
+    }
   } catch (error) {
-    return signedOut(
-      `${label} sign-in at ${site}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    return signedOut(`${label} sign-in at ${site}: ${message(error)}`);
   }
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function pushAccess(services: RuntimeServices) {
@@ -67,6 +71,6 @@ async function pushAccess(services: RuntimeServices) {
     missing:
       probe.exitCode === 0
         ? undefined
-        : `Git claim lock: no push access to origin from ${repository}`,
+        : `Git claim lock: origin refuses a dry-run push from ${repository}`,
   };
 }
