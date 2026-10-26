@@ -2,6 +2,7 @@ export type MapRef = string & { readonly __kind: "MapRef" };
 export type TicketRef = string & { readonly __kind: "TicketRef" };
 export type RunRef = `interlock-run:${string}`;
 export type ClaimRef = `interlock-claim:${string}`;
+export type LaneRef = `interlock-lane:${string}`;
 export type ActorRef = string & { readonly __kind: "ActorRef" };
 export type AdapterRef = string & { readonly __kind: "AdapterRef" };
 

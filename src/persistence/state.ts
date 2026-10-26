@@ -11,14 +11,17 @@ import {
   actorRefSchema,
   adapterRefSchema,
   claimRefSchema,
+  laneRefSchema,
   runRefSchema,
   ticketRefSchema,
 } from "../domain/identifiers.ts";
-import type { Claim, ClaimRef, Run, RunRef } from "../domain/model.ts";
+import type { Lane, LaneState } from "../domain/lane.ts";
+import type { Claim, ClaimRef, LaneRef, Run, RunRef } from "../domain/model.ts";
 import { configurationStore } from "./configuration.ts";
 import { ledgerDb } from "./ledger-db.ts";
 import { type LedgerMigration, migrateLedger } from "./migrate.ts";
 import { claims } from "./schema/claims.ts";
+import { lanes } from "./schema/lanes.ts";
 import { recoveryEvidence } from "./schema/recovery-evidence.ts";
 import { runs } from "./schema/runs.ts";
 import { transactionSteps } from "./schema/transaction-steps.ts";
@@ -285,6 +288,77 @@ export class StateStore {
       .all();
   }
 
+  saveLane(lane: Lane): void {
+    const values = {
+      id: lane.id,
+      ticket: lane.ticket ?? null,
+      title: lane.title ?? null,
+      run_ref: lane.run ?? null,
+      claim_ref: lane.claim ?? null,
+      state: lane.state,
+      previous_state: lane.previousState ?? null,
+      attention_reason: lane.attentionReason ?? null,
+      artifact: lane.artifact ?? null,
+      head: lane.head ?? null,
+      evidence_json: JSON.stringify(lane.evidence),
+      verdict_json: lane.verdict ? JSON.stringify(lane.verdict) : null,
+      review_round: lane.reviewRound,
+      max_review_rounds: lane.maxReviewRounds,
+      created_at: lane.createdAt,
+      updated_at: lane.updatedAt,
+    };
+    this.#db
+      .insert(lanes)
+      .values(values)
+      .onConflictDoUpdate({
+        target: lanes.id,
+        set: {
+          ticket: values.ticket,
+          title: values.title,
+          run_ref: values.run_ref,
+          claim_ref: values.claim_ref,
+          state: values.state,
+          previous_state: values.previous_state,
+          attention_reason: values.attention_reason,
+          artifact: values.artifact,
+          head: values.head,
+          evidence_json: values.evidence_json,
+          verdict_json: values.verdict_json,
+          review_round: values.review_round,
+          max_review_rounds: values.max_review_rounds,
+          updated_at: values.updated_at,
+        },
+      })
+      .run();
+  }
+
+  lane(id: LaneRef): Lane {
+    const row = this.#db.select().from(lanes).where(eq(lanes.id, id)).get();
+    if (!row) throw new Error(`Lane not found: ${id}`);
+    return laneFromRow(row);
+  }
+
+  findLane(id: LaneRef): Lane | undefined {
+    const row = this.#db.select().from(lanes).where(eq(lanes.id, id)).get();
+    return row ? laneFromRow(row) : undefined;
+  }
+
+  listLanes(): Lane[] {
+    const rows = this.#db.select().from(lanes).orderBy(desc(lanes.created_at)).all();
+    return rows.map(laneFromRow);
+  }
+
+  laneForTicket(ticket: string): Lane | undefined {
+    const row = this.#db
+      .select()
+      .from(lanes)
+      .where(eq(lanes.ticket, ticket))
+      .orderBy(desc(lanes.created_at))
+      .limit(1)
+      .get();
+    return row ? laneFromRow(row) : undefined;
+  }
+
   listRuns(): Run[] {
     const rows = this.#db.select({ ref: runs.ref }).from(runs).orderBy(desc(runs.created_at)).all();
     return rows.map(({ ref }) => this.run(runRefSchema.parse(ref)));
@@ -319,6 +393,39 @@ function claimFromRow(row: typeof claims.$inferSelect): Claim {
     leaseExpiresAt: row.lease_expires_at,
     status: z.enum(["active", "released"]).parse(row.status),
     ...(row.current_version ? { currentVersion: row.current_version } : {}),
+  };
+}
+
+const laneStates = [
+  "queued",
+  "claimed",
+  "implementing",
+  "submitted",
+  "reviewing",
+  "approved",
+  "merged",
+  "done",
+  "attention",
+] as const satisfies readonly LaneState[];
+
+function laneFromRow(row: typeof lanes.$inferSelect): Lane {
+  return {
+    id: laneRefSchema.parse(row.id),
+    ...(row.ticket ? { ticket: ticketRefSchema.parse(row.ticket) } : {}),
+    ...(row.title ? { title: row.title } : {}),
+    ...(row.run_ref ? { run: runRefSchema.parse(row.run_ref) } : {}),
+    ...(row.claim_ref ? { claim: claimRefSchema.parse(row.claim_ref) } : {}),
+    state: z.enum(laneStates).parse(row.state),
+    ...(row.previous_state ? { previousState: z.enum(laneStates).parse(row.previous_state) } : {}),
+    ...(row.attention_reason ? { attentionReason: row.attention_reason } : {}),
+    ...(row.artifact ? { artifact: row.artifact } : {}),
+    ...(row.head ? { head: row.head } : {}),
+    evidence: JSON.parse(row.evidence_json),
+    ...(row.verdict_json ? { verdict: JSON.parse(row.verdict_json) } : {}),
+    reviewRound: row.review_round,
+    maxReviewRounds: row.max_review_rounds,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 

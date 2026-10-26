@@ -1,5 +1,13 @@
 import { z } from "zod";
-import type { ActorRef, AdapterRef, ClaimRef, MapRef, RunRef, TicketRef } from "./model.ts";
+import type {
+  ActorRef,
+  AdapterRef,
+  ClaimRef,
+  LaneRef,
+  MapRef,
+  RunRef,
+  TicketRef,
+} from "./model.ts";
 
 // Opaque IDs are nonempty strings. Qualified tracker syntax is separately checked by parseRef.
 function identifier<T extends string>() {
@@ -19,4 +27,8 @@ export const runRefSchema = z.custom<RunRef>(
 export const claimRefSchema = z.custom<ClaimRef>(
   (value) => typeof value === "string" && value.startsWith("interlock-claim:") && value.length > 16,
   "Expected a claim reference",
+);
+export const laneRefSchema = z.custom<LaneRef>(
+  (value) => typeof value === "string" && value.startsWith("interlock-lane:") && value.length > 15,
+  "Expected a lane reference",
 );
