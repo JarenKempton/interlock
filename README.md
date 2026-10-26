@@ -1,11 +1,12 @@
 # Interlock
 
-A CLI that selects work from tracker maps and dispatches each ticket to an agent
-in its own T3 Code lane.
+A CLI that claims a tracker ticket and prepares it for an agent in its own T3
+Code lane.
 Built with TypeScript and Bun.
 
-**In development:** project configuration and offline work selection are usable.
-Live ticket pickup is not wired into the CLI yet.
+**In development:** `pickup KEY` claims a Jira ticket, prepares its Git worktree,
+and returns the arguments a T3 Code thread uses to launch the lane.
+`claim release` gives the ticket back.
 
 ## Try it
 
@@ -23,7 +24,7 @@ Edit its placeholder tracker and add your repository and map. Keep credentials
 out of this file.
 
 For commands and options, use `--help`, including `config edit --help`.
-Help and shell completion derive from registered actions and their supplied services.
+Help and shell completion derive from the registered actions.
 
 ## Configuration
 

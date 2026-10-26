@@ -11,10 +11,21 @@ import {
 } from "../src/configuration/files.ts";
 import { INITIAL_CONFIGURATION } from "../src/configuration/project-files.ts";
 import { resolveProjectConfiguration } from "../src/configuration/schema.ts";
-import type { TicketKind } from "../src/domain/model.ts";
-import { planConfiguredLaunch } from "../src/execution/configuration-plan.ts";
+import { mapRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
+import type { Ticket, TicketKind } from "../src/domain/model.ts";
 import { acceptanceCriteria, buildLaunchPrompt } from "../src/execution/launch-prompt.ts";
-import { fakeConfigurationPlan, fakePlanningTicket } from "./fixtures/configuration-plan.ts";
+
+const fakePlanningTicket: Ticket = {
+  ref: ticketRefSchema.parse("jira:example:TEST:ticket:TEST-491"),
+  map: mapRefSchema.parse("jira:example:TEST:map:TEST-470"),
+  kind: "task",
+  state: "open",
+  status: "To Do",
+  order: 0,
+  title: "Carry complete ticket context",
+  description:
+    "OUTCOME\nBuild inspectable configuration.\n\nVERIFY (all must pass)\n- Prompt contains ticket title and description.\n\nRULES\nUse fake tracker input only.",
+};
 
 test.each<TicketKind>(["task", "research", "prototype", "decision"])(
   "%s guidance requests evidence without granting completion authority or choosing a workflow",
@@ -35,33 +46,21 @@ test.each<TicketKind>(["task", "research", "prototype", "decision"])(
   },
 );
 
-test("session restrictions and project completion gates survive alongside passing acceptance evidence", () => {
+test("project completion gates survive alongside passing acceptance evidence", () => {
   const workflow =
     "Completion gate: Jaren must approve and merge the implementation. Keep the ticket open until then.";
-  const context =
-    "All tests passed. Report evidence only; no Jira mutations are authorized in this session.";
-  const prompt = buildLaunchPrompt(fakePlanningTicket, { roleTemplate: workflow, context });
+  const prompt = buildLaunchPrompt(fakePlanningTicket, { roleTemplate: workflow });
   expect(prompt).toContain(`Role guidance:\n${workflow}`);
-  expect(prompt).toContain(`Session-specific instructions:\n${context}`);
   expect(prompt).toContain("Passing acceptance checks alone does not authorize completion");
   expect(prompt).toContain(z.string().parse(fakePlanningTicket.description));
 });
 
-test("pure fake planning includes T3 selection and entire title, description, and VERIFY context", () => {
-  const original = structuredClone(fakePlanningTicket);
-  const plan = fakeConfigurationPlan();
-  expect(plan).toMatchObject({
-    state: "planned",
-    dryRun: true,
-    t3: { provider: "codex", verification: "pending-host-preflight" },
-  });
-  expect(plan.prompt).toContain(z.string().parse(fakePlanningTicket.title));
-  expect(plan.prompt).toContain(z.string().parse(fakePlanningTicket.description));
-  expect(plan.prompt).toContain("Acceptance criteria:\n- Prompt contains ticket title");
-  expect(plan.prompt).toContain("Role:\ntask");
-  expect(fakePlanningTicket).toEqual(original);
-  plan.ticket.title = "changed";
-  expect(fakePlanningTicket).toEqual(original);
+test("prompt carries the entire title, description, and VERIFY context", () => {
+  const prompt = buildLaunchPrompt(fakePlanningTicket);
+  expect(prompt).toContain(z.string().parse(fakePlanningTicket.title));
+  expect(prompt).toContain(z.string().parse(fakePlanningTicket.description));
+  expect(prompt).toContain("Acceptance criteria:\n- Prompt contains ticket title");
+  expect(prompt).toContain("Role:\ntask");
 });
 
 test.each([
@@ -142,54 +141,26 @@ test("configured instruction paths are loaded read-only, versioned, and used in 
       {},
       { path, version: configurationVersion(content) },
     );
-    const args = {
-      ticket: fakePlanningTicket,
-      configuration,
-      available: { hosts: ["t3"], agents: ["codex"] },
-    };
-    expect(() => planConfiguredLaunch(args)).toThrow("must be loaded");
     const before = readdirSync(cwd).map((file) => [file, readFileSync(join(cwd, file), "utf8")]);
     const instructions = loadConfigurationInstructions(configuration, "task");
-    const plan = planConfiguredLaunch({ ...args, instructions });
-    expect(plan.prompt).toContain(join(cwd, "contract.md"));
-    expect(plan.prompt).toContain(`Role guidance:\n${workflow}`);
-    expect(plan.prompt).toContain("Passing acceptance checks alone does not authorize completion");
-    expect(plan.instructions).toHaveLength(2);
-    expect(plan.instructions[0]?.version).toBe(configurationVersion("Runtime guidance"));
+    const prompt = buildLaunchPrompt(fakePlanningTicket, {
+      runtimeContract: z.string().parse(instructions.runtimeContract?.resolvedPath),
+      roleTemplate: z.string().parse(instructions.roleTemplate?.content),
+    });
+    expect(prompt).toContain(join(cwd, "contract.md"));
+    expect(prompt).toContain(`Role guidance:\n${workflow}`);
+    expect(prompt).toContain("Passing acceptance checks alone does not authorize completion");
+    expect(instructions.runtimeContract?.version).toBe(configurationVersion("Runtime guidance"));
     expect(readdirSync(cwd).map((file) => [file, readFileSync(join(cwd, file), "utf8")])).toEqual(
       before,
     );
     writeFileSync(join(cwd, "task.md"), "Updated guidance");
     const updated = loadConfigurationInstructions(configuration, "task");
     expect(updated.roleTemplate?.version).not.toBe(instructions.roleTemplate?.version);
-    expect(plan.prompt).toContain("Implement exactly this task");
+    expect(prompt).toContain("Implement exactly this task");
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
-});
-
-test("T3 planning uses selected-host provider availability, independent of standalone harness profiles", () => {
-  const configuration = resolveProjectConfiguration(
-    parseProjectToml(
-      INITIAL_CONFIGURATION.replace('provider = "codex"', 'provider = "host-managed-provider"'),
-    ),
-    {},
-    { path: "interlock.toml", version: "test" },
-  );
-  const plan = planConfiguredLaunch({
-    ticket: fakePlanningTicket,
-    configuration,
-    available: { hosts: ["t3"], agents: ["host-managed-provider"] },
-  });
-  expect(plan.t3?.provider).toBe("host-managed-provider");
-  expect(plan.t3?.verification).toBe("pending-host-preflight");
-  expect(() =>
-    planConfiguredLaunch({
-      ticket: fakePlanningTicket,
-      configuration,
-      available: { hosts: ["t3"], agents: ["codex"] },
-    }),
-  ).toThrow("Available supported alternatives");
 });
 
 test("nested acceptance headings and fenced commands stay inside the acceptance section", () => {

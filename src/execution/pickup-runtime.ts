@@ -14,9 +14,8 @@ import { configurationOperations } from "../configuration/project-files.ts";
 import type { ResolvedConfiguration } from "../configuration/schema.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
-import type { RepositorySpec, RunRef, Ticket, TicketRef } from "../domain/model.ts";
+import type { RepositorySpec, RunRef, Ticket } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
-import { evaluateFrontier } from "../frontier/evaluate.ts";
 import { lockExecution } from "../persistence/execution-lock.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
@@ -74,7 +73,6 @@ export function repositorySpec(configuration: ResolvedConfiguration, name: strin
     worktreeRoot: configurationReference(configuration.source.path, repository.worktree_root),
     baseBranch: repository.base_branch,
     remote: `https://github.com/${repository.github}.git`,
-    ticketKeyWorkspaces: true,
   };
 }
 
@@ -113,8 +111,7 @@ export async function executionTracker(
       (f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-lexo-rank",
     );
     if (ranks.length !== 1 || !ranks[0]) throw new Error("Jira Rank field is missing or ambiguous");
-    const priorities = await read("priority", z.array(z.object({ name: z.string() })).min(1));
-    return { rankField: ranks[0].id, priorityOrder: priorities.map((p) => p.name) };
+    return { rankField: ranks[0].id };
   };
   const metadata = purpose === "pickup" ? await discovery() : {};
   const myself = await read("myself", z.object({ accountId: actorRefSchema }));
@@ -183,23 +180,10 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       throw new Error("Ticket is not available in the configured map");
     if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
       throw new Error("Ticket changed during planning; retry pickup");
-    const graph = new Map<TicketRef, Ticket>([[current.ref, current]]);
-    for (const item of graph.values()) {
-      for (const dependency of item.dependencies ?? []) {
-        if (!graph.has(dependency.blocking))
-          graph.set(dependency.blocking, (await jira.tracker.read(dependency.blocking)).ticket);
-      }
+    for (const dependency of current.dependencies ?? []) {
+      if ((await jira.tracker.read(dependency.blocking)).ticket.state !== "closed")
+        throw new Error("Ticket is not available; unfinished dependencies block pickup");
     }
-    if (
-      evaluateFrontier(
-        [...graph.values()],
-        { ticket: current.ref },
-        {
-          availableStatuses: new Set(map.available_statuses),
-        },
-      ).length !== 1
-    )
-      throw new Error("Ticket is not available; unfinished dependencies block pickup");
   };
   await eligible(ticket);
   const repository = repositorySpec(configuration, map.repository);

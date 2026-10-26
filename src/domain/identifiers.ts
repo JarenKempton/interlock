@@ -1,15 +1,5 @@
 import { z } from "zod";
-import type {
-  ActorRef,
-  AdapterRef,
-  ClaimRef,
-  GroupRef,
-  MapRef,
-  RunRef,
-  TicketRef,
-  TrackerRef,
-  WorkspaceRef,
-} from "./model.ts";
+import type { ActorRef, AdapterRef, ClaimRef, MapRef, RunRef, TicketRef } from "./model.ts";
 
 // Opaque IDs are nonempty strings. Qualified tracker syntax is separately checked by parseRef.
 function identifier<T extends string>() {
@@ -22,9 +12,6 @@ export const actorRefSchema = identifier<ActorRef>();
 export const adapterRefSchema = identifier<AdapterRef>();
 export const ticketRefSchema = identifier<TicketRef>();
 export const mapRefSchema = identifier<MapRef>();
-export const groupRefSchema = identifier<GroupRef>();
-export const trackerRefSchema = identifier<TrackerRef>();
-export const workspaceRefSchema = identifier<WorkspaceRef>();
 export const runRefSchema = z.custom<RunRef>(
   (value) => typeof value === "string" && value.startsWith("interlock-run:") && value.length > 14,
   "Expected a run reference",

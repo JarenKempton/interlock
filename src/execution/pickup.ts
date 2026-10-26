@@ -1,16 +1,13 @@
 import type { RecoverableClaimLock } from "../domain/claim-lock.ts";
 import type {
   Clock,
-  HarnessAdapter,
   IdFactory,
-  LaunchReceipt,
   Ledger,
   PickupRequest,
   WorkspaceAdapter,
 } from "../domain/contracts.ts";
-import { ClaimCollisionError, HarnessLaunchError } from "../domain/contracts.ts";
+import { ClaimCollisionError } from "../domain/contracts.ts";
 import {
-  type CapabilitySet,
   type Claim,
   capabilities,
   type PreparedWorkspace,
@@ -28,8 +25,6 @@ export type PickupState =
   | "claiming"
   | "claimed"
   | "workspace_prepared"
-  | "launched"
-  | "committed"
   | "compensating"
   | "compensated"
   | "collision"
@@ -42,7 +37,6 @@ export interface PickupReceipt {
   claim: ReturnType<IdFactory["claim"]>;
   ticket: PickupRequest["ticket"];
   workspace?: PreparedWorkspace;
-  launch?: LaunchReceipt;
   recoveryCommand?: string;
 }
 
@@ -61,7 +55,6 @@ export interface PickupCoordinatorOptions {
   claimLock: RecoverableClaimLock;
   validateTicket?: (ticket: Ticket) => void | Promise<void>;
   workspace: WorkspaceAdapter;
-  harness?: HarnessAdapter;
   ledger: Ledger;
   ids: IdFactory;
   clock: Clock;
@@ -77,16 +70,7 @@ export class PickupCoordinator {
     this.#claims = new ClaimCoordinator(options.claimLock, options.tracker);
   }
 
-  async execute(request: PickupRequest): Promise<PickupReceipt> {
-    if (!this.#options.harness) throw new Error("No launch harness is composed");
-    return this.#execute(request, this.#options.harness);
-  }
-
   async prepare(request: PickupRequest): Promise<PickupReceipt> {
-    return this.#execute(request);
-  }
-
-  async #execute(request: PickupRequest, harness?: HarnessAdapter): Promise<PickupReceipt> {
     if (!request.ticket || !request.owner || !request.harness) {
       throw new Error("Ticket, owner, and harness are required");
     }
@@ -121,16 +105,6 @@ export class PickupCoordinator {
     );
     await this.#options.workspace.preflight(ticket);
     const plan = await this.#options.workspace.plan(ticket);
-    const harnessCapabilities = harness ? await harness.describe() : capabilities();
-    if (harness) validateExecutionRoute(request, harnessCapabilities);
-    await harness?.preflight({
-      run: runRef,
-      ticket,
-      workspace: { path: plan.path, branch: plan.branch },
-      ...(request.model ? { model: request.model } : {}),
-      ...(request.effort ? { effort: request.effort } : {}),
-      ...(request.context ? { context: request.context } : {}),
-    });
 
     const snapshot = await this.#claims.snapshotClaimState(
       request.ticket,
@@ -196,44 +170,11 @@ export class PickupCoordinator {
       run.status = "claimed";
       run.updatedAt = this.#options.clock.now().toISOString();
       if (request.model) run.model = request.model;
-      if (request.effort) run.effort = request.effort;
-      if (request.context) run.context = request.context;
-      if (!harness) {
-        receipt.ok = true;
-        await this.#options.ledger.commitRun(run, "prepared", receipt);
-        return receipt;
-      }
-
-      const launchRequest = {
-        run: runRef,
-        ticket,
-        workspace: prepared,
-        ...(request.model ? { model: request.model } : {}),
-        ...(request.effort ? { effort: request.effort } : {}),
-        ...(request.context ? { context: request.context } : {}),
-      };
-      const launch = await harness.launch(launchRequest);
-      receipt.state = "launched";
-      receipt.launch = launch;
-      await this.#options.ledger.recordStep(runRef, "launched", receipt);
-
-      run.workspace = prepared;
-      run.execution = launch;
-      run.status = "active";
-      run.updatedAt = this.#options.clock.now().toISOString();
-      if (request.model) run.model = request.model;
-      if (request.effort) run.effort = request.effort;
-      if (request.context) run.context = request.context;
-      run.capabilities = harnessCapabilities;
       receipt.ok = true;
-      receipt.state = "committed";
-      await this.#options.ledger.commitRun(run, "committed", receipt);
+      await this.#options.ledger.commitRun(run, "prepared", receipt);
       return receipt;
     } catch (error) {
       if (error instanceof PickupResultError) throw error;
-      if (error instanceof HarnessLaunchError && error.receipt) {
-        receipt.launch = error.receipt;
-      }
       return this.#compensate(run, receipt, snapshot, request.owner, error);
     }
   }
@@ -248,7 +189,6 @@ export class PickupCoordinator {
     receipt.ok = false;
     receipt.state = "compensating";
     const recoveryErrors: unknown[] = [];
-    let sessionEvidence = receipt.launch ? "verification_required" : "not_started";
     let trackerEvidence = "verification_required";
     let ledgerEvidence = "recorded";
     try {
@@ -256,15 +196,6 @@ export class PickupCoordinator {
     } catch (error) {
       recoveryErrors.push(error);
       ledgerEvidence = "compensating_step_persistence_failed";
-    }
-    if (receipt.launch?.sessionId !== undefined || receipt.launch?.pid !== undefined) {
-      try {
-        if (!this.#options.harness) throw new Error("Launch harness is unavailable for recovery");
-        await this.#options.harness.stop(receipt.launch);
-        sessionEvidence = "stopped_verified";
-      } catch (error) {
-        recoveryErrors.push(error);
-      }
     }
     const restoreRequest = {
       ticket: receipt.ticket,
@@ -313,7 +244,7 @@ export class PickupCoordinator {
       await this.#options.ledger.saveRecoveryRequired(run, receipt, combined, {
         command: receipt.recoveryCommand,
         tracker: trackerEvidence,
-        session: sessionEvidence,
+        session: "not_started",
         ledger: ledgerEvidence,
       });
     } catch (error) {
@@ -327,14 +258,6 @@ export class PickupCoordinator {
     }
     throw new PickupResultError(receipt, combined);
   }
-}
-
-function validateExecutionRoute(route: PickupRequest, available: CapabilitySet): void {
-  const required = { ...route.requiredCapabilities };
-  if (route.model) required.model_selection = true;
-  if (route.effort) required.reasoning_selection = true;
-  if (route.context) required.context_selection = true;
-  requireCapabilities(available, required);
 }
 
 function message(value: unknown): string {

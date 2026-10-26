@@ -60,14 +60,11 @@ interface RunRow {
   ticket: Run["ticket"];
   harness: Run["harness"];
   model: string | null;
-  effort: string | null;
-  context: string | null;
   workspace_json: string;
   capabilities_json: string;
   status: Run["status"];
   created_at: string;
   updated_at: string;
-  execution_json: string | null;
 }
 
 interface ClaimRow {
@@ -80,8 +77,6 @@ interface ClaimRow {
   lease_expires_at: string;
   status: Claim["status"];
   current_version: string | null;
-  supersedes: ClaimRef | null;
-  superseded_by: ClaimRef | null;
 }
 
 export class StateStore {
@@ -120,25 +115,21 @@ export class StateStore {
 
   saveRun(run: Run): void {
     this.#database
-      .query(`INSERT INTO runs(ref,ticket,harness,model,effort,context,workspace_json,capabilities_json,status,created_at,updated_at,execution_json)
-        VALUES($ref,$ticket,$harness,$model,$effort,$context,$workspace,$capabilities,$status,$createdAt,$updatedAt,$execution)
-        ON CONFLICT(ref) DO UPDATE SET model=excluded.model,effort=excluded.effort,context=excluded.context,
+      .query(`INSERT INTO runs(ref,ticket,harness,model,workspace_json,capabilities_json,status,created_at,updated_at)
+        VALUES($ref,$ticket,$harness,$model,$workspace,$capabilities,$status,$createdAt,$updatedAt)
+        ON CONFLICT(ref) DO UPDATE SET model=excluded.model,
           workspace_json=excluded.workspace_json,
-          capabilities_json=excluded.capabilities_json,status=excluded.status,updated_at=excluded.updated_at,
-          execution_json=excluded.execution_json`)
+          capabilities_json=excluded.capabilities_json,status=excluded.status,updated_at=excluded.updated_at`)
       .run({
         ref: run.ref,
         ticket: run.ticket,
         harness: run.harness,
         model: run.model ?? null,
-        effort: run.effort ?? null,
-        context: run.context ?? null,
         workspace: JSON.stringify(run.workspace),
         capabilities: JSON.stringify(run.capabilities),
         status: run.status,
         createdAt: run.createdAt,
         updatedAt: run.updatedAt,
-        execution: run.execution ? JSON.stringify(run.execution) : null,
       });
   }
 
@@ -150,23 +141,20 @@ export class StateStore {
       ticket: row.ticket,
       harness: row.harness,
       ...(row.model ? { model: row.model } : {}),
-      ...(row.effort ? { effort: row.effort } : {}),
-      ...(row.context ? { context: row.context } : {}),
       workspace: JSON.parse(row.workspace_json),
       capabilities: JSON.parse(row.capabilities_json),
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      ...(row.execution_json ? { execution: JSON.parse(row.execution_json) } : {}),
     };
   }
 
   saveClaim(claim: Claim): void {
     this.#database
-      .query(`INSERT INTO claims(ref,ticket,human_owner,run_ref,previous_state_json,claimed_at,lease_expires_at,status,current_version,supersedes,superseded_by)
-        VALUES($ref,$ticket,$owner,$run,$previous,$claimedAt,$expiresAt,$status,$version,$supersedes,$supersededBy)
+      .query(`INSERT INTO claims(ref,ticket,human_owner,run_ref,previous_state_json,claimed_at,lease_expires_at,status,current_version)
+        VALUES($ref,$ticket,$owner,$run,$previous,$claimedAt,$expiresAt,$status,$version)
         ON CONFLICT(ref) DO UPDATE SET lease_expires_at=excluded.lease_expires_at,status=excluded.status,
-          current_version=excluded.current_version,supersedes=excluded.supersedes,superseded_by=excluded.superseded_by`)
+          current_version=excluded.current_version`)
       .run({
         ref: claim.ref,
         ticket: claim.ticket,
@@ -177,8 +165,6 @@ export class StateStore {
         expiresAt: claim.leaseExpiresAt,
         status: claim.status,
         version: claim.currentVersion ?? null,
-        supersedes: claim.supersedes ?? null,
-        supersededBy: claim.supersededBy ?? null,
       });
   }
 
@@ -186,7 +172,7 @@ export class StateStore {
     this.#transaction(() => {
       this.saveRun(run);
       this.recordStep(run.ref, "recovery_required", receipt, error);
-      this.recordRecovery(run.ref, "verification_required", evidence);
+      this.#recordRecovery(run.ref, "verification_required", evidence);
     });
   }
 
@@ -270,7 +256,7 @@ export class StateStore {
     });
   }
 
-  recordRecovery(run: RunRef, outcome: string, evidence: unknown): void {
+  #recordRecovery(run: RunRef, outcome: string, evidence: unknown): void {
     this.#database
       .query(
         "INSERT INTO recovery_evidence(run_ref,outcome,evidence_json,occurred_at) VALUES(?,?,?,?)",
@@ -322,8 +308,6 @@ function claimFromRow(row: ClaimRow): Claim {
     leaseExpiresAt: row.lease_expires_at,
     status: row.status,
     ...(row.current_version ? { currentVersion: row.current_version } : {}),
-    ...(row.supersedes ? { supersedes: row.supersedes } : {}),
-    ...(row.superseded_by ? { supersededBy: row.superseded_by } : {}),
   };
 }
 

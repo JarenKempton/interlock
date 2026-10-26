@@ -25,7 +25,6 @@ export const personalSettingsSchema = z
   })
   .partial();
 export const SETTING_KEYS = personalSettingsSchema.keyof().options;
-export type SettingKey = keyof z.infer<typeof personalSettingsSchema>;
 export type PersonalSettings = z.infer<typeof personalSettingsSchema>;
 
 const repositorySchema = z.strictObject({
@@ -110,8 +109,6 @@ export const projectConfigurationSchema = z
         });
     }
   });
-export type RepositoryConfiguration = z.infer<typeof repositorySchema>;
-export type MapConfiguration = z.infer<typeof mapSchema>;
 export type ProjectConfiguration = z.infer<typeof projectConfigurationSchema>;
 const resolvedConfigurationSchema = z.strictObject({
   version: z.literal(1),
@@ -219,22 +216,6 @@ function resolveConfigurationV1(
   }
   return structuredClone({ version: 1, source, project, settings, sources });
 }
-export function requireAvailableSelections(
-  config: ResolvedConfiguration,
-  available: { hosts: readonly string[]; agents: readonly string[] },
-): void {
-  for (const [key, options] of [
-    ["host", available.hosts],
-    ["agent", available.agents],
-  ] as const) {
-    const selection = config.settings[key];
-    if (!selection || !options.includes(selection))
-      throw new Error(
-        `Configured ${key} unavailable. Available supported alternatives: ${options.join(", ") || "none"}. Select explicitly; no substitution was made.`,
-      );
-  }
-}
-
 /** Validate persisted snapshots without re-reading today's defaults. */
 export function validateResolvedConfiguration(value: unknown): ResolvedConfiguration {
   const item = parseConfiguration(resolvedConfigurationSchema, value, "resolved");

@@ -49,7 +49,6 @@ export interface LaunchPromptOptions {
   roleTemplate?: string;
   runtimeContract?: string;
   tracker?: string;
-  context?: string;
 }
 export function buildLaunchPrompt(ticket: Ticket, options: LaunchPromptOptions = {}): string {
   const criteria = ticket.acceptanceCriteria ?? acceptanceCriteria(ticket.description ?? "");
@@ -64,6 +63,5 @@ export function buildLaunchPrompt(ticket: Ticket, options: LaunchPromptOptions =
     `Acceptance criteria:\n${criteria ?? "Not supplied by tracker; verify with the ticket owner before completion."}`,
     "Required output:\n- Report the work performed and link any resulting artifacts.\n- Report acceptance evidence, unverified criteria, and remaining blockers.",
     "Authorization and completion:\nThis prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied.",
-    ...(options.context ? [`Session-specific instructions:\n${options.context}`] : []),
   ].join("\n\n");
 }

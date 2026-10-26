@@ -1,7 +1,8 @@
 # Client and core ownership
 
-Interlock's CLI owns portable execution: normalized tracker reads, frontier
-selection, claims, workspace preparation, configuration, launch, and recovery.
+Interlock's CLI owns portable execution: normalized tracker reads, eligibility
+checks, claims, workspace preparation, configuration, launch arguments, and
+recovery.
 Adapters own vendor mechanics. The Git-remote claim lock decides ownership and
 the tracker mirrors it; tracker facts remain durable coordination truth, and the
 local ledger holds execution and recovery evidence.
@@ -45,8 +46,8 @@ the argument object for `t3_thread_launch`, including `existing_worktree`, title
 message and model selection. The caller invokes that tool and retains its
 returned thread identity; pickup does not launch an agent or claim it did.
 
-Pickup checks frontier eligibility, hydrating blockers across maps before
-claiming and again before writing the mirror. Unfinished or unreadable blockers
+Pickup checks eligibility, reading each blocker in any map, before claiming and
+again before writing the mirror. Unfinished or unreadable blockers
 fail closed. Jira search supplies ordering; a subsequent direct issue read
 supplies current fields, so search index lag cannot reopen completed tickets or
 hide reopened blockers.
@@ -63,14 +64,14 @@ the verified choices for later reviews; pickup starts no reviewer.
 Jira credentials come from `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` in the process
 environment. The site comes from project configuration; an optional `JIRA_SITE`
 must match it. The authenticated Jira account owns the claim. Repository paths
-and instruction paths resolve relative to the project TOML. Jira Rank and
-priority metadata are discovered through read-only endpoints; unsupported
-claim statuses fail closed.
+and instruction paths resolve relative to the project TOML. The Jira Rank
+field is discovered through a read-only endpoint; unsupported claim statuses
+fail closed.
 
 `claim release CLAIM --json` uses the saved execution configuration and verifies
 the authenticated owner, remote lock and restored Jira fields. It preserves the
 workspace, including dirty work. Release does not require the ticket's current
-parent map, Rank/priority discovery or the original workspace base branch.
+parent map, Rank discovery or the original workspace base branch.
 A lost local release receipt can be retried;
 an uncertain remote result remains `recovery_required`. `runs list`, `runs show`
 and `runs export` expose local run evidence; export includes configuration,
@@ -87,7 +88,7 @@ canonical ledger. A competing invocation fails immediately and can be retried
 after the active process exits; read-only run inspection remains available.
 Keep an active ledger at its original path until its operations finish.
 
-Selection must identify one ticket or an explicit selection policy. Secrets
+Pickup takes exactly one ticket key. Secrets
 cross through credential-provider handles or scoped secure channels, never
 ordinary configuration, process arguments, logs, or receipts.
 
@@ -105,5 +106,5 @@ Session state, review approval, merge, and tracker completion are separate facts
 Generic launch prompts do not grant tracker mutation or merge authority.
 
 PR review automation belongs in an optional integration consuming public
-actions, with its workflow and permissions configured explicitly. Stopping
-execution, releasing ownership, and deleting a workspace remain distinct operations.
+actions, with its workflow and permissions configured explicitly. Releasing
+ownership never stops a lane or deletes a workspace.

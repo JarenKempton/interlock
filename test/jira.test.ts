@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { ABSENT_LOCK_VERSION, GitClaimLock } from "../src/adapters/claims/git-lock.ts";
-import { builtInAdapters } from "../src/adapters/registry.ts";
 import type { HttpRequest, HttpTransport } from "../src/adapters/trackers/http.ts";
 import {
   type JiraResponse,
@@ -28,7 +27,6 @@ import {
 import { type ActorRef, capabilities, type TrackerSnapshot } from "../src/domain/model.ts";
 import type { MirrorRestore } from "../src/domain/tracker.ts";
 import { ClaimCoordinator } from "../src/execution/claims.ts";
-import { evaluateFrontier, selectFrontierTicket } from "../src/frontier/evaluate.ts";
 import {
   GIT_TEST_TIMEOUT_MS,
   type GitRemoteFixture,
@@ -42,7 +40,6 @@ const owner = actorRefSchema.parse("account");
 interface FakeIssueOptions {
   assignee?: string | null;
   links?: unknown[];
-  priority?: { id: string; name: string };
   rank?: string;
   status?: string;
 }
@@ -57,7 +54,6 @@ function issue(key: string, options: FakeIssueOptions = {}) {
       status: { name: status, statusCategory: { key: status === "Done" ? "done" : "new" } },
       issuetype: { name: "Task" },
       parent: { key: "JWB-274" },
-      priority: options.priority ?? { id: "9000", name: "Highest" },
       customfield_rank: options.rank ?? "0|i0000:",
       issuelinks: options.links ?? [],
     },
@@ -134,7 +130,6 @@ function adapter(api: FakeJira, validateClaim?: JiraTrackerOptions["validateClai
     transport: api,
     ...(validateClaim ? { validateClaim } : {}),
     rankField: "customfield_rank",
-    priorityOrder: ["Highest", "High", "Medium", "Low", "Lowest"],
   });
 }
 
@@ -154,22 +149,12 @@ function restoreRequest(): MirrorRestore {
 describe("Jira tracker read adapter", () => {
   test("hydrates map tickets in standard Jira LexoRank order without numeric parsing", async () => {
     const api = new FakeJira();
-    api.issues = [
-      issue("JWB-LOW", {
-        rank: "0|zzzzz:",
-        priority: { id: "1", name: "Lowest" },
-      }),
-      issue("JWB-HIGH", {
-        rank: "0|aaaaa:",
-        priority: { id: "9000", name: "Highest" },
-      }),
-    ];
+    api.issues = [issue("JWB-LOW", { rank: "0|zzzzz:" }), issue("JWB-HIGH", { rank: "0|aaaaa:" })];
     const tickets = await adapter(api).list_work(map);
     expect(tickets.map((item) => [String(item.ref), item.order, item.metadata?.rank])).toEqual([
       ["jira:responsibid:JWB:ticket:JWB-HIGH", 0, "0|aaaaa:"],
       ["jira:responsibid:JWB:ticket:JWB-LOW", 1, "0|zzzzz:"],
     ]);
-    expect(selectFrontierTicket(tickets, "highest-priority").ref).toBe(required(tickets, 0).ref);
     const search = api.requests.find((request) => request.path === "/rest/api/3/search/jql");
     expect(search?.body).toMatchObject({ jql: 'parent = "JWB-274" ORDER BY Rank ASC' });
   });
@@ -206,22 +191,12 @@ describe("Jira tracker read adapter", () => {
         (item.dependencies ?? []).every((dependency) => dependency.blocked === item.ref),
       ),
     ).toBe(true);
-    expect(() =>
-      evaluateFrontier(tickets, { map }, { availableStatuses: new Set(["To Do"]) }),
-    ).not.toThrow();
   });
 
   test("read derives its stable order from the complete parent map", async () => {
     const api = new FakeJira();
     api.issues = [issue("JWB-OTHER", { rank: "0|aaaaa:" }), issue("JWB-288", { rank: "0|bbbbb:" })];
     expect((await adapter(api).read(ticket)).ticket).toMatchObject({ ref: ticket, map, order: 1 });
-  });
-
-  test("remains registry-unavailable", async () => {
-    expect(builtInAdapters().find((item) => item.name === "jira")).toMatchObject({
-      available: false,
-      capabilities: {},
-    });
   });
 
   test("read reads the ticket without mutation", async () => {
@@ -353,7 +328,7 @@ describe("Jira mirror behind the Git claim lock", () => {
   );
 
   test(
-    "claim -> verify -> renew -> release restores Jira and releases the lock",
+    "claim -> verify -> release restores Jira and releases the lock",
     async () => {
       const api = new FakeJira();
       const { first } = await lockedJira(api);
@@ -368,21 +343,12 @@ describe("Jira mirror behind the Git claim lock", () => {
         claim: { claim: request.claim, run: request.run, owner },
       });
       const claimed = await first.snapshotClaimState(ticket);
-      const renew = {
-        claim: request.claim,
-        ticket,
-        leaseExpiresAt: "2026-10-22T00:30:00.000Z",
-        expectedVersion: claimed.version,
-      };
-      await first.renewLease(renew);
-      await first.verifyLease(renew);
-      const renewed = await first.snapshotClaimState(ticket);
       const release: ReleaseClaimRequest = {
         ticket,
         claim: request.claim,
         claimedOwner: owner,
         originalSnapshot: original,
-        expectedVersion: renewed.version,
+        expectedVersion: claimed.version,
         authorizedBy: owner,
       };
       await first.releaseClaim(release);
@@ -571,7 +537,6 @@ describe("Jira basic-auth transport", () => {
       workspace: "JWB",
       transport: jiraBasicAuthTransport(jiraEnvironment, recordingHttp(api, calls)),
       rankField: "customfield_rank",
-      priorityOrder: ["Highest", "High", "Medium", "Low", "Lowest"],
     });
     const result = (await subject.read(ticket)).ticket;
     expect(result).toMatchObject({ title: "Live summary", description: "Live description" });
@@ -802,50 +767,3 @@ test("Jira mirror without read configuration cannot advertise or perform normali
   expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
   expect(api.requests[0]?.path).not.toContain("customfield");
 });
-
-test(
-  "renewal verification refuses a claim replaced between lock and mirror reads",
-  async () => {
-    const api = new FakeJira();
-    const { first, second } = await lockedJira(api);
-    const original = await first.snapshotClaimState(ticket);
-    const initial = claimRequest(owner, "initial", original.version);
-    await first.claim(initial);
-    const renew = {
-      ticket,
-      claim: initial.claim,
-      expectedVersion: (await first.lock.read(ticket)).version,
-      leaseExpiresAt: "2026-10-22T00:30:00.000Z",
-    };
-    await first.renewLease(renew);
-    const renewed = await first.lock.read(ticket);
-    const read = first.lock.read.bind(first.lock);
-    let replaced = false;
-    first.lock.read = async (ref) => {
-      const observed = await read(ref);
-      if (!replaced) {
-        replaced = true;
-        await second.releaseClaim({
-          ticket,
-          claim: initial.claim,
-          claimedOwner: owner,
-          originalSnapshot: original,
-          expectedVersion: renewed.version,
-          authorizedBy: owner,
-        });
-        await second.claim(
-          claimRequest(
-            actorRefSchema.parse("bob"),
-            "replacement",
-            (await second.lock.read(ticket)).version,
-          ),
-        );
-      }
-      return observed;
-    };
-    await expect(first.verifyLease(renew)).rejects.toThrow();
-    expect((await second.lock.read(ticket)).record?.claim).toBe("interlock-claim:replacement");
-    expect(api.mirror()).toMatchObject({ claim: { claim: "interlock-claim:replacement" } });
-  },
-  GIT_TEST_TIMEOUT_MS,
-);

@@ -117,15 +117,14 @@ export function invocationParser(action: ActionView, forHelp = false) {
     ...transportOptions(),
   });
 }
-export function commandParser(tree: ActionTree, includeUnavailable = false): CommandParser {
+export function commandParser(tree: ActionTree): CommandParser {
   const branches: CommandParser[] = [];
   for (const [name, entry] of Object.entries(tree)) {
     if (!isAction(entry)) {
-      const child = commandParser(entry, includeUnavailable);
+      const child = commandParser(entry);
       if (child.usage.length) branches.push(command(name, child));
       continue;
     }
-    if (!includeUnavailable && !entry.availability.available) continue;
     const parser = map(invocationParser(entry), ({ input, json, help }) => ({
       action: entry,
       input,

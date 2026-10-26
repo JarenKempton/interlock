@@ -135,7 +135,7 @@ describe("Git remote claim lock", () => {
   );
 
   test(
-    "claim, renew, release and reclaim append fast-forward commits without forcing",
+    "claim and release append fast-forward commits without forcing",
     async () => {
       const { fixture, lock } = await setup();
       const scripted = new ScriptedGit(fixture.git);
@@ -152,37 +152,15 @@ describe("Git remote claim lock", () => {
       await expect(subject.claim(claimRequest(bob, "b", claimed.version))).rejects.toBeInstanceOf(
         ClaimCollisionError,
       );
-      const renewed = "2026-10-22T00:30:00.000Z";
-      await expect(
-        subject.renew({ ...claim, leaseExpiresAt: renewed, expectedVersion: ABSENT_LOCK_VERSION }),
-      ).rejects.toBeInstanceOf(ClaimCollisionError);
-      await subject.renew({ ...claim, leaseExpiresAt: renewed, expectedVersion: claimed.version });
-      const afterRenew = await subject.read(ticket);
-      expect(heldClaim(afterRenew)?.leaseExpiresAt).toBe(renewed);
-
-      fixture.clock.set("2026-10-22T00:20:00.000Z");
-      const reclaim = {
-        ...claimRequest(bob, "b", afterRenew.version),
-        staleClaim: claim.claim,
-        authorizedBy: bob,
-        leaseExpiresAt: "2026-10-22T00:45:00.000Z",
-        originalSnapshot: { version: ABSENT_LOCK_VERSION, payload: null },
-      };
-      await expect(subject.reclaim(reclaim)).rejects.toThrow("Claim lock lease is not stale");
-      fixture.clock.set("2026-10-22T00:31:00.000Z");
-      await subject.reclaim(reclaim);
-      const reclaimed = await subject.read(ticket);
-      expect(heldClaim(reclaimed)).toMatchObject({ owner: bob, supersedes: claim.claim });
-
       const release = {
         ticket,
-        claim: reclaim.claim,
-        originalSnapshot: reclaim.originalSnapshot,
-        expectedVersion: reclaimed.version,
-        authorizedBy: alice,
+        claim: claim.claim,
+        originalSnapshot: { version: ABSENT_LOCK_VERSION, payload: null },
+        expectedVersion: claimed.version,
+        authorizedBy: bob,
       };
       await expect(subject.release(release)).rejects.toBeInstanceOf(ClaimCollisionError);
-      await subject.release({ ...release, authorizedBy: bob });
+      await subject.release({ ...release, authorizedBy: alice });
       const released = await subject.read(ticket);
       expect(released.record?.action).toBe("release");
       expect(heldClaim(released)).toBeUndefined();
@@ -195,10 +173,10 @@ describe("Git remote claim lock", () => {
       expect(heldClaim(await next.read(ticket))?.claim).toBe(
         claimRefSchema.parse("interlock-claim:c"),
       );
-      expect(await checkedGit(fixture.git, ["rev-list", "--count", ref], fixture.remote)).toBe("5");
+      expect(await checkedGit(fixture.git, ["rev-list", "--count", ref], fixture.remote)).toBe("3");
 
       const pushes = scripted.calls.filter((argv) => argv[1] === "push");
-      expect(pushes).toHaveLength(4);
+      expect(pushes).toHaveLength(2);
       for (const push of pushes) {
         expect(push.some((arg) => arg.startsWith("-f") || arg.startsWith("--force"))).toBe(false);
         expect(push.at(-1)?.startsWith("+")).toBe(false);

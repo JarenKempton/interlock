@@ -186,7 +186,6 @@ test(
       status: "claimed",
       workspace: { path: f.worktree, branch: "task/TEST-492" },
     });
-    expect(inspect(f, (s) => s.run(result.run)).execution).toBeUndefined();
     expect((await app.runs.list.execute({ state: f.state }))[0]?.status).toBe("claimed");
     await writeFile(join(f.worktree, "user.txt"), "keep me");
     const release = await app.claim.release.execute({ claim: result.claim, state: f.state });
@@ -858,7 +857,7 @@ test.each([false, true])(
 );
 
 test(
-  "release needs no Rank, priority or map discovery",
+  "release needs no Rank or map discovery",
   async () => {
     const f = await fixture();
     const app = createApplication(f.services);
@@ -866,9 +865,8 @@ test(
     if (!("claim" in picked)) throw new Error("Expected claimed plan");
     Reflect.deleteProperty(f.jira.issue.fields, "parent");
     Reflect.deleteProperty(f.jira.issue.fields, "customfield_rank");
-    Reflect.deleteProperty(f.jira.issue.fields, "priority");
     f.jira.fail = (_method, path) => {
-      if (["/rest/api/3/field", "/rest/api/3/priority", "/rest/api/3/search/jql"].includes(path))
+      if (["/rest/api/3/field", "/rest/api/3/search/jql"].includes(path))
         throw new Error("pickup discovery unavailable");
     };
     expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
