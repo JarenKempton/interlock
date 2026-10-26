@@ -172,6 +172,25 @@ test("stdio transport serves initialize, tools/list, and tools/call", async () =
   expect(writes.join("")).not.toContain(token);
 });
 
+async function exchange(path: string, requests: unknown[]) {
+  const socket = createConnection(path);
+  try {
+    const chunks: string[] = [];
+    socket.on("data", (chunk) => chunks.push(chunk.toString()));
+    await new Promise<void>((resolvePromise, reject) => {
+      socket.once("connect", resolvePromise);
+      socket.once("error", reject);
+    });
+    for (const value of requests) socket.write(`${JSON.stringify(value)}\n`);
+    const lines = () => chunks.join("").split("\n").filter(Boolean);
+    for (let attempt = 0; attempt < 200 && lines().length < requests.length; attempt++)
+      await Bun.sleep(10);
+    return lines().map((line) => JSON.parse(line));
+  } finally {
+    socket.destroy();
+  }
+}
+
 test("socket transport serves an authenticated lane session and cleans up", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "interlock-mcp-")), "lane.sock");
   const server = new McpServer(createApplication(), {
@@ -181,47 +200,46 @@ test("socket transport serves an authenticated lane session and cleans up", asyn
   });
   const transport = new SocketTransport(path);
   const serving = transport.serve(server);
-  for (let attempt = 0; attempt < 50 && !existsSync(path); attempt++) await Bun.sleep(10);
-  expect(existsSync(path)).toBe(true);
-  const socket = createConnection(path);
-  const chunks: string[] = [];
-  socket.on("data", (chunk) => chunks.push(chunk.toString()));
-  const send = (value: unknown) => socket.write(`${JSON.stringify(value)}\n`);
-  await new Promise<void>((resolvePromise) => socket.once("connect", resolvePromise));
-  send(request(1, "tools/list"));
-  send(request(2, "interlock/auth", { token }));
-  send(request(3, "tools/list"));
-  send(request(4, "tools/call", { name: "version", arguments: {} }));
-  for (let attempt = 0; attempt < 100 && chunks.join("").trim().split("\n").length < 4; attempt++)
-    await Bun.sleep(10);
-  const messages = chunks
-    .join("")
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
-  expect(messages[0]).toMatchObject({ error: { code: -32001 } });
-  expect(messages[1]).toMatchObject({ result: { ok: true } });
-  expect(messages[2].result.tools.map((tool: { name: string }) => tool.name)).toEqual(["version"]);
-  expect(messages[3].result.content[0].text).toContain("0.1.0");
-  expect(chunks.join("")).not.toContain(token);
-  socket.destroy();
-  await transport.close();
+  try {
+    await transport.ready();
+    const messages = await exchange(path, [
+      request(1, "tools/list"),
+      request(2, "interlock/auth", { token }),
+      request(3, "tools/list"),
+      request(4, "tools/call", { name: "version", arguments: {} }),
+    ]);
+    expect(messages[0]).toMatchObject({ error: { code: -32001 } });
+    expect(messages[1]).toMatchObject({ result: { ok: true } });
+    expect(messages[2]?.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "version",
+    ]);
+    expect(messages[3]?.result.content[0].text).toContain("0.1.0");
+    expect(JSON.stringify(messages)).not.toContain(token);
+  } finally {
+    await transport.close();
+  }
   await serving;
   expect(existsSync(path)).toBe(false);
 });
 
-test("socket transport refuses an occupied path", async () => {
+test("socket transport refuses an occupied path and leaves the owner serving", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "interlock-mcp-")), "lane.sock");
   const first = new SocketTransport(path);
   const serving = first.serve(new McpServer(createApplication()));
-  for (let attempt = 0; attempt < 50 && !existsSync(path); attempt++) await Bun.sleep(10);
   const refused = new SocketTransport(path);
-  await expect(refused.serve(new McpServer(createApplication()))).rejects.toThrow(
-    "MCP socket path already exists",
-  );
-  await refused.close();
-  expect(existsSync(path)).toBe(true);
-  await first.close();
+  try {
+    await first.ready();
+    await expect(refused.serve(new McpServer(createApplication()))).rejects.toThrow(
+      "MCP socket path already exists",
+    );
+    await refused.close();
+    expect(await exchange(path, [request(1, "ping")])).toEqual([
+      { jsonrpc: "2.0", id: 1, result: {} },
+    ]);
+  } finally {
+    await refused.close();
+    await first.close();
+  }
   await serving;
   expect(existsSync(path)).toBe(false);
 });

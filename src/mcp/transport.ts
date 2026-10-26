@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import type { McpServer } from "./server.ts";
 
@@ -54,7 +54,6 @@ export class SocketTransport implements McpTransport {
   constructor(readonly path: string) {}
 
   async serve(server: McpServer): Promise<void> {
-    if (existsSync(this.path)) throw new Error("MCP socket path already exists");
     const listener = createServer((socket) => {
       this.sockets.add(socket);
       const session = server.newSession();
@@ -85,11 +84,17 @@ export class SocketTransport implements McpTransport {
     });
     this.server = listener;
     this.listening = new Promise<void>((resolvePromise, reject) => {
-      listener.once("error", reject);
+      listener.once("error", (error: NodeJS.ErrnoException) =>
+        reject(error.code === "EADDRINUSE" ? new Error("MCP socket path already exists") : error),
+      );
       listener.listen(this.path, () => resolvePromise());
     });
     await this.listening;
     await closed;
+  }
+
+  ready(): Promise<void> {
+    return this.listening ?? Promise.reject(new Error("MCP socket transport is not serving"));
   }
 
   async close(): Promise<void> {
@@ -105,6 +110,6 @@ export class SocketTransport implements McpTransport {
     this.sockets.clear();
     if (!server || !started) return;
     await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
-    if (existsSync(this.path)) unlinkSync(this.path);
+    rmSync(this.path, { force: true });
   }
 }
