@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { claimRefSchema, runRefSchema } from "../domain/identifiers.ts";
-import type { ClaimRef, RunRef } from "../domain/model.ts";
+import { claimRefSchema, laneRefSchema, runRefSchema } from "../domain/identifiers.ts";
+import type { ClaimRef, LaneRef, RunRef } from "../domain/model.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { databasePath } from "./paths.ts";
 import { StateStore } from "./state.ts";
@@ -18,6 +18,11 @@ export function withStore<T>(services: RuntimeServices, operation: (store: State
 }
 export function runRef(value: string): RunRef {
   return runRefSchema.parse(value.startsWith("interlock-run:") ? value : `interlock-run:${value}`);
+}
+export function laneRef(value: string): LaneRef {
+  return laneRefSchema.parse(
+    value.startsWith("interlock-lane:") ? value : `interlock-lane:${value}`,
+  );
 }
 export function claimRef(value: string): ClaimRef {
   return claimRefSchema.parse(

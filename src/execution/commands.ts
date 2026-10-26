@@ -3,6 +3,7 @@ import { flag, optional, positional, text } from "../cli/schema.ts";
 import type { Claim } from "../domain/model.ts";
 import { claimRef, runRef, withStore } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
+import { laneActions } from "./lane-commands.ts";
 import { executionStatePath, pickup } from "./pickup-runtime.ts";
 import { releaseClaim } from "./release.ts";
 
@@ -61,6 +62,7 @@ export function runActions(services: RuntimeServices) {
           }),
       }),
     },
+    lane: laneActions(services),
     claim: {
       release: defineAction({
         description:
