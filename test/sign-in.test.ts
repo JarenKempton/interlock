@@ -395,7 +395,7 @@ test("doctor prints one line per check when everything is ready", async () => {
   });
   await subject.cli("login", "jira");
   subject.output.length = 0;
-  await subject.cli("doctor", "--project", "JWB");
+  expect(await subject.cli("doctor", "--project", "JWB")).toBe(0);
   expect(subject.output.join("\n").split("\n")).toEqual([
     `✓ Jira signed in at ${SITE} as Lane Person (credential store)`,
     "✓ Jira permissions in JWB: browse, transition, assign, edit issue properties",
@@ -416,4 +416,10 @@ test("doctor follows each failing check with its fix", async () => {
     "  → Git claim lock: origin refuses a dry-run push from /work/repo",
     `✓ Database ${subject.statePath}`,
   ]);
+});
+
+test("doctor exits 1 when any check fails, with or without --json", async () => {
+  const subject = harness();
+  expect(await subject.cli("doctor")).toBe(1);
+  expect(await subject.cli("doctor", "--json")).toBe(1);
 });

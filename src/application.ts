@@ -31,6 +31,7 @@ export function createApplication(services: RuntimeServices = {}) {
       },
       render: (output, json) =>
         json ? [JSON.stringify(output, null, 2)] : [renderDoctor(output).join("\n")],
+      exitCode: (output) => (output.ok ? 0 : 1),
     }),
     version: defineAction({
       aliases: ["--version"],
