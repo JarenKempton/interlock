@@ -30,6 +30,7 @@ test.each([
   ["https://git.example:8443/team/repo", "git.example:8443/team/repo", undefined],
   ["file:///srv/locks.git", "/srv/locks", "/srv/locks.git"],
   ["/srv/locks.git/", "/srv/locks", "/srv/locks.git"],
+  ["C:\\locks\\home.git", "C:\\locks\\home", undefined],
 ])("normalizes %s", (input, identity, url) => {
   expect(normalizeClaimHome(input)).toEqual({ identity, url: url ?? input });
 });

@@ -1,3 +1,5 @@
+import { win32 } from "node:path";
+
 export interface ClaimHome {
   identity: string;
   url: string;
@@ -16,7 +18,8 @@ export function normalizeClaimHome(value: string): ClaimHome {
       url: `https://github.com/${shorthand[1]}/${repo}.git`,
     };
   }
-  if (trimmed.startsWith("/")) return { identity: stripGitSuffix(trimmed), url: trimmed };
+  if (win32.isAbsolute(trimmed) && !/^[A-Za-z]:[^\\/]/.test(trimmed))
+    return { identity: stripGitSuffix(trimmed), url: trimmed };
   let url: URL;
   try {
     url = new URL(trimmed);
