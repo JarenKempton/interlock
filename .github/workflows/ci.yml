@@ -33,4 +33,29 @@ jobs:
           INTERLOCK_TEST_OS_CREDENTIAL_STORE: "1"
       - run: bun run typecheck
       - run: bun run check
+      - run: bun run db:check
+      - run: bun run db:generate
+      - name: Fail if schema and migrations disagree
+        shell: bash
+        run: git diff --exit-code
       - run: bun run build
+      - name: Compiled binary migrates fresh and existing ledgers
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke="$(mktemp -d)"
+          export XDG_STATE_HOME="$smoke/state"
+          export HOME="$smoke/home"
+          export LOCALAPPDATA="$smoke/AppData"
+          mkdir -p "$HOME"
+          if [ -f dist/interlock.exe ]; then bin="dist/interlock.exe"; else bin="./dist/interlock"; fi
+          "$bin" doctor
+          case "$(uname -s)" in
+            Darwin) ledger="$HOME/Library/Application Support/interlock/interlock.db" ;;
+            MINGW*|MSYS*|CYGWIN*) ledger="$LOCALAPPDATA/Interlock/interlock.db" ;;
+            *) ledger="$XDG_STATE_HOME/interlock/interlock.db" ;;
+          esac
+          test -f "$ledger"
+          cp test/fixtures/ledgers/v1.db "$ledger"
+          "$bin" doctor
+          "$bin" doctor

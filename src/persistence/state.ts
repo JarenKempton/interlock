@@ -1,102 +1,56 @@
 import { Database } from "bun:sqlite";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { z } from "zod";
 import type {
   PersonalSettings,
   ResolvedConfiguration,
   UserSettingKey,
   UserSettings,
 } from "../configuration/schema.ts";
+import {
+  actorRefSchema,
+  adapterRefSchema,
+  claimRefSchema,
+  runRefSchema,
+  ticketRefSchema,
+} from "../domain/identifiers.ts";
 import type { Claim, ClaimRef, Run, RunRef } from "../domain/model.ts";
 import { configurationStore } from "./configuration.ts";
+import { type LedgerMigration, migrateLedger } from "./migrate.ts";
+import { claims } from "./schema/claims.ts";
+import { recoveryEvidence } from "./schema/recovery-evidence.ts";
+import { runs } from "./schema/runs.ts";
+import { transactionSteps } from "./schema/transaction-steps.ts";
 
-const schema = `
-CREATE TABLE IF NOT EXISTS configuration_overrides (
-  project_path TEXT PRIMARY KEY,
-  settings_json TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS user_settings (
-  name TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS execution_configurations (
-  run_ref TEXT PRIMARY KEY REFERENCES runs(ref),
-  snapshot_json TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS runs (
-  ref TEXT PRIMARY KEY,
-  ticket TEXT NOT NULL,
-  harness TEXT NOT NULL,
-  model TEXT,
-  effort TEXT,
-  context TEXT,
-  workspace_json TEXT NOT NULL,
-  capabilities_json TEXT NOT NULL,
-  status TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  execution_json TEXT
-);
-CREATE TABLE IF NOT EXISTS claims (
-  ref TEXT PRIMARY KEY,
-  ticket TEXT NOT NULL,
-  human_owner TEXT NOT NULL,
-  run_ref TEXT NOT NULL REFERENCES runs(ref),
-  previous_state_json TEXT NOT NULL,
-  claimed_at TEXT NOT NULL,
-  lease_expires_at TEXT NOT NULL,
-  status TEXT NOT NULL,
-  current_version TEXT,
-  supersedes TEXT,
-  superseded_by TEXT
-);
-CREATE TABLE IF NOT EXISTS recovery_evidence (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_ref TEXT NOT NULL REFERENCES runs(ref),
-  outcome TEXT NOT NULL,
-  evidence_json TEXT NOT NULL,
-  occurred_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS transaction_steps (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_ref TEXT NOT NULL REFERENCES runs(ref),
-  state TEXT NOT NULL,
-  receipt_json TEXT,
-  error_text TEXT,
-  occurred_at TEXT NOT NULL
-);`;
-
-interface RunRow {
-  ref: RunRef;
-  ticket: Run["ticket"];
-  harness: Run["harness"];
-  model: string | null;
-  workspace_json: string;
-  capabilities_json: string;
-  status: Run["status"];
-  created_at: string;
-  updated_at: string;
-}
-
-interface ClaimRow {
-  ref: ClaimRef;
-  ticket: Claim["ticket"];
-  human_owner: Claim["humanOwner"];
-  run_ref: RunRef;
-  previous_state_json: string;
-  claimed_at: string;
-  lease_expires_at: string;
-  status: Claim["status"];
-  current_version: string | null;
+export interface StateStoreOptions {
+  migrations?: readonly LedgerMigration[];
 }
 
 export class StateStore {
   readonly #database: Database;
+  readonly #db: ReturnType<typeof drizzle>;
+  readonly ledgerVersion: number;
+  readonly migrationBackupPath: string | undefined;
 
-  constructor(path: string) {
+  constructor(path: string, options: StateStoreOptions = {}) {
     if (!path) throw new Error("Database path is required");
     this.#database = new Database(path, { create: true, strict: true });
-    this.#database.exec("PRAGMA journal_mode=WAL");
-    this.#database.exec("PRAGMA foreign_keys=ON");
-    this.#database.exec(schema);
+    try {
+      this.#database.exec("PRAGMA journal_mode=WAL");
+      const result = options.migrations
+        ? migrateLedger(this.#database, path, options.migrations)
+        : migrateLedger(this.#database, path);
+      this.ledgerVersion = result.version;
+      this.migrationBackupPath = result.backupPath;
+      this.#database.exec("PRAGMA foreign_keys=ON");
+    } catch (error) {
+      try {
+        this.#database.close();
+      } catch {}
+      throw error;
+    }
+    this.#db = drizzle(this.#database);
   }
 
   close(): void {
@@ -121,7 +75,6 @@ export class StateStore {
     configurationStore(this.#database).saveUser(name, value);
   }
 
-  /** Initial snapshots are insert-only and retain the existing run foreign key. */
   saveExecutionConfiguration(run: RunRef, configuration: ResolvedConfiguration): void {
     configurationStore(this.#database).saveSnapshot(run, configuration);
   }
@@ -131,58 +84,75 @@ export class StateStore {
   }
 
   saveRun(run: Run): void {
-    this.#database
-      .query(`INSERT INTO runs(ref,ticket,harness,model,workspace_json,capabilities_json,status,created_at,updated_at)
-        VALUES($ref,$ticket,$harness,$model,$workspace,$capabilities,$status,$createdAt,$updatedAt)
-        ON CONFLICT(ref) DO UPDATE SET model=excluded.model,
-          workspace_json=excluded.workspace_json,
-          capabilities_json=excluded.capabilities_json,status=excluded.status,updated_at=excluded.updated_at`)
-      .run({
-        ref: run.ref,
-        ticket: run.ticket,
-        harness: run.harness,
-        model: run.model ?? null,
-        workspace: JSON.stringify(run.workspace),
-        capabilities: JSON.stringify(run.capabilities),
-        status: run.status,
-        createdAt: run.createdAt,
-        updatedAt: run.updatedAt,
-      });
+    const values = {
+      ref: run.ref,
+      ticket: run.ticket,
+      harness: run.harness,
+      model: run.model ?? null,
+      workspace_json: JSON.stringify(run.workspace),
+      capabilities_json: JSON.stringify(run.capabilities),
+      status: run.status,
+      created_at: run.createdAt,
+      updated_at: run.updatedAt,
+    };
+    this.#db
+      .insert(runs)
+      .values(values)
+      .onConflictDoUpdate({
+        target: runs.ref,
+        set: {
+          model: values.model,
+          workspace_json: values.workspace_json,
+          capabilities_json: values.capabilities_json,
+          status: values.status,
+          updated_at: values.updated_at,
+        },
+      })
+      .run();
   }
 
   run(ref: RunRef): Run {
-    const row = this.#database.query<RunRow, [string]>("SELECT * FROM runs WHERE ref=?").get(ref);
+    const row = this.#db.select().from(runs).where(eq(runs.ref, ref)).get();
     if (!row) throw new Error(`Run not found: ${ref}`);
     return {
-      ref: row.ref,
-      ticket: row.ticket,
-      harness: row.harness,
+      ref: runRefSchema.parse(row.ref),
+      ticket: ticketRefSchema.parse(row.ticket),
+      harness: adapterRefSchema.parse(row.harness),
       ...(row.model ? { model: row.model } : {}),
       workspace: JSON.parse(row.workspace_json),
       capabilities: JSON.parse(row.capabilities_json),
-      status: row.status,
+      status: z
+        .enum(["planning", "claimed", "compensated", "collision", "released", "recovery_required"])
+        .parse(row.status),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
   saveClaim(claim: Claim): void {
-    this.#database
-      .query(`INSERT INTO claims(ref,ticket,human_owner,run_ref,previous_state_json,claimed_at,lease_expires_at,status,current_version)
-        VALUES($ref,$ticket,$owner,$run,$previous,$claimedAt,$expiresAt,$status,$version)
-        ON CONFLICT(ref) DO UPDATE SET lease_expires_at=excluded.lease_expires_at,status=excluded.status,
-          current_version=excluded.current_version`)
-      .run({
-        ref: claim.ref,
-        ticket: claim.ticket,
-        owner: claim.humanOwner,
-        run: claim.run,
-        previous: JSON.stringify(claim.previousState),
-        claimedAt: claim.claimedAt,
-        expiresAt: claim.leaseExpiresAt,
-        status: claim.status,
-        version: claim.currentVersion ?? null,
-      });
+    const values = {
+      ref: claim.ref,
+      ticket: claim.ticket,
+      human_owner: claim.humanOwner,
+      run_ref: claim.run,
+      previous_state_json: JSON.stringify(claim.previousState),
+      claimed_at: claim.claimedAt,
+      lease_expires_at: claim.leaseExpiresAt,
+      status: claim.status,
+      current_version: claim.currentVersion ?? null,
+    };
+    this.#db
+      .insert(claims)
+      .values(values)
+      .onConflictDoUpdate({
+        target: claims.ref,
+        set: {
+          lease_expires_at: values.lease_expires_at,
+          status: values.status,
+          current_version: values.current_version,
+        },
+      })
+      .run();
   }
 
   saveRecoveryRequired(run: Run, receipt: unknown, error: unknown, evidence: unknown): void {
@@ -215,38 +185,55 @@ export class StateStore {
   }
 
   claim(ref: ClaimRef): Claim {
-    const row = this.#database
-      .query<ClaimRow, [string]>("SELECT * FROM claims WHERE ref=?")
-      .get(ref);
+    const row = this.#db.select().from(claims).where(eq(claims.ref, ref)).get();
     if (!row) throw new Error(`Claim not found: ${ref}`);
     return claimFromRow(row);
   }
 
   claimForRun(run: RunRef): Claim {
-    const row = this.#database
-      .query<ClaimRow, [string]>(
-        "SELECT * FROM claims WHERE run_ref=? ORDER BY claimed_at DESC LIMIT 1",
-      )
-      .get(run);
+    const row = this.#db
+      .select()
+      .from(claims)
+      .where(eq(claims.run_ref, run))
+      .orderBy(desc(claims.claimed_at))
+      .limit(1)
+      .get();
     if (!row) throw new Error(`Claim not found for run: ${run}`);
     return claimFromRow(row);
   }
 
   steps(run: RunRef): unknown[] {
-    return this.#database
-      .query(
-        "SELECT state,receipt_json,error_text,occurred_at FROM transaction_steps WHERE run_ref=? ORDER BY id",
-      )
-      .all(run);
+    return this.#db
+      .select({
+        state: transactionSteps.state,
+        receipt_json: transactionSteps.receipt_json,
+        error_text: transactionSteps.error_text,
+        occurred_at: transactionSteps.occurred_at,
+      })
+      .from(transactionSteps)
+      .where(eq(transactionSteps.run_ref, run))
+      .orderBy(asc(transactionSteps.id))
+      .all();
   }
 
   pendingWrite(run: RunRef): { id: number; receipt: unknown } | undefined {
-    const row = this.#database
-      .query<{ id: number; state: string; receipt_json: string }, [RunRef]>(
-        "SELECT id,state,receipt_json FROM transaction_steps WHERE run_ref=? AND state IN ('write_pending','write_completed') ORDER BY id DESC LIMIT 1",
+    const row = this.#db
+      .select({
+        id: transactionSteps.id,
+        state: transactionSteps.state,
+        receipt_json: transactionSteps.receipt_json,
+      })
+      .from(transactionSteps)
+      .where(
+        and(
+          eq(transactionSteps.run_ref, run),
+          inArray(transactionSteps.state, ["write_pending", "write_completed"]),
+        ),
       )
-      .get(run);
-    return row?.state === "write_pending"
+      .orderBy(desc(transactionSteps.id))
+      .limit(1)
+      .get();
+    return row?.state === "write_pending" && row.receipt_json
       ? { id: row.id, receipt: JSON.parse(row.receipt_json) }
       : undefined;
   }
@@ -274,39 +261,46 @@ export class StateStore {
   }
 
   #recordRecovery(run: RunRef, outcome: string, evidence: unknown): void {
-    this.#database
-      .query(
-        "INSERT INTO recovery_evidence(run_ref,outcome,evidence_json,occurred_at) VALUES(?,?,?,?)",
-      )
-      .run(run, outcome, JSON.stringify(evidence), new Date().toISOString());
+    this.#db
+      .insert(recoveryEvidence)
+      .values({
+        run_ref: run,
+        outcome,
+        evidence_json: JSON.stringify(evidence),
+        occurred_at: new Date().toISOString(),
+      })
+      .run();
   }
 
   recoveryEvidence(run: RunRef): unknown[] {
-    return this.#database
-      .query(
-        "SELECT outcome,evidence_json,occurred_at FROM recovery_evidence WHERE run_ref=? ORDER BY id",
-      )
-      .all(run);
+    return this.#db
+      .select({
+        outcome: recoveryEvidence.outcome,
+        evidence_json: recoveryEvidence.evidence_json,
+        occurred_at: recoveryEvidence.occurred_at,
+      })
+      .from(recoveryEvidence)
+      .where(eq(recoveryEvidence.run_ref, run))
+      .orderBy(asc(recoveryEvidence.id))
+      .all();
   }
 
   listRuns(): Run[] {
-    const rows = this.#database
-      .query<{ ref: RunRef }, []>("SELECT ref FROM runs ORDER BY created_at DESC")
-      .all();
-    return rows.map(({ ref }) => this.run(ref));
+    const rows = this.#db.select({ ref: runs.ref }).from(runs).orderBy(desc(runs.created_at)).all();
+    return rows.map(({ ref }) => this.run(runRefSchema.parse(ref)));
   }
 
   recordStep(run: RunRef, state: string, receipt?: unknown, error?: unknown): void {
-    this.#database
-      .query(`INSERT INTO transaction_steps(run_ref,state,receipt_json,error_text,occurred_at)
-        VALUES(?,?,?,?,?)`)
-      .run(
-        run,
+    this.#db
+      .insert(transactionSteps)
+      .values({
+        run_ref: run,
         state,
-        receipt === undefined ? null : JSON.stringify(receipt),
-        error === undefined ? null : errorMessage(error),
-        new Date().toISOString(),
-      );
+        receipt_json: receipt === undefined ? null : JSON.stringify(receipt),
+        error_text: error === undefined ? null : errorMessage(error),
+        occurred_at: new Date().toISOString(),
+      })
+      .run();
   }
 
   #transaction(operation: () => void): void {
@@ -314,16 +308,16 @@ export class StateStore {
   }
 }
 
-function claimFromRow(row: ClaimRow): Claim {
+function claimFromRow(row: typeof claims.$inferSelect): Claim {
   return {
-    ref: row.ref,
-    ticket: row.ticket,
-    humanOwner: row.human_owner,
-    run: row.run_ref,
+    ref: claimRefSchema.parse(row.ref),
+    ticket: ticketRefSchema.parse(row.ticket),
+    humanOwner: actorRefSchema.parse(row.human_owner),
+    run: runRefSchema.parse(row.run_ref),
     previousState: JSON.parse(row.previous_state_json),
     claimedAt: row.claimed_at,
     leaseExpiresAt: row.lease_expires_at,
-    status: row.status,
+    status: z.enum(["active", "released"]).parse(row.status),
     ...(row.current_version ? { currentVersion: row.current_version } : {}),
   };
 }

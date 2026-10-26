@@ -5,3 +5,4 @@ bun.lockb
 *.db-wal
 /dist/
 .DS_Store
+!test/fixtures/ledgers/*.db

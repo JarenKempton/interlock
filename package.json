@@ -14,12 +14,17 @@
     "check": "biome check .",
     "format": "biome format --write .",
     "build": "bun build ./src/cli.ts --compile --outfile ./dist/interlock",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "bun scripts/verify-migrations.ts",
+    "db:hash": "bun scripts/verify-migrations.ts --write",
+    "sample-ledger": "bun scripts/create-sample-ledger.ts",
     "completions": "bun run ./src/cli.ts completions",
     "man": "bun run ./src/cli.ts man"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
     "@types/bun": "^1.3.11",
+    "drizzle-kit": "0.31.9",
     "typescript": "^5.9.2"
   },
   "engines": {
