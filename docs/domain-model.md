@@ -53,8 +53,17 @@ See [claim semantics](claim-semantics.md).
 interrupt, focus, subagents and PR ownership are optional capabilities.
 [`LaneProtocol`](../src/domain/lane.ts) defines `next`, `attach`, `submit`,
 `verdict` and `done`, each returning a value or a refusal with a
-machine-readable code. Both are types only until a host and lane state machine
-implement them.
+machine-readable code. The lane state machine in the same module moves a lane
+through queued, claimed, implementing, submitted, reviewing, approved, merged
+and done; changes_requested loops back to implementing up to the lane's
+configured round limit, then routes to attention, which resumes to the prior
+state. Verdicts and evidence are bound to the submitted head and go stale for
+any other head. `lane next` returns exactly one action for the lane's state.
+Lanes persist in the local ledger, with or without a ticket; a one-off lane
+can be promoted to a ticket. Merged lanes complete only after tracker
+readback verifies the ticket is done, marking it done first when the
+tracker's merge automation has not. The `lane` actions and
+[`LaneService`](../src/execution/lane.ts) expose the machine as commands.
 
 ## Conformance
 
