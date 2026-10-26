@@ -46,6 +46,16 @@ export class StdioTransport implements McpTransport {
   async close(): Promise<void> {}
 }
 
+function answers(path: string): Promise<boolean> {
+  return Bun.connect({ unix: path, socket: { data() {} } }).then(
+    (probe) => {
+      probe.end();
+      return true;
+    },
+    () => false,
+  );
+}
+
 export class SocketTransport implements McpTransport {
   private server: Server | undefined;
   private listening: Promise<void> | undefined;
@@ -83,12 +93,18 @@ export class SocketTransport implements McpTransport {
       listener.once("close", () => resolvePromise());
     });
     this.server = listener;
-    this.listening = new Promise<void>((resolvePromise, reject) => {
-      listener.once("error", (error: NodeJS.ErrnoException) =>
-        reject(error.code === "EADDRINUSE" ? new Error("MCP socket path already exists") : error),
-      );
-      listener.listen(this.path, () => resolvePromise());
-    });
+    this.listening = answers(this.path).then(
+      (occupied) =>
+        new Promise<void>((resolvePromise, reject) => {
+          if (occupied) return reject(new Error("MCP socket path already exists"));
+          listener.once("error", (error: NodeJS.ErrnoException) =>
+            reject(
+              error.code === "EADDRINUSE" ? new Error("MCP socket path already exists") : error,
+            ),
+          );
+          listener.listen(this.path, () => resolvePromise());
+        }),
+    );
     await this.listening;
     await closed;
   }
