@@ -148,7 +148,7 @@ export async function commitFixture(git: GitCommandExecutor, repository: string,
 export async function pickupFixture() {
   const remote = await gitRemoteFixture();
   const root = await realpath(dirname(remote.alice));
-  await writeFile(join(remote.alice, "interlock.toml"), `claim_home = "${remote.remote}"\n`);
+  await writeFile(join(remote.alice, "interlock.toml"), `claim_home = '${remote.remote}'\n`);
   await checkedGit(remote.git, ["add", "interlock.toml"], remote.alice);
   await commitFixture(remote.git, remote.alice, "fixture");
   await checkedGit(remote.git, ["branch", "-M", "main"], remote.alice);

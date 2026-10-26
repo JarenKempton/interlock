@@ -1032,7 +1032,7 @@ test(
     if (!("claim" in picked)) throw new Error("Expected claim");
     const other = join(f.root, "other.git");
     expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
-    await writeFile(join(f.remote.alice, "interlock.toml"), `claim_home = "${other}"\n`);
+    await writeFile(join(f.remote.alice, "interlock.toml"), `claim_home = '${other}'\n`);
     for (const argv of [
       ["add", "interlock.toml"],
       ["-c", "user.name=F", "-c", "user.email=f@invalid", "commit", "-m", "move home"],
