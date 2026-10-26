@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
 import type {
   PersonalSettings,
@@ -17,6 +16,7 @@ import {
 } from "../domain/identifiers.ts";
 import type { Claim, ClaimRef, Run, RunRef } from "../domain/model.ts";
 import { configurationStore } from "./configuration.ts";
+import { ledgerDb } from "./ledger-db.ts";
 import { type LedgerMigration, migrateLedger } from "./migrate.ts";
 import { claims } from "./schema/claims.ts";
 import { recoveryEvidence } from "./schema/recovery-evidence.ts";
@@ -29,7 +29,7 @@ export interface StateStoreOptions {
 
 export class StateStore {
   readonly #database: Database;
-  readonly #db: ReturnType<typeof drizzle>;
+  readonly #db: ReturnType<typeof ledgerDb>;
   readonly ledgerVersion: number;
   readonly migrationBackupPath: string | undefined;
 
@@ -50,7 +50,7 @@ export class StateStore {
       } catch {}
       throw error;
     }
-    this.#db = drizzle(this.#database);
+    this.#db = ledgerDb(this.#database);
   }
 
   close(): void {

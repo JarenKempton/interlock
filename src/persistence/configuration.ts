@@ -1,12 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import {
   type UserSettingKey,
   validatePersonalSettings,
   validateResolvedConfiguration,
   validateUserSettings,
 } from "../configuration/schema.ts";
+import { ledgerDb } from "./ledger-db.ts";
 import {
   configurationOverrideRowSchema,
   configurationOverrides,
@@ -41,7 +41,7 @@ function guarded<T>(operation: () => T): T {
 }
 
 export function configurationStore(database: Database) {
-  const db = drizzle(database);
+  const db = ledgerDb(database);
   return {
     readPersonal(projectPath: string) {
       const row = guarded(() =>
