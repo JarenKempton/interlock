@@ -48,6 +48,7 @@ export class StdioTransport implements McpTransport {
 
 export class SocketTransport implements McpTransport {
   private server: Server | undefined;
+  private listening: Promise<void> | undefined;
   private readonly sockets = new Set<Socket>();
 
   constructor(readonly path: string) {}
@@ -79,23 +80,31 @@ export class SocketTransport implements McpTransport {
       socket.on("close", () => this.sockets.delete(socket));
       socket.on("error", () => this.sockets.delete(socket));
     });
+    const closed = new Promise<void>((resolvePromise) => {
+      listener.once("close", () => resolvePromise());
+    });
     this.server = listener;
-    await new Promise<void>((resolvePromise, reject) => {
+    this.listening = new Promise<void>((resolvePromise, reject) => {
       listener.once("error", reject);
       listener.listen(this.path, () => resolvePromise());
     });
-    await new Promise<void>((resolvePromise) => {
-      listener.once("close", () => resolvePromise());
-    });
+    await this.listening;
+    await closed;
   }
 
   async close(): Promise<void> {
+    const server = this.server;
+    const listening = this.listening;
+    this.server = undefined;
+    this.listening = undefined;
+    const started = await listening?.then(
+      () => true,
+      () => false,
+    );
     for (const socket of this.sockets) socket.destroy();
     this.sockets.clear();
-    const server = this.server;
-    this.server = undefined;
-    if (server?.listening)
-      await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
+    if (!server || !started) return;
+    await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
     if (existsSync(this.path)) unlinkSync(this.path);
   }
 }

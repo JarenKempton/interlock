@@ -215,11 +215,24 @@ test("socket transport refuses an occupied path", async () => {
   const first = new SocketTransport(path);
   const serving = first.serve(new McpServer(createApplication()));
   for (let attempt = 0; attempt < 50 && !existsSync(path); attempt++) await Bun.sleep(10);
-  await expect(new SocketTransport(path).serve(new McpServer(createApplication()))).rejects.toThrow(
+  const refused = new SocketTransport(path);
+  await expect(refused.serve(new McpServer(createApplication()))).rejects.toThrow(
     "MCP socket path already exists",
   );
+  await refused.close();
+  expect(existsSync(path)).toBe(true);
   await first.close();
   await serving;
+  expect(existsSync(path)).toBe(false);
+});
+
+test("socket transport closed before listening completes still stops serving", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "interlock-mcp-")), "lane.sock");
+  const transport = new SocketTransport(path);
+  const serving = transport.serve(new McpServer(createApplication()));
+  await transport.close();
+  await serving;
+  expect(existsSync(path)).toBe(false);
 });
 
 test("mcp command help derives from its registered action and validates transport", async () => {
