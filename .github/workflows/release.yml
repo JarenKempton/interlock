@@ -33,27 +33,21 @@ jobs:
           - runner: ubuntu-latest
             target: bun-linux-x64-baseline
             asset: interlock-linux-x64
-            smoke: true
           - runner: ubuntu-latest
             target: bun-linux-arm64
             asset: interlock-linux-arm64
-            smoke: false
           - runner: macos-14
             target: bun-darwin-arm64
             asset: interlock-darwin-arm64
-            smoke: true
           - runner: macos-15-intel
             target: bun-darwin-x64
             asset: interlock-darwin-x64
-            smoke: true
-          - runner: windows-latest
+          - runner: ubuntu-latest
             target: bun-windows-x64-baseline
             asset: interlock-windows-x64.exe
-            smoke: true
-          - runner: windows-latest
+          - runner: ubuntu-latest
             target: bun-windows-arm64
             asset: interlock-windows-arm64.exe
-            smoke: false
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -75,8 +69,33 @@ jobs:
           bun build src/cli.ts --compile --target="$TARGET" \
             --define "INTERLOCK_BUILD_VERSION=\"$VERSION\"" \
             --define "INTERLOCK_BUILD_RELEASES_URL=\"$RELEASES_URL\"" --outfile="dist/$ASSET"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset: interlock-linux-x64
+          - runner: macos-14
+            asset: interlock-darwin-arm64
+          - runner: macos-15-intel
+            asset: interlock-darwin-x64
+          - runner: windows-latest
+            asset: interlock-windows-x64.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist
       - name: Native executable smoke test
-        if: matrix.smoke
         shell: bash
         env:
           VERSION: ${{ github.ref_name }}
@@ -86,17 +105,12 @@ jobs:
           VERSION="${VERSION#v}"
           case "$ASSET" in *.exe) PROGRAM="dist/$ASSET" ;; *) chmod +x "dist/$ASSET"; PROGRAM="./dist/$ASSET" ;; esac
           test "$("$PROGRAM" version)" = "$VERSION"
-          "$PROGRAM" doctor
+          "$PROGRAM" runs list
           "$PROGRAM" completions bash | grep -q interlock
           "$PROGRAM" man | grep -q 'INTERLOCK.*1'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}
-          if-no-files-found: error
 
   publish:
-    needs: build
+    needs: smoke
     runs-on: ubuntu-latest
     permissions:
       contents: write
