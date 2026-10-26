@@ -11,7 +11,7 @@ import { withStore } from "./persistence/command-store.ts";
 import { databasePath } from "./persistence/paths.ts";
 import type { RuntimeServices } from "./runtime-services.ts";
 import { signInActions } from "./sign-in/commands.ts";
-import { doctorChecks } from "./sign-in/doctor.ts";
+import { doctorChecks, renderDoctor } from "./sign-in/doctor.ts";
 
 export function createApplication(services: RuntimeServices = {}) {
   let tree: ActionTree;
@@ -29,6 +29,8 @@ export function createApplication(services: RuntimeServices = {}) {
           ...checks,
         }));
       },
+      render: (output, json) =>
+        json ? [JSON.stringify(output, null, 2)] : [renderDoctor(output).join("\n")],
     }),
     version: defineAction({
       aliases: ["--version"],

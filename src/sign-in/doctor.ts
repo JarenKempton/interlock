@@ -74,3 +74,33 @@ async function pushAccess(services: RuntimeServices) {
         : `Git claim lock: origin refuses a dry-run push from ${repository}`,
   };
 }
+
+export function renderDoctor(
+  report: Awaited<ReturnType<typeof doctorChecks>> & { database: string },
+) {
+  const { jira, claimLock } = report;
+  const lockFix = claimLock.dryRunPush ? [] : report.missing.slice(-1);
+  const jiraFixes = claimLock.dryRunPush ? report.missing : report.missing.slice(0, -1);
+  const scope = "permissions" in jira ? ` in ${jira.permissions.project}` : "";
+  const signIn =
+    "account" in jira
+      ? check(true, `Jira signed in at ${jira.site} as ${jira.account} (${jira.from.join(", ")})`)
+      : check(false, `Jira not signed in${jira.site ? ` at ${jira.site}` : ""}`, jiraFixes);
+  const permissions = !("account" in jira)
+    ? check(false, "Jira permissions not checked", ["sign in first: run interlock login jira"])
+    : "permissions" in jira && jira.permissions.missing.length === 0
+      ? check(true, `Jira permissions${scope}: browse, transition, assign, edit issue properties`)
+      : check(false, `Jira permissions${scope} incomplete`, jiraFixes);
+  return [
+    ...signIn,
+    ...permissions,
+    ...(claimLock.dryRunPush
+      ? check(true, `Claim lock dry-run push to origin from ${claimLock.repository}`)
+      : check(false, "Claim lock dry-run push failed", lockFix)),
+    ...check(true, `Database ${report.database}`),
+  ];
+}
+
+function check(ok: boolean, line: string, fixes: readonly string[] = []): string[] {
+  return [`${ok ? "✓" : "✗"} ${line}`, ...fixes.map((fix) => `  → ${fix}`)];
+}

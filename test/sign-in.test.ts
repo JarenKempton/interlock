@@ -140,7 +140,7 @@ function projectConfiguration() {
 
 async function doctor(subject: ReturnType<typeof harness>, ...args: string[]) {
   subject.output.length = 0;
-  await subject.cli("doctor", ...args);
+  await subject.cli("doctor", "--json", ...args);
   return JSON.parse(subject.output.join("\n"));
 }
 
@@ -386,4 +386,34 @@ test("macOS Keychain entries round-trip non-ASCII credentials through an ASCII e
   await store.write("jira:example.atlassian.net", secret);
   expect(stored).toMatch(/^[A-Za-z0-9+/=]+$/);
   expect(await store.read("jira:example.atlassian.net")).toBe(secret);
+});
+
+test("doctor prints one line per check when everything is ready", async () => {
+  const subject = harness({
+    answers: [SITE, "lane@example.com", TOKEN],
+    granted: ["BROWSE_PROJECTS", "TRANSITION_ISSUES", "ASSIGN_ISSUES", "EDIT_ISSUES"],
+  });
+  await subject.cli("login", "jira");
+  subject.output.length = 0;
+  await subject.cli("doctor", "--project", "JWB");
+  expect(subject.output.join("\n").split("\n")).toEqual([
+    `✓ Jira signed in at ${SITE} as Lane Person (credential store)`,
+    "✓ Jira permissions in JWB: browse, transition, assign, edit issue properties",
+    "✓ Claim lock dry-run push to origin from /work/repo",
+    `✓ Database ${subject.statePath}`,
+  ]);
+});
+
+test("doctor follows each failing check with its fix", async () => {
+  const subject = harness({ push: 128 });
+  await subject.cli("doctor", "--project", "JWB");
+  expect(subject.output.join("\n").split("\n")).toEqual([
+    "✗ Jira not signed in",
+    "  → Jira sign-in: run interlock login jira",
+    "✗ Jira permissions not checked",
+    "  → sign in first: run interlock login jira",
+    "✗ Claim lock dry-run push failed",
+    "  → Git claim lock: origin refuses a dry-run push from /work/repo",
+    `✓ Database ${subject.statePath}`,
+  ]);
 });
