@@ -298,41 +298,12 @@ test("pickup refuses to reach Jira before sign-in", async () => {
   expect(subject.jira.calls).toEqual([]);
 });
 
-test("OS credential stores receive secrets on stdin, never in arguments", async () => {
-  const secret = JSON.stringify({ email: "lane@example.com", token: TOKEN });
-  for (const platform of ["linux", "darwin", "win32"] as const) {
-    const calls: Array<{ argv: readonly string[]; stdin: string | undefined }> = [];
-    const store = osCredentialStore(platform, async (argv, stdin) => {
-      calls.push({ argv, stdin });
-      return { exitCode: 0, stdout: "", stderr: "" };
-    });
-    await store.write("jira:example.atlassian.net", secret);
-    await store.read("jira:example.atlassian.net");
-    await store.delete("jira:example.atlassian.net");
-    expect(calls.map((call) => call.argv[0])).toEqual(
-      platform === "linux"
-        ? ["secret-tool", "secret-tool", "secret-tool"]
-        : platform === "darwin"
-          ? ["security", "security", "security"]
-          : ["powershell.exe", "powershell.exe", "powershell.exe"],
-    );
-    for (const call of calls) {
-      const argv = call.argv.join(" ");
-      expect(argv).not.toContain(TOKEN.slice(0, 20));
-      expect(argv).not.toContain(Buffer.from(secret).toString("hex").slice(0, 40));
-      expect(argv).not.toContain(Buffer.from(secret).toString("base64").slice(0, 40));
-    }
-    expect(calls[0]?.stdin).toBeDefined();
-    expect(calls.slice(1).every((call) => call.stdin === undefined)).toBe(true);
-  }
-});
-
 test.skipIf(process.env.INTERLOCK_TEST_OS_CREDENTIAL_STORE !== "1")(
   "the OS credential store round-trips and deletes a secret",
   async () => {
-    const store = osCredentialStore();
-    const name = `test:${process.pid}.interlock.invalid`;
-    const secret = JSON.stringify({ email: "ci@example.com", token: TOKEN });
+    const store = osCredentialStore(`interlock-test-${process.pid}`);
+    const name = "jira:example.atlassian.net";
+    const secret = JSON.stringify({ email: "jörg@example.com", token: TOKEN });
     try {
       await store.write(name, secret);
       expect(await store.read(name)).toBe(secret);
@@ -357,35 +328,6 @@ test("a failed permission check keeps the verified sign-in", async () => {
     jira: { signedIn: true, account: "Lane Person" },
     missing: [`Jira permission check at ${SITE}: Jira permission check failed (403)`],
   });
-});
-
-test("OS credential stores tell a missing entry from a failed command", async () => {
-  const result = (exitCode: number, stderr = "") => ({ exitCode, stdout: "", stderr });
-  const linuxMissing = osCredentialStore("linux", async () => result(1));
-  expect(await linuxMissing.read("jira:x")).toBeUndefined();
-  await linuxMissing.delete("jira:x");
-  const linuxBroken = osCredentialStore("linux", async () => result(1, "Cannot autolaunch D-Bus"));
-  await expect(linuxBroken.read("jira:x")).rejects.toThrow("lookup failed (1)");
-  await expect(linuxBroken.delete("jira:x")).rejects.toThrow("clear failed (1)");
-  const macMissing = osCredentialStore("darwin", async () => result(44));
-  expect(await macMissing.read("jira:x")).toBeUndefined();
-  await macMissing.delete("jira:x");
-  const macLocked = osCredentialStore("darwin", async () => result(36));
-  await expect(macLocked.read("jira:x")).rejects.toThrow("find-generic-password failed (36)");
-  await expect(macLocked.delete("jira:x")).rejects.toThrow("delete-generic-password failed (36)");
-});
-
-test("macOS Keychain entries round-trip non-ASCII credentials through an ASCII envelope", async () => {
-  let stored = "";
-  const store = osCredentialStore("darwin", async (argv, stdin) => {
-    if (argv[1] === "-i")
-      stored = Buffer.from(stdin?.trim().split(" ").at(-1) ?? "", "hex").toString();
-    return { exitCode: 0, stdout: `${stored}\n`, stderr: "" };
-  });
-  const secret = JSON.stringify({ email: "jörg@example.com", token: TOKEN });
-  await store.write("jira:example.atlassian.net", secret);
-  expect(stored).toMatch(/^[A-Za-z0-9+/=]+$/);
-  expect(await store.read("jira:example.atlassian.net")).toBe(secret);
 });
 
 test("doctor prints one line per check when everything is ready", async () => {

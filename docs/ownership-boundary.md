@@ -63,7 +63,7 @@ the verified choices for later reviews; pickup starts no reviewer.
 
 `interlock login jira` verifies an email and API token against Jira's `/myself`
 and keeps them in the OS credential store (macOS Keychain, Windows Credential
-Manager, or Linux Secret Service through `secret-tool`); the site it asks for is
+Manager, or Linux Secret Service, through Bun's built-in `Bun.secrets`); the site it asks for is
 saved in user settings. `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` override the store
 for CI and headless agents, and `JIRA_SITE` overrides the saved site. Each tracker
 adapter declares its credential fields, verification call and permission check
