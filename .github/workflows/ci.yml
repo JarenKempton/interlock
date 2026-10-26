@@ -49,7 +49,7 @@ jobs:
           export LOCALAPPDATA="$smoke/AppData"
           mkdir -p "$HOME"
           if [ -f dist/interlock.exe ]; then bin="dist/interlock.exe"; else bin="./dist/interlock"; fi
-          "$bin" doctor
+          "$bin" runs list
           case "$(uname -s)" in
             Darwin) ledger="$HOME/Library/Application Support/interlock/interlock.db" ;;
             MINGW*|MSYS*|CYGWIN*) ledger="$LOCALAPPDATA/Interlock/interlock.db" ;;
@@ -57,5 +57,5 @@ jobs:
           esac
           test -f "$ledger"
           cp test/fixtures/ledgers/v1.db "$ledger"
-          "$bin" doctor
-          "$bin" doctor
+          "$bin" runs list | grep -q "interlock-run:sample-v1"
+          "$bin" runs list | grep -q "interlock-run:sample-v1"
