@@ -60,11 +60,11 @@ export async function dispatch(
   tree: ActionTree,
   args: string[],
   write: (text: string) => void,
-): Promise<void> {
+): Promise<number> {
   // Shell generators use this transport to preserve token boundaries and shell-specific encoding.
   if (args[0] === "--complete") {
     write(completeShell(tree, args[1], args.slice(2)));
-    return;
+    return 0;
   }
   if (args[0] === "help" || args[0] === "-h" || args[0] === "--help")
     args = [...args.slice(1), "--help"];
@@ -77,7 +77,7 @@ export async function dispatch(
     const flags = parseSync(object(transportOptions()), selected.args);
     if (!flags.success) throw new Error("Group help accepts --help and --json");
     write(actionHelp(tree, selected.command, flags.value.json));
-    return;
+    return 0;
   }
   const entry = { command: selected.command, action: selected.node };
   const parsed = parseArguments(entry, selected.args);
@@ -87,7 +87,9 @@ export async function dispatch(
         ? JSON.stringify(describeAction(entry), null, 2)
         : actionHelp(tree, selected.command),
     );
-    return;
+    return 0;
   }
-  for (const line of await entry.action.call(parsed.input, parsed.json)) write(line);
+  const result = await entry.action.call(parsed.input, parsed.json);
+  for (const line of result.lines) write(line);
+  return result.exitCode;
 }

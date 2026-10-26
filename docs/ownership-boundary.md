@@ -61,9 +61,16 @@ Inherited T3 model options apply only to the same provider instance and model;
 an explicit options table replaces them. The plan's `reviewers` object carries
 the verified choices for later reviews; pickup starts no reviewer.
 
-Jira credentials come from `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` in the process
-environment. The site comes from project configuration; an optional `JIRA_SITE`
-must match it. The authenticated Jira account owns the claim. Repository paths
+`interlock login jira` verifies an email and API token against Jira's `/myself`
+and keeps them in the OS credential store (macOS Keychain, Windows Credential
+Manager, or Linux Secret Service, through Bun's built-in `Bun.secrets`); the site it asks for is
+saved in user settings. `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` override the store
+for CI and headless agents, and `JIRA_SITE` overrides the saved site. Each tracker
+adapter declares its credential fields, verification call and permission check
+(`TrackerSignIn` in `src/domain/tracker.ts`); the core prompts, stores and looks
+them up. `interlock doctor` reports sign-in, missing Jira permissions and Git
+claim-lock push access. Pickup's site comes from project configuration; an
+optional `JIRA_SITE` must match it. The authenticated Jira account owns the claim. Repository paths
 and instruction paths resolve relative to the project TOML. The Jira Rank
 field is discovered through a read-only endpoint; unsupported claim statuses
 fail closed.

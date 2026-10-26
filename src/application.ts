@@ -3,26 +3,35 @@ import { composeActions } from "./cli/catalog.ts";
 import { completionCandidates, completionScript } from "./cli/completions.ts";
 import { type ActionTree, defineAction } from "./cli/definition.ts";
 import { manPage } from "./cli/manpage.ts";
-import { choice, positional } from "./cli/schema.ts";
+import { choice, optional, positional, text } from "./cli/schema.ts";
 import { configurationActions } from "./configuration/commands.ts";
 import { VERSION } from "./distribution/version.ts";
 import { runActions } from "./execution/commands.ts";
 import { withStore } from "./persistence/command-store.ts";
 import { databasePath } from "./persistence/paths.ts";
 import type { RuntimeServices } from "./runtime-services.ts";
+import { signInActions } from "./sign-in/commands.ts";
+import { doctorChecks, renderDoctor } from "./sign-in/doctor.ts";
 
 export function createApplication(services: RuntimeServices = {}) {
   let tree: ActionTree;
   const core = {
     doctor: defineAction({
-      description: "Check local state storage.",
-      input: {},
-      handler: () =>
-        withStore(services, () => ({
-          ok: true,
+      description:
+        "Check local state, tracker sign-in and permissions, and claim-lock push access.",
+      input: { project: optional(text("Jira project key to check permissions in.", "KEY")) },
+      handler: async (input) => {
+        const checks = await doctorChecks(services, input.project);
+        return withStore(services, () => ({
+          ok: checks.missing.length === 0,
           version: VERSION,
           database: services.statePath ?? databasePath(),
-        })),
+          ...checks,
+        }));
+      },
+      render: (output, json) =>
+        json ? [JSON.stringify(output, null, 2)] : [renderDoctor(output).join("\n")],
+      exitCode: (output) => (output.ok ? 0 : 1),
     }),
     version: defineAction({
       aliases: ["--version"],
@@ -57,7 +66,8 @@ export function createApplication(services: RuntimeServices = {}) {
       ...(services.statePath ? { statePath: services.statePath } : {}),
     },
   );
-  const actions = composeActions(configuration, composeActions(runActions(services), core));
+  const execution = composeActions(runActions(services), signInActions(services));
+  const actions = composeActions(configuration, composeActions(execution, core));
   tree = actions;
   return actions;
 }

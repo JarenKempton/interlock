@@ -12,19 +12,20 @@ export async function run(
   args: string[],
   write: (text: string) => void = console.log,
   services: RuntimeServices = {},
-): Promise<void> {
-  await dispatch(createApplication(services), args, write);
+): Promise<number> {
+  return dispatch(createApplication(services), args, write);
 }
 
 if (import.meta.main) {
   run(Bun.argv.slice(2))
-    .then(() =>
-      notifyAboutUpdate({
+    .then((exitCode) => {
+      process.exitCode = exitCode;
+      return notifyAboutUpdate({
         currentVersion: VERSION,
         interactive: Boolean(process.stdout.isTTY && process.stderr.isTTY),
         json: Bun.argv.slice(2).includes("--json"),
-      }),
-    )
+      });
+    })
     .catch((error: unknown) => {
       console.error(`interlock: ${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;
