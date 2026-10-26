@@ -75,6 +75,20 @@ export class StateStore {
     configurationStore(this.#database).saveUser(name, value);
   }
 
+  claimHome(): string | undefined {
+    return this.userSettings().claim_home;
+  }
+
+  saveClaimHomeIfAbsent(home: string): boolean {
+    return this.#database
+      .transaction(() => {
+        if (this.claimHome() !== undefined) return false;
+        this.saveUserSetting("claim_home", home);
+        return true;
+      })
+      .immediate();
+  }
+
   saveExecutionConfiguration(run: RunRef, configuration: ResolvedConfiguration): void {
     configurationStore(this.#database).saveSnapshot(run, configuration);
   }
@@ -140,6 +154,11 @@ export class StateStore {
       lease_expires_at: claim.leaseExpiresAt,
       status: claim.status,
       current_version: claim.currentVersion ?? null,
+      claim_home: claim.claimHome ?? null,
+      claim_home_url: claim.claimHomeUrl ?? null,
+      record_version: claim.recordVersion ?? null,
+      lock_ref: claim.lockRef ?? null,
+      config_commit: claim.configCommit ?? null,
     };
     this.#db
       .insert(claims)
@@ -150,6 +169,11 @@ export class StateStore {
           lease_expires_at: values.lease_expires_at,
           status: values.status,
           current_version: values.current_version,
+          claim_home: values.claim_home,
+          claim_home_url: values.claim_home_url,
+          record_version: values.record_version,
+          lock_ref: values.lock_ref,
+          config_commit: values.config_commit,
         },
       })
       .run();
@@ -319,6 +343,11 @@ function claimFromRow(row: typeof claims.$inferSelect): Claim {
     leaseExpiresAt: row.lease_expires_at,
     status: z.enum(["active", "released"]).parse(row.status),
     ...(row.current_version ? { currentVersion: row.current_version } : {}),
+    ...(row.claim_home ? { claimHome: row.claim_home } : {}),
+    ...(row.claim_home_url ? { claimHomeUrl: row.claim_home_url } : {}),
+    ...(row.record_version ? { recordVersion: row.record_version } : {}),
+    ...(row.lock_ref ? { lockRef: row.lock_ref } : {}),
+    ...(row.config_commit ? { configCommit: row.config_commit } : {}),
   };
 }
 

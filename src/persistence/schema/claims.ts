@@ -1,4 +1,4 @@
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { runs } from "./runs.ts";
 
@@ -16,6 +16,11 @@ export const claims = sqliteTable("claims", {
   current_version: text(),
   supersedes: text(),
   superseded_by: text(),
+  claim_home: text(),
+  claim_home_url: text(),
+  record_version: integer(),
+  lock_ref: text(),
+  config_commit: text(),
 });
 
 export type ClaimRow = typeof claims.$inferSelect;

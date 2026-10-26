@@ -2,16 +2,23 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { GitClaimLock } from "../adapters/claims/git-lock.ts";
+import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
 import {
   JiraTrackerAdapter,
   type JiraTransport,
   jiraBasicAuthTransport,
 } from "../adapters/trackers/jira.ts";
-import { type GitCommandExecutor, GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
+import {
+  BunGitCommandExecutor,
+  type GitCommandExecutor,
+  GitWorkspaceAdapter,
+} from "../adapters/workspaces/git.ts";
 import { configurationReference, loadConfigurationInstructions } from "../configuration/files.ts";
+import { readUserSettings } from "../configuration/local-settings.ts";
 import { configurationOperations } from "../configuration/project-files.ts";
 import type { ResolvedConfiguration } from "../configuration/schema.ts";
+import type { ClaimHome } from "../domain/claim-home.ts";
+import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
 import type { RepositorySpec, RunRef, Ticket } from "../domain/model.ts";
@@ -21,6 +28,7 @@ import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { requireCredentials, trackerSignIns } from "../sign-in/credentials.ts";
+import { CHANGE_CLAIM_HOME, resolveClaimHome } from "./claim-home.ts";
 import { ClaimCoordinator } from "./claims.ts";
 import { journalJiraWrite } from "./jira-write-journal.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
@@ -135,11 +143,12 @@ export function claimCoordination(
   repository: RepositorySpec,
   tracker: JiraTrackerAdapter,
   services: RuntimeServices,
+  home: ClaimHome,
   beforeClaimWrite?: () => void,
 ) {
   const claimLock = new GitClaimLock({
     repository: repository.path,
-    remote: "origin",
+    home,
     ...(beforeClaimWrite ? { beforeClaimWrite } : {}),
     ...(services.execution?.git ? { git: services.execution.git } : {}),
     ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
@@ -196,6 +205,23 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   const workspace = new GitWorkspaceAdapter(repository, services.execution?.git);
   await workspace.preflight(ticket);
   const worktree = await workspace.plan(ticket);
+  const claimHome = await resolveClaimHome(
+    repository.path,
+    services.execution?.git ?? new BunGitCommandExecutor(),
+    readUserSettings(statePath).claim_home,
+  );
+  const marker = await jira.tracker.claimMarker(ref);
+  if (marker) throw new Error(`${input.key} is already claimed through claim home ${marker.home}`);
+  const homeLock = claimCoordination(repository, jira.tracker, services, claimHome.home).claimLock;
+  if (heldClaim(await homeLock.read(ref)))
+    throw new Error(`${input.key} is already claimed in claim home ${claimHome.home.identity}`);
+  const claimTarget = {
+    claimHome: claimHome.home.identity,
+    claimHomeUrl: claimHome.home.url,
+    recordVersion: CLAIM_RECORD_VERSION,
+    lockRef: await homeLock.ref(ref),
+    configCommit: claimHome.configCommit,
+  };
   const instructions = loadConfigurationInstructions(configuration, ticket.kind);
   const prompt = buildLaunchPrompt(ticket, {
     tracker: configuration.project.tracker.jira.site,
@@ -220,6 +246,15 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       threadId: catalog.catalog.parentThreadId,
     },
     instructions: Object.values(instructions).map(({ content: _content, ...source }) => source),
+    claimHome: {
+      home: claimHome.home.identity,
+      url: claimHome.home.url,
+      source: claimHome.source,
+      change: CHANGE_CLAIM_HOME,
+      lockRef: claimTarget.lockRef,
+      recordVersion: CLAIM_RECORD_VERSION,
+      configCommit: claimHome.configCommit,
+    },
     launch: {
       title: `${input.key}: ${ticket.title ?? input.key}`,
       message: prompt,
@@ -239,13 +274,14 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     let journalRun: RunRef | undefined;
     const mirror = new JiraTrackerAdapter({
       ...jira.options,
+      claimHome: claimHome.home.identity,
       validateClaim: eligible,
       journalWrite(pending) {
         if (!journalRun) throw new Error("Jira write requires a recorded run");
         return journalJiraWrite(store, journalRun, pending);
       },
     });
-    const { claimLock } = claimCoordination(repository, mirror, services, () => {
+    const { claimLock } = claimCoordination(repository, mirror, services, claimHome.home, () => {
       validateT3Catalog(catalog, clock.now());
     });
     const validateTicket = async (current: Ticket) => {
@@ -279,6 +315,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       workspace,
       ledger,
       clock,
+      claimTarget,
       ids: {
         run: () => `interlock-run:${randomUUID()}`,
         claim: () => `interlock-claim:${randomUUID()}`,
@@ -289,6 +326,14 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       harness: adapterRefSchema.parse("t3"),
       model: models.implementer.model,
     });
-    return { ...plan, dryRun: false, state: "claimed", run: receipt.run, claim: receipt.claim };
+    const claimHomeSaved = store.saveClaimHomeIfAbsent(claimHome.home.url);
+    return {
+      ...plan,
+      dryRun: false,
+      state: "claimed",
+      run: receipt.run,
+      claim: receipt.claim,
+      claimHomeSaved,
+    };
   });
 }

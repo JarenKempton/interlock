@@ -6,6 +6,7 @@ import {
   pendingJiraWriteSchema,
 } from "../adapters/trackers/jira.ts";
 import { GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
+import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import { parseRef } from "../domain/reference.ts";
 import { claimRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
@@ -24,6 +25,15 @@ export async function releaseClaim(
 ) {
   return withExecutionStore(services, executionStatePath(services, input.state), async (store) => {
     const claim = store.claim(claimRef(input.claim));
+    if (!claim.claimHome || !claim.claimHomeUrl || !claim.lockRef)
+      throw new Error(
+        "Claim predates claim homes; release it with the Interlock version that created it",
+      );
+    if (claim.recordVersion !== CLAIM_RECORD_VERSION)
+      throw new Error(
+        `Claim record version ${claim.recordVersion} is not supported by this Interlock`,
+      );
+    const home = { identity: claim.claimHome, url: claim.claimHomeUrl };
     const run = store.run(claim.run);
     const configuration = store.getExecutionConfiguration(run.ref);
     if (!configuration) throw new Error("Release requires the recorded execution configuration");
@@ -53,9 +63,12 @@ export async function releaseClaim(
       throw new Error("Claim has no verified lock version; inspect recovery evidence");
     const mirror = new JiraTrackerAdapter({
       ...jira.options,
+      claimHome: home.identity,
       journalWrite: (pending) => journalJiraWrite(store, run.ref, pending),
     });
-    const { claims, claimLock } = claimCoordination(repository, mirror, services);
+    const { claims, claimLock } = claimCoordination(repository, mirror, services, home);
+    if ((await claimLock.ref(claim.ticket)) !== claim.lockRef)
+      throw new Error(`Claim lock ref ${claim.lockRef} is not supported by this Interlock`);
     await new GitWorkspaceAdapter(repository, services.execution?.git).preflightRepository();
     const request = {
       claim: claim.ref,

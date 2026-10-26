@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { GitClaimLock } from "../src/adapters/claims/git-lock.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import { GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
 import { pickupFixture } from "./fixtures/pickup-runtime.ts";
@@ -56,7 +57,11 @@ test(
         status: "claimed",
         workspace: { branch: "task/TEST-492" },
       });
-      const remote = new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git });
+      const remote = new GitClaimLock({
+        repository: f.remote.alice,
+        home: normalizeClaimHome(f.remote.remote),
+        git: f.git,
+      });
       const ticket = ticketRefSchema.parse("jira:example:TEST:ticket:TEST-492");
       expect((await remote.read(ticket)).record).toMatchObject({
         action: "claim",

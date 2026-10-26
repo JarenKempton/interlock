@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { GitClaimLock } from "../src/adapters/claims/git-lock.ts";
 import { claimLockConformance } from "../src/conformance/claim-lock.ts";
 import { runConformance } from "../src/conformance/runner.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import type { ClaimLock } from "../src/domain/claim-lock.ts";
 import { actorRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
 import { GIT_TEST_TIMEOUT_MS, gitRemoteFixture, ScriptedGit } from "./fixtures/git-remote.ts";
@@ -16,7 +17,7 @@ test(
         function adapter(repository: string, git = fixture.git): ClaimLock {
           const lock = new GitClaimLock({
             repository,
-            remote: fixture.remote,
+            home: normalizeClaimHome(fixture.remote),
             git,
             clock: fixture.clock,
           });

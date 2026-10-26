@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { normalizeClaimHome } from "../domain/claim-home.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import INITIAL_CONFIGURATION from "./default.toml" with { type: "text" };
@@ -100,11 +101,23 @@ export function configurationOperations(options: ConfigurationPlatformOptions) {
     async edit(input: EditConfigurationInput) {
       const path = pathFor(input);
       const original = readFileSync(path, "utf8");
-      if (input.set || input.follow) {
+      if (input.set?.[0] === "claim-home") {
+        const home = normalizeClaimHome(input.set[1]);
+        mkdirSync(dirname(storePath()), { recursive: true });
+        const store = new StateStore(storePath());
+        try {
+          store.saveUserSetting("claim_home", home.url);
+        } finally {
+          store.close();
+        }
+        return output("edited", path, resolved(path, original));
+      }
+      const set = input.set;
+      if (set || input.follow) {
         // Only explicit choices are persisted; defaults are always read from the project.
         const update = (settings: PersonalSettings) => {
           if (input.follow === "all") return {};
-          if (input.set) settings[input.set[0]] = input.set[1];
+          if (set && set[0] !== "claim-home") settings[set[0]] = set[1];
           if (input.follow) delete settings[input.follow];
           return settings;
         };

@@ -242,7 +242,7 @@ test("doctor names the missing sign-in, Jira permissions, and claim-lock push ac
     "--dry-run",
     "--porcelain",
     "origin",
-    "HEAD:refs/interlock/claims/doctor",
+    "HEAD:refs/interlock/v2/doctor",
   ]);
 
   const signedIn = harness({ answers: [SITE, "lane@example.com", TOKEN] });

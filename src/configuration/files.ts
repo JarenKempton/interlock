@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { z } from "zod";
 import { type ProjectConfiguration, validateProjectConfiguration } from "./schema.ts";
 export function configurationVersion(content: string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -47,4 +48,15 @@ export function loadConfigurationInstructions(
       ? { roleTemplate: load(references.role_templates[role]) }
       : {}),
   };
+}
+export function projectClaimHome(content: string): string | undefined {
+  let value: unknown;
+  try {
+    value = Bun.TOML.parse(content);
+  } catch {
+    throw new Error("Malformed project TOML; values omitted from diagnostic");
+  }
+  const parsed = z.looseObject({ claim_home: z.string().optional() }).safeParse(value);
+  if (!parsed.success) throw new Error("Project claim_home must be a Git remote URL or owner/repo");
+  return parsed.data.claim_home;
 }

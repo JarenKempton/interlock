@@ -21,7 +21,7 @@ import {
   configurationVersion,
   parseProjectToml,
 } from "../src/configuration/files.ts";
-import { readPersonalSettings } from "../src/configuration/local-settings.ts";
+import { readPersonalSettings, readUserSettings } from "../src/configuration/local-settings.ts";
 import {
   configurationOperations,
   INITIAL_CONFIGURATION,
@@ -183,6 +183,20 @@ test("show does not initialize a SQLite store; local choices survive reopen and 
     "updated",
   );
   expect(readPersonalSettings(f.statePath, f.path)).toEqual({});
+});
+
+test("claim-home is one user-level setting outside project choices, stored normalized", async () => {
+  const f = fixture();
+  await f.ops.init(input);
+  await f.ops.edit({ ...input, set: ["claim-home", "Team/Locks"] });
+  expect(readUserSettings(f.statePath).claim_home).toBe("https://github.com/Team/Locks.git");
+  expect(readPersonalSettings(f.statePath, f.path)).toEqual({});
+  const leaked = await f.ops
+    .edit({ ...input, set: ["claim-home", "https://secret@github.com/a/b.git"] })
+    .catch((error: Error) => error.message);
+  expect(leaked).toContain("without credentials");
+  expect(leaked).not.toContain("secret");
+  expect(readUserSettings(f.statePath).claim_home).toBe("https://github.com/Team/Locks.git");
 });
 
 test("required conflict rolls back local write and leaves earlier choice intact", async () => {

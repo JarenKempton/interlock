@@ -56,18 +56,29 @@ readback of the original tracker snapshot. Only verified restoration permits
 ## Git-remote claim lock
 
 Trackers without a conditional write, such as Jira Cloud, claim through an
-append-only lock ref on the repository's Git remote:
+append-only lock ref in a Git repository called the claim home:
 [`GitClaimLock`](../src/adapters/claims/git-lock.ts), composed with the tracker
 by [`ClaimCoordinator`](../src/execution/claims.ts): ownership writes go to the
 lock, and the [tracker](domain-model.md#tracker) only mirrors them.
 
-- The ref is `refs/interlock/claims/<KEY>`, validated by `git check-ref-format`.
-  There is no fallback namespace: a host that rejects `refs/interlock/*` fails
-  the claim with its own rejection.
-- Lock reads and writes require one identical effective fetch and push
-  destination. Divergent or multiple remote URLs fail closed. Literal remotes
-  with applicable push rewriting must use a named remote whose destinations
-  can be verified; compensation cannot infer ownership from another repository.
+- The [claim home](../src/execution/claim-home.ts) is the first found of:
+  `claim_home` in `interlock.toml` on the work repo's default branch (found
+  with `git ls-remote --symref origin HEAD`, fetched, and its commit recorded),
+  the user-level `claim-home` setting (`interlock config edit --set claim-home
+  VALUE`), then the work repo's `origin`. A failed fetch or unreadable file
+  stops pickup; only a confirmed missing file or key moves on. Pickup prints
+  the home, its source and how to change it. The first verified claim saves
+  the home it used as `claim-home` when none is set; a dry run never does.
+- A home is stored as a normalized remote identity: any Git URL, or
+  `owner/repo` as GitHub shorthand. URLs carrying credentials are refused.
+- The lock runs in the work repo's Git directory and addresses the home by
+  URL, never by remote name. Every operation checks that `insteadOf` and
+  `pushInsteadOf` rules do not redirect it. A rejected push names the home;
+  there is no fallback home or namespace.
+- The ref is `refs/interlock/v2/<tracker instance>/<KEY>`, validated by
+  `git check-ref-format`. Before the first remote write, pickup journals the
+  home, record version, exact ref and config commit; the claim keeps them.
+  Release and recovery use those saved values, never the current config.
 - Claim and release each append one commit whose message holds
   the claim record, built on the observed tip and sent with an ordinary
   fast-forward push. The remote applies it only while the ref is still at that
@@ -86,6 +97,12 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   export, until readback proves the write landed or a competing tip fenced it.
   Restarting the CLI does not resolve that recovery evidence or authorize a
   manual lock deletion.
+- Lock commits and the Jira `interlock.claim` property both carry the home and
+  record version (2). Readers check the version first: a newer record is
+  refused and left untouched, and an older one is not read. Jira compares the
+  home and version on write, readback and restore.
+- Pickup refuses when Jira shows an assignee or any `interlock.claim` property
+  (naming the property's home), or when the lock in the resolved home is held.
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
   property first, then assignee and `In Progress`, each read back. Restoration
   removes the property last, so a property that no longer names the claim means
@@ -118,6 +135,17 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
 - A mirror conflict after the lock is held is reported as an ordinary failure so
   compensation releases the lock. Jira itself never advertises
   `conditional_update`.
+- Two races are known and accepted rather than blocked. Before a claim reaches
+  Jira, two people resolving different homes can each hold a lock; Jira's
+  unconditional property write decides, and the loser compensates only if its
+  readback sees the other claim. After an interrupted release, Jira can be
+  restored while the lock is still held, so someone using another home can
+  claim the ticket; the first claim stays held until it is released. An
+  expired lease never allows a takeover.
+- Cutover from v1 is clean: v1 refs (`refs/interlock/claims/<KEY>`) and
+  version-less records are not read, and release refuses claims recorded
+  without a home. Release in-flight v1 claims with the old binary before
+  upgrading.
 
 [Lock tests](../test/git-claim-lock.test.ts) and
 [lock conformance](../test/claim-lock-conformance.test.ts) run against real

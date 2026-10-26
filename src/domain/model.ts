@@ -73,6 +73,11 @@ export interface Claim {
   leaseExpiresAt: string;
   status: "active" | "released";
   currentVersion?: string;
+  claimHome?: string;
+  claimHomeUrl?: string;
+  recordVersion?: number;
+  lockRef?: string;
+  configCommit?: string;
 }
 
 type RunStatus =

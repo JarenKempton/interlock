@@ -1,8 +1,10 @@
 import { z } from "zod";
-import type {
-  ClaimLockRecord,
-  ClaimLockState,
-  RecoverableClaimLock,
+import { type ClaimHome, normalizeClaimHome } from "../../domain/claim-home.ts";
+import {
+  CLAIM_RECORD_VERSION,
+  type ClaimLockRecord,
+  type ClaimLockState,
+  type RecoverableClaimLock,
 } from "../../domain/claim-lock.ts";
 import {
   AmbiguousTrackerResultError,
@@ -26,8 +28,9 @@ import {
 } from "../workspaces/git.ts";
 
 export const ABSENT_LOCK_VERSION = "absent";
-export const CLAIM_LOCK_NAMESPACE = "refs/interlock/claims";
+export const CLAIM_LOCK_NAMESPACE = `refs/interlock/v${CLAIM_RECORD_VERSION}`;
 
+const recordVersionSchema = z.object({ version: z.number().int() });
 const lockRecordSchema = z.strictObject({
   action: z.enum(["claim", "release"]),
   ticket: ticketRefSchema,
@@ -35,12 +38,14 @@ const lockRecordSchema = z.strictObject({
   run: runRefSchema,
   owner: actorRefSchema,
   leaseExpiresAt: z.string(),
+  home: z.string(),
+  version: z.literal(CLAIM_RECORD_VERSION),
   authorizedBy: actorRefSchema.optional(),
 });
 
 export interface GitClaimLockOptions {
   repository: string;
-  remote: string;
+  home: ClaimHome;
   git?: GitCommandExecutor;
   clock?: Clock;
   beforeClaimWrite?: () => void;
@@ -48,7 +53,7 @@ export interface GitClaimLockOptions {
 
 export class GitClaimLock implements RecoverableClaimLock {
   readonly #repository: string;
-  readonly #remote: string;
+  readonly #home: ClaimHome;
   readonly #git: GitCommandExecutor;
   readonly #clock: Clock;
   readonly #beforeClaimWrite: (() => void) | undefined;
@@ -56,10 +61,10 @@ export class GitClaimLock implements RecoverableClaimLock {
   #emptyTree?: string;
 
   constructor(options: GitClaimLockOptions) {
-    if (!options.repository || !options.remote)
-      throw new Error("Claim lock repository and remote are required");
+    if (!options.repository || !options.home.url || !options.home.identity)
+      throw new Error("Claim lock repository and claim home are required");
     this.#repository = options.repository;
-    this.#remote = options.remote;
+    this.#home = options.home;
     this.#git = options.git ?? new BunGitCommandExecutor();
     this.#clock = options.clock ?? { now: () => new Date() };
     this.#beforeClaimWrite = options.beforeClaimWrite;
@@ -70,10 +75,12 @@ export class GitClaimLock implements RecoverableClaimLock {
   }
 
   async ref(ticket: TicketRef): Promise<string> {
-    const key = parseRef(ticket).nativeId;
-    const ref = `${CLAIM_LOCK_NAMESPACE}/${key}`;
+    const { instance, nativeId: key } = parseRef(ticket);
+    const ref = `${CLAIM_LOCK_NAMESPACE}/${instance}/${key}`;
     if (
+      !instance ||
       !key ||
+      instance.includes("/") ||
       key.includes("/") ||
       (await this.#run(["git", "check-ref-format", ref])).exitCode !== 0
     )
@@ -106,6 +113,8 @@ export class GitClaimLock implements RecoverableClaimLock {
       run: request.run,
       owner: request.owner,
       leaseExpiresAt: request.leaseExpiresAt,
+      home: this.#home.identity,
+      version: CLAIM_RECORD_VERSION,
     });
   }
 
@@ -156,7 +165,7 @@ export class GitClaimLock implements RecoverableClaimLock {
     this.#pendingWrites.set(ticket, { version: state.version, commit });
     let push: CommandResult | undefined;
     try {
-      push = await this.#run(["git", "push", "--porcelain", this.#remote, `${commit}:${ref}`]);
+      push = await this.#run(["git", "push", "--porcelain", this.#home.url, `${commit}:${ref}`]);
     } catch {
       push = undefined;
     }
@@ -177,7 +186,9 @@ export class GitClaimLock implements RecoverableClaimLock {
     const rejected = !push || push.exitCode === 0 ? undefined : /^!\t.*$/m.exec(push.stdout)?.[0];
     if (rejected) {
       this.#pendingWrites.delete(ticket);
-      throw new Error(`Claim lock push was rejected: ${rejected.trim()}`);
+      throw new Error(
+        `Claim lock push to claim home ${this.#home.identity} was rejected: ${rejected.trim()}`,
+      );
     }
     throw this.#unknownPush(ticket);
   }
@@ -191,7 +202,7 @@ export class GitClaimLock implements RecoverableClaimLock {
 
   async #remoteTip(ref: string): Promise<string | null> {
     await this.#verifyRemote();
-    const output = await this.#checked(["git", "ls-remote", this.#remote, ref]);
+    const output = await this.#checked(["git", "ls-remote", this.#home.url, ref]);
     const line = output
       .split(/\r?\n/)
       .map((item) => item.split("\t"))
@@ -200,35 +211,11 @@ export class GitClaimLock implements RecoverableClaimLock {
   }
 
   async #verifyRemote(): Promise<void> {
-    const fetch = await this.#run(["git", "remote", "get-url", "--all", this.#remote]);
-    if (fetch.exitCode !== 0) {
-      const name = this.#remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const configured = await this.#run([
-        "git",
-        "config",
-        "--get-regexp",
-        `^remote\\.${name}\\.(url|pushurl)$`,
-      ]);
-      if (configured.exitCode !== 1)
-        throw new Error("Claim lock fetch destination cannot be verified");
-      await this.#verifyLiteralRemote();
-      return;
-    }
-    const fetchUrls = fetch.stdout.trim().split(/\r?\n/);
-    const pushUrls = (
-      await this.#checked(["git", "remote", "get-url", "--push", "--all", this.#remote])
-    ).split(/\r?\n/);
-    if (
-      fetchUrls.length !== 1 ||
-      !fetchUrls[0] ||
-      pushUrls.length !== 1 ||
-      fetchUrls[0] !== pushUrls[0]
-    )
-      throw new Error("Claim lock requires one identical fetch and push destination");
-  }
-
-  async #verifyLiteralRemote(): Promise<void> {
-    const expanded = await this.#checked(["git", "ls-remote", "--get-url", this.#remote]);
+    const expanded = await this.#checked(["git", "ls-remote", "--get-url", this.#home.url]);
+    if (identityOf(expanded) !== this.#home.identity)
+      throw new Error(
+        `Claim lock destination for claim home ${this.#home.identity} is rewritten to another remote`,
+      );
     const rewrites = await this.#run([
       "git",
       "config",
@@ -242,23 +229,34 @@ export class GitClaimLock implements RecoverableClaimLock {
       const separator = entry.indexOf("\n");
       if (separator < 0) throw new Error("Claim lock push rewrites cannot be verified");
       const prefix = entry.slice(separator + 1);
-      if (this.#remote.startsWith(prefix) || expanded.startsWith(prefix))
+      if (this.#home.url.startsWith(prefix) || expanded.startsWith(prefix))
         throw new Error(
-          "Claim lock literal remote has push rewriting; use a verified named remote",
+          `Claim lock push to claim home ${this.#home.identity} is rewritten; remove the pushInsteadOf rule`,
         );
     }
   }
 
   async #record(ref: string, tip: string): Promise<ClaimLockRecord> {
     if ((await this.#run(["git", "cat-file", "-e", `${tip}^{commit}`])).exitCode !== 0)
-      await this.#checked(["git", "fetch", "--no-tags", this.#remote, ref]);
+      await this.#checked(["git", "fetch", "--no-tags", this.#home.url, ref]);
     const commit = await this.#checked(["git", "cat-file", "commit", tip]);
     const message = commit.slice(commit.indexOf("\n\n") + 2);
+    let value: unknown;
     try {
-      return lockRecordSchema.parse(JSON.parse(message.slice(message.indexOf("\n\n") + 2)));
+      value = JSON.parse(message.slice(message.indexOf("\n\n") + 2));
     } catch {
       throw new Error(`Invalid claim lock record at ${ref} ${tip}`);
     }
+    const version = recordVersionSchema.safeParse(value);
+    if (version.success && version.data.version > CLAIM_RECORD_VERSION)
+      throw new Error(
+        `Claim lock record at ${ref} is version ${version.data.version}; upgrade Interlock before touching it`,
+      );
+    const record = lockRecordSchema.safeParse(value);
+    if (!record.success) throw new Error(`Invalid claim lock record at ${ref} ${tip}`);
+    if (record.data.home !== this.#home.identity)
+      throw new Error(`Claim lock record at ${ref} belongs to claim home ${record.data.home}`);
+    return record.data;
   }
 
   async #tree(): Promise<string> {
@@ -281,6 +279,14 @@ export class GitClaimLock implements RecoverableClaimLock {
     if (result.exitCode !== 0)
       throw new Error(`Git command failed (${result.exitCode}): ${result.stderr.trim()}`);
     return result.stdout.trim();
+  }
+}
+
+function identityOf(remote: string): string | undefined {
+  try {
+    return normalizeClaimHome(remote).identity;
+  } catch {
+    return undefined;
   }
 }
 
