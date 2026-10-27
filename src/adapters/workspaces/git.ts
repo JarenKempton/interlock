@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { WorkspaceAdapter, WorkspacePlan } from "../../domain/contracts.ts";
 import type { PreparedWorkspace, RepositorySpec, Ticket, TicketRef } from "../../domain/model.ts";
@@ -98,7 +98,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   }
 
   async retire(workspace: { path: string; branch: string }): Promise<WorkspaceRetirement> {
-    const path = resolve(workspace.path);
+    const path = await realpath(workspace.path).catch(() => resolve(workspace.path));
     const { branch } = workspace;
     if (path === this.#repository.path)
       throw new WorkspaceConflictError(`Refusing to remove the project checkout ${path}`);
