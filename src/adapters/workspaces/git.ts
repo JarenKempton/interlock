@@ -1,8 +1,9 @@
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { WorkspaceAdapter, WorkspacePlan } from "../../domain/contracts.ts";
 import type { PreparedWorkspace, RepositorySpec, Ticket, TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
+import type { WorkspaceRetirement } from "../../execution/lane.ts";
 
 export interface CommandResult {
   exitCode: number;
@@ -68,6 +69,94 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
     this.#repository = canonicalRepository(repository);
     this.#git = git;
     this.#fileSystem = fileSystem;
+  }
+
+  static async forWorktree(
+    path: string,
+    baseBranch: string,
+    git: GitCommandExecutor = new BunGitCommandExecutor(),
+  ): Promise<GitWorkspaceAdapter | undefined> {
+    if (!(await pathExists(path))) return undefined;
+    const run = async (argv: readonly string[]) => {
+      const result = await git.run(argv, path);
+      if (result.exitCode !== 0)
+        throw new Error(`Git command failed (${result.exitCode}): ${result.stderr.trim()}`);
+      return result.stdout.trim();
+    };
+    const main = parseWorktrees(await run(["git", "worktree", "list", "--porcelain"]))[0];
+    if (!main) throw new WorkspaceConflictError(`No main checkout found for ${path}`);
+    return new GitWorkspaceAdapter(
+      {
+        name: "lane",
+        remote: await run(["git", "config", "--get", "remote.origin.url"]),
+        path: main.path,
+        worktreeRoot: dirname(resolve(path)),
+        baseBranch,
+      },
+      git,
+    );
+  }
+
+  async retire(workspace: { path: string; branch: string }): Promise<WorkspaceRetirement> {
+    const path = resolve(workspace.path);
+    const { branch } = workspace;
+    if (path === this.#repository.path)
+      throw new WorkspaceConflictError(`Refusing to remove the project checkout ${path}`);
+    const records = await this.#worktrees();
+    const record = records.find((item) => item.path === path);
+    if (!record)
+      return {
+        ok: false,
+        code: "workspace_unknown",
+        message: `Worktree ${path} is not registered; branch ${branch} is left`,
+      };
+    if (record.branch !== branch)
+      throw new WorkspaceConflictError(
+        `Worktree ${path} has ${record.branch ?? "a detached HEAD"}, not ${branch}`,
+      );
+    const dirty = await this.#git.run(
+      ["git", "status", "--porcelain", "--untracked-files=all"],
+      path,
+    );
+    if (dirty.exitCode !== 0) throw new Error(`git status failed in ${path}`);
+    if (dirty.stdout.trim())
+      return {
+        ok: false,
+        code: "workspace_dirty",
+        message: `Worktree ${path} has uncommitted changes; ${path} and ${branch} are left`,
+      };
+    const base = this.#repository.baseBranch;
+    await this.#gitChecked(["git", "fetch", "--quiet", "origin", base]);
+    const upstream = await this.#runGit([
+      "git",
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branch}@{upstream}`,
+    ]);
+    const deleteReference = upstream.exitCode === 0 ? upstream.stdout.trim() : "HEAD";
+    for (const reference of [`refs/remotes/origin/${base}`, deleteReference]) {
+      const ancestor = await this.#runGit([
+        "git",
+        "merge-base",
+        "--is-ancestor",
+        `refs/heads/${branch}`,
+        reference,
+      ]);
+      if (ancestor.exitCode === 1)
+        return {
+          ok: false,
+          code: "branch_unmerged",
+          message: `Branch ${branch} is not merged into ${reference === deleteReference ? `${reference} of ${this.#repository.path}` : `origin/${base}`}; ${path} and ${branch} are left`,
+        };
+      if (ancestor.exitCode !== 0)
+        throw new Error(
+          `Git could not compare ${branch} with ${reference}: ${ancestor.stderr.trim()}`,
+        );
+    }
+    await this.#gitChecked(["git", "worktree", "remove", path]);
+    await this.#gitChecked(["git", "branch", "-d", branch]);
+    return { ok: true };
   }
 
   async preflight(ticket: Ticket): Promise<void> {

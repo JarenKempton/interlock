@@ -49,6 +49,19 @@ export interface ArtifactHost {
   push(workspace: ArtifactWorkspace, head: string): Promise<void>;
   pullRequests(workspace: ArtifactWorkspace, key?: string): Promise<PullRequest[]>;
   open(workspace: ArtifactWorkspace, request: ArtifactRequest): Promise<PullRequest>;
+  merged?(url: string): Promise<{ merged: boolean; base: string }>;
+}
+
+export type WorkspaceRetirement =
+  | { ok: true }
+  | {
+      ok: false;
+      code: "workspace_dirty" | "branch_unmerged" | "workspace_unknown";
+      message: string;
+    };
+
+export interface LaneWorkspaces {
+  retire(workspace: ArtifactWorkspace, base: string): Promise<WorkspaceRetirement>;
 }
 
 export interface LaneSubmitInput {
@@ -62,6 +75,7 @@ export interface LaneServiceOptions {
   store: Pick<StateStore, "saveLane" | "findLane" | "listLanes" | "laneForTicket" | "run">;
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
+  workspaces?: LaneWorkspaces;
   clock?: { now(): Date };
   newId?: () => LaneRef;
 }
@@ -85,6 +99,7 @@ export class LaneService {
   readonly #store: LaneServiceOptions["store"];
   readonly #tracker: LaneTrackerPort | undefined;
   readonly #artifacts: ArtifactHost | undefined;
+  readonly #workspaces: LaneWorkspaces | undefined;
   readonly #clock: { now(): Date };
   readonly #newId: () => LaneRef;
 
@@ -92,6 +107,7 @@ export class LaneService {
     this.#store = options.store;
     this.#tracker = options.tracker;
     this.#artifacts = options.artifacts;
+    this.#workspaces = options.workspaces;
     this.#clock = options.clock ?? { now: () => new Date() };
     this.#newId = options.newId ?? (() => laneRefSchema.parse(`interlock-lane:${randomUUID()}`));
   }
@@ -238,53 +254,98 @@ export class LaneService {
         },
       };
     }
-    let verified = false;
-    if (!lane.ticket) {
-      verified = true;
-    } else {
-      if (!this.#tracker)
-        return fail(
-          "unsupported_capability",
-          "Completing a ticket lane requires a tracker readback",
-        );
-      let readback: TrackerRead;
+    const workspace = this.#workspace(lane);
+    let base: string | undefined;
+    if (workspace) {
+      const merged = await this.#pullRequestMerged(lane, workspace);
+      if (!merged.ok) return merged;
+      base = merged.value;
+    }
+    const done = await this.#verifyDone(lane);
+    if (!done.ok) return done;
+    if (workspace && base !== undefined && this.#workspaces) {
+      let retired: WorkspaceRetirement;
       try {
-        readback = await this.#tracker.read(lane.ticket);
+        retired = await this.#workspaces.retire(workspace, base);
+      } catch (error) {
+        return fail("workspace_unknown", errorMessage(error, "Workspace cleanup failed"));
+      }
+      if (!retired.ok) return fail(retired.code, retired.message);
+    }
+    const transition = transitionLane(
+      lane,
+      { type: "complete", trackerDoneVerified: true },
+      this.#clock.now().toISOString(),
+    );
+    this.#store.saveLane(transition.lane);
+    return transition.refusal ? { ok: false, refusal: transition.refusal } : ok(transition.lane);
+  }
+
+  async #pullRequestMerged(lane: Lane, workspace: ArtifactWorkspace): Promise<LaneResult<string>> {
+    if (!lane.artifact) return fail("artifact_required", "Lane has no pull request to verify");
+    if (!this.#artifacts?.merged || !this.#workspaces)
+      return fail(
+        "unsupported_capability",
+        "Completing a lane with a workspace requires merge readback and workspace cleanup",
+      );
+    let pullRequest: { merged: boolean; base: string };
+    try {
+      pullRequest = await this.#artifacts.merged(lane.artifact);
+    } catch {
+      return fail("artifact_host_unavailable", `Could not read ${lane.artifact}`);
+    }
+    if (!pullRequest.merged)
+      return fail(
+        "pull_request_unmerged",
+        `Pull request ${lane.artifact} is not merged; ${workspace.path} and ${workspace.branch} are left`,
+      );
+    return ok(pullRequest.base);
+  }
+
+  async #verifyDone(lane: Lane): Promise<LaneResult<true>> {
+    if (!lane.ticket) return ok(true);
+    const tracker = this.#tracker;
+    if (!tracker)
+      return fail("unsupported_capability", "Completing a ticket lane requires a tracker readback");
+    const ticket = lane.ticket;
+    const read = async (): Promise<LaneResult<boolean>> => {
+      try {
+        return ok(trackerTicketIsDone((await tracker.read(ticket)).ticket));
       } catch (error) {
         if (error instanceof TrackerUnavailableError)
           return fail("tracker_unavailable", error.message);
         return fail("tracker_not_done", "Tracker readback failed; lane remains merged");
       }
-      if (trackerTicketIsDone(readback.ticket)) {
-        verified = true;
-      } else {
-        if (!this.#tracker.transition)
-          return fail("unsupported_capability", "Tracker cannot mark the ticket done");
-        try {
-          await this.#tracker.transition(lane.ticket, "Done");
-        } catch {
-          return fail("ambiguous_write", "Tracker done transition failed; lane remains merged");
-        }
-        try {
-          readback = await this.#tracker.read(lane.ticket);
-        } catch {
-          return fail(
-            "tracker_not_done",
-            "Tracker readback after done transition failed; lane remains merged",
-          );
-        }
-        if (!trackerTicketIsDone(readback.ticket))
-          return fail("tracker_not_done", "Tracker readback has not verified the ticket is done");
-        verified = true;
-      }
+    };
+    const before = await read();
+    if (!before.ok) return before;
+    if (before.value) return ok(true);
+    if (!tracker.transition)
+      return fail("unsupported_capability", "Tracker cannot mark the ticket done");
+    let failure: unknown;
+    try {
+      await tracker.transition(ticket, "Done");
+    } catch (error) {
+      failure = error ?? new Error("Tracker done transition failed");
     }
-    const transition = transitionLane(
-      lane,
-      { type: "complete", trackerDoneVerified: verified },
-      this.#clock.now().toISOString(),
-    );
-    this.#store.saveLane(transition.lane);
-    return transition.refusal ? { ok: false, refusal: transition.refusal } : ok(transition.lane);
+    const after = await read();
+    if (after.ok && after.value) return ok(true);
+    if (failure instanceof AmbiguousTrackerResultError || (failure && !after.ok))
+      return fail(
+        "ambiguous_write",
+        "Tracker done transition was not verified; lane remains merged",
+      );
+    if (failure)
+      return fail(
+        "tracker_write_failed",
+        errorMessage(failure, "Tracker done transition failed; lane remains merged"),
+      );
+    if (!after.ok)
+      return fail(
+        "tracker_not_done",
+        "Tracker readback after done transition failed; lane remains merged",
+      );
+    return fail("tracker_not_done", "Tracker readback has not verified the ticket is done");
   }
 }
 

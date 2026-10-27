@@ -19,7 +19,10 @@ export type LaneRefusalCode =
   | "artifact_host_unavailable"
   | "duplicate_artifact"
   | "tracker_unavailable"
-  | "tracker_write_failed";
+  | "tracker_write_failed"
+  | "pull_request_unmerged"
+  | "workspace_dirty"
+  | "branch_unmerged";
 
 export type LaneResult<T> =
   | { ok: true; value: T }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
-import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
+import { BunGitCommandExecutor, GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { defineAction } from "../cli/definition.ts";
 import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { ticketRefSchema } from "../domain/identifiers.ts";
@@ -23,6 +23,22 @@ export function laneActions(services: RuntimeServices) {
       store,
       tracker: services.lane?.tracker ?? signedInLaneTracker(services),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
+      workspaces: services.lane?.workspaces ?? {
+        retire: async (workspace, base) => {
+          const adapter = await GitWorkspaceAdapter.forWorktree(
+            workspace.path,
+            base,
+            services.execution?.git,
+          );
+          return adapter
+            ? adapter.retire(workspace)
+            : {
+                ok: false,
+                code: "workspace_unknown",
+                message: `Worktree ${workspace.path} is gone; branch ${workspace.branch} is left`,
+              };
+        },
+      },
       ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
     });
   const withLane = <T>(
@@ -157,7 +173,8 @@ export function laneActions(services: RuntimeServices) {
       exitCode,
     }),
     complete: defineAction({
-      description: "Complete a merged lane after tracker readback verifies the ticket is done.",
+      description:
+        "Move a merged lane's ticket to Done, verify it by readback, remove its clean merged worktree and branch, and close the lane.",
       input: { lane, state },
       handler: (input) =>
         apply(input.lane, input.state, { type: "complete", trackerDoneVerified: false }),

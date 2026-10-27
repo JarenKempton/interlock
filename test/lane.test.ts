@@ -481,7 +481,7 @@ test("merged stays merged when the tracker cannot verify done", async () => {
     { code: "unsupported_capability" },
     { tracker: { read: () => readOnly.read() }, code: "unsupported_capability" },
     { tracker: fake({ failRead: true }), code: "tracker_not_done" },
-    { tracker: fake({ failTransition: true }), code: "ambiguous_write" },
+    { tracker: fake({ failTransition: true }), code: "tracker_write_failed" },
     { tracker: fake({ markDoneOnTransition: false }), code: "tracker_not_done" },
     { tracker: failsAfterWrite, code: "tracker_not_done" },
   ];
@@ -517,8 +517,16 @@ test("CLI runs a one-off lane through the same machine", async () => {
     push: async () => {},
     pullRequests: async () => [],
     open: async () => ({ url: "https://example.test/pr/1", branch: "local/cli" }),
+    merged: async () => ({ merged: true, base: "main" }),
   };
-  const services = { statePath, lane: { artifacts } };
+  const retired: string[] = [];
+  const workspaces = {
+    retire: async (workspace: { path: string }) => {
+      retired.push(workspace.path);
+      return { ok: true } as const;
+    },
+  };
+  const services = { statePath, lane: { artifacts, workspaces } };
   try {
     const call = async (args: string[]) => {
       const output: string[] = [];
@@ -560,6 +568,7 @@ test("CLI runs a one-off lane through the same machine", async () => {
     await call(["lane", "merge", id, "--head", "abc", "--json"]);
     const completed = await call(["lane", "complete", id, "--json"]);
     expect(completed.value.value.state).toBe("done");
+    expect(retired).toEqual([directory]);
     expect((await call(["lane", "next", id, "--json"])).value.value.kind).toBe("none");
     const listed = await call(["lane", "list", "--json"]);
     expect(listed.value).toHaveLength(1);

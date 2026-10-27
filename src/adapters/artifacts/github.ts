@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { z } from "zod";
 import type {
   ArtifactHost,
@@ -61,6 +62,18 @@ export class GitHubArtifactHost implements ArtifactHost {
     if (result.exitCode !== 0) throw new Error(`gh pr create exited ${result.exitCode}`);
     const url = z.url().parse(result.stdout.trim().split(/\r?\n/).at(-1)?.trim());
     return { url, branch: workspace.branch, title: request.title };
+  }
+
+  async merged(url: string): Promise<{ merged: boolean; base: string }> {
+    const result = await this.#commands.run(
+      ["gh", "pr", "view", url, "--json", "state,baseRefName"],
+      tmpdir(),
+    );
+    if (result.exitCode !== 0) throw new Error(`gh pr view exited ${result.exitCode}`);
+    const view = z
+      .object({ state: z.string(), baseRefName: z.string().min(1) })
+      .parse(JSON.parse(result.stdout));
+    return { merged: view.state === "MERGED", base: view.baseRefName };
   }
 
   async #list(workspace: ArtifactWorkspace, filter: readonly string[]) {
