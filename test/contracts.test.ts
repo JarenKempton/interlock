@@ -29,11 +29,15 @@ test("every registered action and MCP tool has a snapshot", () => {
   const names = new Set(contractSurfaces().map((surface) => surface.name));
   for (const { command } of registeredActions(app))
     expect(names.has(`action.${command.join("-")}`)).toBe(true);
-  const tools = new McpServer(app).tools;
-  for (const tool of tools) {
-    const snapshot = JSON.parse(
-      readFileSync(join(CONTRACTS_DIRECTORY, `action.${tool.command.join("-")}.v1.json`), "utf8"),
-    );
+  const versions = new Map(
+    registeredActions(app).map(({ command, action }) => [command.join(" "), action.version]),
+  );
+  for (const tool of new McpServer(app).tools) {
+    const file = contractFileName({
+      name: `action.${tool.command.join("-")}`,
+      version: versions.get(tool.command.join(" ")) ?? 0,
+    });
+    const snapshot = JSON.parse(readFileSync(join(CONTRACTS_DIRECTORY, file), "utf8"));
     expect(snapshot.input).toEqual(tool.inputSchema);
   }
 });
