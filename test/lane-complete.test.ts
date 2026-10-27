@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run as runCli } from "../src/cli.ts";
@@ -224,7 +224,7 @@ test("a dirty worktree refuses, names what is left, and removes nothing", async 
   const { code, result } = await lane.complete();
   expect(code).toBe(1);
   expect(result).toMatchObject({ ok: false, refusal: { code: "workspace_dirty" } });
-  expect(result.refusal.message).toContain(lane.repo.lane);
+  expect(result.refusal.message).toContain(realpathSync.native(lane.repo.lane));
   expect(result.refusal.message).toContain(branch);
   lane.intact();
 });
