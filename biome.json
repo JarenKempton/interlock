@@ -4,6 +4,7 @@
     "includes": [
       "**",
       "!!dist",
+      "!!site",
       "!!node_modules",
       "!!src/persistence/migrations/meta",
       "!!contracts/claim-record.v*.json"

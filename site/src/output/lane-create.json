@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "value": {
+    "id": "interlock-lane:217fe4f9-39f7-4017-a9fe-d147d9ad1a94",
+    "ticket": "TEST-492",
+    "title": "Prepare a real pickup",
+    "state": "queued",
+    "evidence": [],
+    "reviewRound": 0,
+    "maxReviewRounds": 3,
+    "createdAt": "2026-10-27T18:58:48.530Z",
+    "updatedAt": "2026-10-27T18:58:48.530Z"
+  }
+}

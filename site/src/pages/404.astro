@@ -1,0 +1,23 @@
+---
+import Page from "../layouts/Page.astro";
+---
+
+<Page title="Not found — Interlock" description="This page does not exist.">
+  <main id="main" class="missing">
+    <h1>Signal at danger.</h1>
+    <p>There’s nothing on this line. <a href="/">Back to Interlock</a>.</p>
+  </main>
+</Page>
+
+<style>
+  .missing {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 6rem 1.25rem;
+  }
+  h1 {
+    margin: 0 0 1rem;
+    font: 700 3rem/1 var(--display);
+    color: var(--red);
+  }
+</style>
