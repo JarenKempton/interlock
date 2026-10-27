@@ -8,6 +8,7 @@ import type { LaneResult } from "../domain/lane.ts";
 import { claimRef, laneRef, runRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { LaneService } from "./lane.ts";
+import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
 
 function exitCode(output: unknown): number {
@@ -20,7 +21,7 @@ export function laneActions(services: RuntimeServices) {
   const service = (store: Parameters<Parameters<typeof withExecutionStore>[2]>[0]) =>
     new LaneService({
       store,
-      ...(services.lane?.tracker ? { tracker: services.lane.tracker } : {}),
+      tracker: services.lane?.tracker ?? signedInLaneTracker(services),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
       ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
     });

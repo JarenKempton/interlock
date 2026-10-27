@@ -516,7 +516,7 @@ test("CLI runs a one-off lane through the same machine", async () => {
   const artifacts = {
     push: async () => {},
     pullRequests: async () => [],
-    open: async () => "https://example.test/pr/1",
+    open: async () => ({ url: "https://example.test/pr/1", branch: "local/cli" }),
   };
   const services = { statePath, lane: { artifacts } };
   try {

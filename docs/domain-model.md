@@ -66,7 +66,10 @@ tracker's merge automation has not. Core owns the lane's one pull request:
 `lane submit` pushes the head to the branch recorded for the lane's run
 workspace through the user's own Git and `gh` auth, opens or adopts the
 branch's pull request with the ticket key in its title, records the URL on
-the lane and links it through the tracker's `link_artifact`. A second open
+the lane and links it through the tracker's `link_artifact`, which for Jira is
+one issue remote link keyed by the pull request URL and read back after the
+write. A ticket lane with no signed-in tracker is refused as
+`tracker_unavailable` before anything is pushed. A second open
 pull request for the ticket is refused as `duplicate_artifact`; an
 unverified create or link is `ambiguous_write` and a resubmit adopts it. The
 lane agent needs no GitHub write credential. The `lane` actions and

@@ -36,13 +36,13 @@ export class GitHubArtifactHost implements ArtifactHost {
     const unique = new Map(
       [...byBranch, ...byKey].map((item) => [
         item.url,
-        { url: item.url, branch: item.headRefName },
+        { url: item.url, branch: item.headRefName, title: item.title },
       ]),
     );
     return [...unique.values()];
   }
 
-  async open(workspace: ArtifactWorkspace, request: ArtifactRequest): Promise<string> {
+  async open(workspace: ArtifactWorkspace, request: ArtifactRequest): Promise<PullRequest> {
     const result = await this.#commands.run(
       [
         "gh",
@@ -59,7 +59,8 @@ export class GitHubArtifactHost implements ArtifactHost {
       workspace.path,
     );
     if (result.exitCode !== 0) throw new Error(`gh pr create exited ${result.exitCode}`);
-    return z.url().parse(result.stdout.trim().split(/\r?\n/).at(-1)?.trim());
+    const url = z.url().parse(result.stdout.trim().split(/\r?\n/).at(-1)?.trim());
+    return { url, branch: workspace.branch, title: request.title };
   }
 
   async #list(workspace: ArtifactWorkspace, filter: readonly string[]) {

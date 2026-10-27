@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+  AmbiguousTrackerResultError,
+  ArtifactLinkConflictError,
+  TrackerUnavailableError,
+} from "../domain/contracts.ts";
 import { laneRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
 import {
   createLane,
@@ -19,7 +24,8 @@ import type { StateStore } from "../persistence/state.ts";
 export interface LaneTrackerPort {
   read(ticket: TicketRef): Promise<TrackerRead>;
   transition?(ticket: TicketRef, status: string): Promise<void>;
-  link_artifact?(ticket: TicketRef, url: string): Promise<void>;
+  link_artifact?(ticket: TicketRef, url: string, title?: string): Promise<void>;
+  available?(ticket: TicketRef): Promise<void>;
 }
 
 export interface ArtifactWorkspace {
@@ -30,6 +36,7 @@ export interface ArtifactWorkspace {
 export interface PullRequest {
   url: string;
   branch: string;
+  title?: string;
 }
 
 export interface ArtifactRequest {
@@ -41,7 +48,7 @@ export interface ArtifactRequest {
 export interface ArtifactHost {
   push(workspace: ArtifactWorkspace, head: string): Promise<void>;
   pullRequests(workspace: ArtifactWorkspace, key?: string): Promise<PullRequest[]>;
-  open(workspace: ArtifactWorkspace, request: ArtifactRequest): Promise<string>;
+  open(workspace: ArtifactWorkspace, request: ArtifactRequest): Promise<PullRequest>;
 }
 
 export interface LaneSubmitInput {
@@ -155,6 +162,15 @@ export class LaneService {
     const workspace = this.#workspace(lane);
     if (!workspace)
       return fail("workspace_unknown", "Lane has no recorded workspace branch to push");
+    if (lane.ticket) {
+      if (!this.#tracker?.link_artifact)
+        return fail("tracker_unavailable", "Submit requires a tracker that links artifacts");
+      try {
+        await this.#tracker.available?.(lane.ticket);
+      } catch (error) {
+        return fail("tracker_unavailable", errorMessage(error, "Tracker is unavailable"));
+      }
+    }
     const key = lane.ticket ? parseRef(lane.ticket).nativeId : undefined;
     if (key && !workspace.branch.includes(key))
       return fail("gates_unmet", `Workspace branch ${workspace.branch} does not carry ${key}`);
@@ -177,20 +193,18 @@ export class LaneService {
     } catch {
       return fail("push_failed", `Push of ${workspace.branch} failed; lane remains implementing`);
     }
-    const artifact = own[0]?.url ?? (await openPullRequest(artifacts, lane, workspace, key, input));
-    if (!artifact)
+    const pullRequest = own[0] ?? (await openPullRequest(artifacts, lane, workspace, key, input));
+    if (!pullRequest)
       return fail(
         "ambiguous_write",
         "Pull request creation was not verified; resubmit to adopt or open it",
       );
+    const artifact = pullRequest.url;
     if (lane.ticket && this.#tracker?.link_artifact) {
       try {
-        await this.#tracker.link_artifact(lane.ticket, artifact);
-      } catch {
-        return fail(
-          "ambiguous_write",
-          `Tracker link for ${artifact} was not verified; resubmit to retry`,
-        );
+        await this.#tracker.link_artifact(lane.ticket, artifact, pullRequest.title);
+      } catch (error) {
+        return linkRefusal(error, artifact);
       }
     }
     const transition = transitionLane(lane, { ...command, artifact }, now);
@@ -236,7 +250,9 @@ export class LaneService {
       let readback: TrackerRead;
       try {
         readback = await this.#tracker.read(lane.ticket);
-      } catch {
+      } catch (error) {
+        if (error instanceof TrackerUnavailableError)
+          return fail("tracker_unavailable", error.message);
         return fail("tracker_not_done", "Tracker readback failed; lane remains merged");
       }
       if (trackerTicketIsDone(readback.ticket)) {
@@ -290,7 +306,7 @@ async function openPullRequest(
   workspace: ArtifactWorkspace,
   key: string | undefined,
   input: LaneSubmitInput,
-): Promise<string | undefined> {
+): Promise<PullRequest | undefined> {
   const summary = input.title ?? lane.title ?? workspace.branch;
   const request = {
     title: key && !summary.includes(key) ? `${key}: ${summary}` : summary,
@@ -307,11 +323,26 @@ async function openPullRequest(
       const adopted = (await artifacts.pullRequests(workspace)).filter(
         (item) => item.branch === workspace.branch,
       );
-      return adopted.length === 1 ? adopted[0]?.url : undefined;
+      return adopted.length === 1 ? adopted[0] : undefined;
     } catch {
       return undefined;
     }
   }
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function linkRefusal<T>(error: unknown, artifact: string): LaneResult<T> {
+  if (error instanceof TrackerUnavailableError) return fail("tracker_unavailable", error.message);
+  if (error instanceof ArtifactLinkConflictError) return fail("artifact_mismatch", error.message);
+  if (error instanceof AmbiguousTrackerResultError)
+    return fail(
+      "ambiguous_write",
+      `Tracker link for ${artifact} was not verified; resubmit to retry`,
+    );
+  return fail("tracker_write_failed", errorMessage(error, `Tracker link for ${artifact} failed`));
 }
 
 export function laneTicketRef(value: string): TicketRef {
