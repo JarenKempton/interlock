@@ -1,5 +1,10 @@
 import type { ClaimLockFixture } from "../../src/conformance/claim-lock.ts";
-import type { ClaimLock, ClaimLockRecord, ClaimLockState } from "../../src/domain/claim-lock.ts";
+import {
+  CLAIM_RECORD_VERSION,
+  type ClaimLock,
+  type ClaimLockRecord,
+  type ClaimLockState,
+} from "../../src/domain/claim-lock.ts";
 import { AmbiguousTrackerResultError, ClaimCollisionError } from "../../src/domain/contracts.ts";
 import { actorRefSchema, ticketRefSchema } from "../../src/domain/identifiers.ts";
 
@@ -42,6 +47,8 @@ export function fakeLockFixture(): ClaimLockFixture {
           run: request.run,
           owner: request.owner,
           leaseExpiresAt: request.leaseExpiresAt,
+          home: "fake/home",
+          version: CLAIM_RECORD_VERSION,
         });
       },
       async release(request) {

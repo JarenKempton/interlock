@@ -53,7 +53,9 @@ const jiraSite = configText.refine((site) => {
     return false;
   }
 });
-export const userSettingsSchema = z.strictObject({ jira_site: jiraSite }).partial();
+export const userSettingsSchema = z
+  .strictObject({ jira_site: jiraSite, claim_home: configText })
+  .partial();
 export type UserSettings = z.infer<typeof userSettingsSchema>;
 export type UserSettingKey = keyof UserSettings;
 const roleModelSchema = z.strictObject({
@@ -64,6 +66,7 @@ const roleModelSchema = z.strictObject({
 export const projectConfigurationSchema = z
   .strictObject({
     version: z.literal(1),
+    claim_home: configText.optional(),
     repositories: z.record(configText, repositorySchema),
     maps: z.record(configText, mapSchema),
     tracker: z.strictObject({

@@ -4,9 +4,9 @@ import { configText, personalSettingsSchema } from "./schema.ts";
 const path = configText
   .describe("Project configuration file; defaults to interlock.toml in the current directory.")
   .meta({ metavar: "FILE" });
-const setting = personalSettingsSchema
-  .keyof()
-  .describe("Personal setting")
+const setting = z
+  .enum([...personalSettingsSchema.keyof().options, "claim-home"])
+  .describe("Personal setting, or the user-level claim-home")
   .meta({ metavar: "SETTING" });
 export const initInput = {
   path: path.optional(),
@@ -21,7 +21,9 @@ export const editInput = {
     .optional(),
   set: z
     .tuple([setting, configText.meta({ metavar: "VALUE" })])
-    .describe("Save one explicit personal choice in local SQLite; never supply secrets.")
+    .describe(
+      "Save one explicit personal choice in local SQLite, or set the user-level claim-home; never supply secrets.",
+    )
     .optional(),
   follow: z
     .enum([...personalSettingsSchema.keyof().options, "all"])

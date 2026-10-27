@@ -1,7 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
   "files": {
-    "includes": ["**", "!!dist", "!!node_modules", "!!src/persistence/migrations/meta"]
+    "includes": [
+      "**",
+      "!!dist",
+      "!!node_modules",
+      "!!src/persistence/migrations/meta",
+      "!!contracts/claim-record.v*.json"
+    ]
   },
   "formatter": {
     "enabled": true,

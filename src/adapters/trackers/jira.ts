@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLAIM_RECORD_VERSION } from "../../domain/claim-lock.ts";
 import { AmbiguousTrackerResultError, ClaimCollisionError } from "../../domain/contracts.ts";
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "../../domain/identifiers.ts";
 import type {
@@ -111,10 +112,15 @@ const issueSchema = z.object({
   }),
 });
 type JiraIssue = z.infer<typeof issueSchema>;
-const claimPropertySchema = z.object({
+export const claimPropertySchema = z.object({
   claim: z.string(),
   run: z.string(),
   owner: z.string(),
+  home: z.string(),
+  version: z.literal(CLAIM_RECORD_VERSION),
+});
+const claimPropertyVersionSchema = z.object({
+  value: z.object({ version: z.number().int().optional() }),
 });
 type JiraClaimProperty = z.infer<typeof claimPropertySchema>;
 const claimSnapshotSchema = z.object({
@@ -155,6 +161,7 @@ export interface JiraTrackerOptions {
   /** Jira's site-specific field id for the standard LexoRank Rank field. */
   rankField?: string;
   claimProperty?: string;
+  claimHome?: string;
   pageSize?: number;
   validateClaim?: (ticket: Ticket) => void | Promise<void>;
   journalWrite?: (pending: PendingJiraWrite) => () => void;
@@ -164,6 +171,7 @@ export class JiraTrackerAdapter implements Tracker {
   readonly #transport: JiraTransport;
   readonly #prefix: string;
   readonly #claimProperty: string;
+  readonly #claimHome: string | undefined;
   readonly #rankField: string | undefined;
   readonly #pageSize: number;
   readonly #validateClaim: JiraTrackerOptions["validateClaim"];
@@ -182,6 +190,7 @@ export class JiraTrackerAdapter implements Tracker {
     this.#transport = options.transport;
     this.#prefix = `jira:${options.instance}:${options.workspace}`;
     this.#claimProperty = options.claimProperty ?? "interlock.claim";
+    this.#claimHome = options.claimHome;
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
     this.#validateClaim = options.validateClaim;
@@ -239,7 +248,19 @@ export class JiraTrackerAdapter implements Tracker {
     );
   }
 
+  async claimMarker(ticket: TicketRef): Promise<JiraClaimProperty | null> {
+    return this.#readClaim(ticket);
+  }
+
   async apply(request: MirrorClaim): Promise<void> {
+    const home = this.#requireClaimHome();
+    const property: JiraClaimProperty = {
+      claim: request.claim,
+      run: request.run,
+      owner: request.owner,
+      home,
+      version: CLAIM_RECORD_VERSION,
+    };
     const issue = await this.#issue(request.ticket);
     const current = await this.#claimState(request.ticket, issue);
     if (this.#validateClaim && current.claim?.claim !== request.claim) {
@@ -254,17 +275,14 @@ export class JiraTrackerAdapter implements Tracker {
         ),
       );
     }
-    if (
-      (current.assignee !== null && current.assignee !== request.owner) ||
-      (current.claim !== null && !sameClaimIdentity(current.claim, request))
-    )
-      throw new ClaimCollisionError("Jira ticket is assigned or marked by another claim");
-    try {
-      await this.#mirror(
-        request.ticket,
-        { claim: request.claim, run: request.run, owner: request.owner },
-        current,
+    if (current.claim !== null && !sameClaimIdentity(current.claim, property))
+      throw new ClaimCollisionError(
+        `Jira ticket is marked by another claim in claim home ${current.claim.home}`,
       );
+    if (current.assignee !== null && current.assignee !== request.owner)
+      throw new ClaimCollisionError("Jira ticket is assigned to someone else");
+    try {
+      await this.#mirror(request.ticket, property, current);
       await this.verify({ ...request, state: "applied" });
     } catch (error) {
       if (error instanceof PendingJiraWriteError) throw error;
@@ -280,23 +298,34 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   async #verifyApplied(request: MirrorClaim): Promise<void> {
+    const home = this.#requireClaimHome();
     const current = await this.#verifiedClaimState(request.ticket);
     if (
       current.assignee !== request.owner ||
       current.status !== CLAIMED_STATUS ||
-      current.claim?.claim !== request.claim ||
-      current.claim.run !== request.run ||
-      current.claim.owner !== request.owner
+      !current.claim ||
+      !sameClaimIdentity(current.claim, {
+        claim: request.claim,
+        run: request.run,
+        owner: request.owner,
+        home,
+        version: CLAIM_RECORD_VERSION,
+      })
     )
       throw new AmbiguousTrackerResultError("Jira claim mirror could not be verified");
   }
 
   async restore(request: MirrorRestore): Promise<void> {
+    const home = this.#requireClaimHome();
     const owner = requireClaimedOwner(request.claimedOwner);
     const original = originalClaimState(request);
     await this.#settlePendingWrite(request.ticket);
     const current = await this.#claimState(request.ticket);
     if (current.claim?.claim !== request.claim) return;
+    if (current.claim.home !== home)
+      throw new ClaimCollisionError(
+        `Jira claim property names claim home ${current.claim.home}, not ${home}`,
+      );
     if (
       current.claim.owner !== owner ||
       (current.assignee !== owner && current.assignee !== original.assignee) ||
@@ -324,6 +353,7 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   async #verifyRestored(request: MirrorRestore): Promise<void> {
+    this.#requireClaimHome();
     const owner = requireClaimedOwner(request.claimedOwner);
     const original = originalClaimState(request);
     await this.#settlePendingWrite(request.ticket);
@@ -334,6 +364,11 @@ export class JiraTrackerAdapter implements Tracker {
       (current.status === CLAIMED_STATUS && current.status !== original.status)
     )
       throw new AmbiguousTrackerResultError("Jira restored state could not be verified");
+  }
+
+  #requireClaimHome(): string {
+    if (!this.#claimHome) throw new Error("Jira claim mirror requires a claim home");
+    return this.#claimHome;
   }
 
   #readConfiguration() {
@@ -529,9 +564,7 @@ export class JiraTrackerAdapter implements Tracker {
     if (property.status !== 200 && property.status !== 404)
       throw new Error(`Jira property read failed (${property.status})`);
     if (property.status === 404) return null;
-    const parsed = z.object({ value: claimPropertySchema.optional() }).safeParse(property.body);
-    if (!parsed.success) throw new Error("Invalid Jira claim property");
-    return parsed.data.value ?? null;
+    return parseClaimProperty(property.body, this.#claimProperty, this.#ticketKey(ticket));
   }
 
   #fields(): string[] {
@@ -595,7 +628,13 @@ export class JiraTrackerAdapter implements Tracker {
 }
 
 function sameClaimIdentity(left: JiraClaimProperty, right: JiraClaimProperty): boolean {
-  return left.claim === right.claim && left.run === right.run && left.owner === right.owner;
+  return (
+    left.claim === right.claim &&
+    left.run === right.run &&
+    left.owner === right.owner &&
+    left.home === right.home &&
+    left.version === right.version
+  );
 }
 
 function originalClaimState(request: MirrorRestore): JiraClaimSnapshot {
@@ -670,4 +709,25 @@ export function jiraDescription(value: unknown): string | undefined {
     return `[Unsupported Jira content]${content}`;
   }
   return render(value).trimEnd();
+}
+
+export function parseClaimProperty(
+  body: unknown,
+  property: string,
+  key: string,
+): JiraClaimProperty {
+  const version = claimPropertyVersionSchema.safeParse(body);
+  if (!version.success) throw new Error("Invalid Jira claim property");
+  const found = version.data.value.version;
+  if (found === undefined || found < CLAIM_RECORD_VERSION)
+    throw new Error(
+      `Jira ${property} on ${key} was written before claim homes; remove the ${property} property from ${key} and refs/interlock/claims/${key} from the claim remote to clear it`,
+    );
+  if (found > CLAIM_RECORD_VERSION)
+    throw new Error(
+      `Jira ${property} on ${key} is version ${found}; upgrade Interlock before touching it`,
+    );
+  const parsed = z.object({ value: claimPropertySchema }).safeParse(body);
+  if (!parsed.success) throw new Error("Invalid Jira claim property");
+  return parsed.data.value;
 }

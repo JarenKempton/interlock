@@ -17,6 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "db:check": "bun scripts/verify-migrations.ts",
     "db:hash": "bun scripts/verify-migrations.ts --write",
+    "contracts:hash": "bun scripts/hash-claim-record-contracts.ts",
     "sample-ledger": "bun scripts/create-sample-ledger.ts",
     "completions": "bun run ./src/cli.ts completions",
     "man": "bun run ./src/cli.ts man"

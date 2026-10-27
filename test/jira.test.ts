@@ -11,7 +11,9 @@ import {
 } from "../src/adapters/trackers/jira.ts";
 import { runConformance } from "../src/conformance/runner.ts";
 import { trackerConformance } from "../src/conformance/tracker.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import {
+  AmbiguousTrackerResultError,
   ClaimCollisionError,
   type ClaimRequest,
   type ReleaseClaimRequest,
@@ -130,6 +132,7 @@ function adapter(api: FakeJira, validateClaim?: JiraTrackerOptions["validateClai
     transport: api,
     ...(validateClaim ? { validateClaim } : {}),
     rankField: "customfield_rank",
+    claimHome: "github.com/jarenkempton/interlock",
   });
 }
 
@@ -212,6 +215,8 @@ describe("Jira tracker read adapter", () => {
       claim: "interlock-claim:c",
       run: "interlock-run:r",
       owner,
+      home: "github.com/jarenkempton/interlock",
+      version: 2,
     };
     expect((await adapter(api).read(ticket)).snapshot).toEqual({
       version: "2026-08-11T00:00:00.000Z",
@@ -302,7 +307,7 @@ async function lockedJira(api: FakeJira, firstTracker = adapter(api)) {
     new ClaimCoordinator(
       new GitClaimLock({
         repository,
-        remote: fixture.remote,
+        home: normalizeClaimHome(fixture.remote),
         clock: fixture.clock,
         git: fixture.git,
       }),
@@ -340,7 +345,13 @@ describe("Jira mirror behind the Git claim lock", () => {
       expect(api.mirror()).toEqual({
         assignee: owner,
         status: "In Progress",
-        claim: { claim: request.claim, run: request.run, owner },
+        claim: {
+          claim: request.claim,
+          run: request.run,
+          owner,
+          home: "github.com/jarenkempton/interlock",
+          version: 2,
+        },
       });
       const claimed = await first.snapshotClaimState(ticket);
       const release: ReleaseClaimRequest = {
@@ -750,6 +761,7 @@ test("Jira mirror without read configuration cannot advertise or perform normali
     instance: "responsibid",
     workspace: "JWB",
     transport: api,
+    claimHome: "github.com/jarenkempton/interlock",
   });
   expect(await subject.describe()).toEqual(capabilities());
   await expect(subject.read(ticket)).rejects.toThrow("normalized reads require");
@@ -762,4 +774,49 @@ test("Jira mirror without read configuration cannot advertise or perform normali
   await subject.verify({ ...restoreRequest(), state: "restored" });
   expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
   expect(api.requests[0]?.path).not.toContain("customfield");
+});
+
+test.each([
+  [
+    "an older",
+    { claim: "interlock-claim:c", run: "interlock-run:c", owner: "account" },
+    "written before claim homes; remove the interlock.claim property from JWB-288 and refs/interlock/claims/JWB-288",
+  ],
+  [
+    "a newer",
+    { claim: "interlock-claim:c", version: 3, future: true },
+    "version 3; upgrade Interlock",
+  ],
+])(
+  "the mirror reads the version first and leaves %s claim property untouched",
+  async (_, property, message) => {
+    const api = new FakeJira();
+    api.claimProperty = property;
+    await expect(adapter(api).read(ticket)).rejects.toThrow(message);
+    await expect(adapter(api).apply(claimRequest(owner, "c", "absent"))).rejects.toThrow(message);
+    await expect(adapter(api).restore(restoreRequest())).rejects.toThrow(message);
+    expect(api.claimProperty).toEqual(property);
+    expect(api.mutationCount()).toBe(0);
+  },
+);
+
+test("a claim property from another claim home names that home and is never overwritten", async () => {
+  const api = new FakeJira();
+  const property = {
+    claim: "interlock-claim:c",
+    run: "interlock-run:c",
+    owner,
+    home: "github.com/other/home",
+    version: 2,
+  };
+  api.claimProperty = property;
+  await expect(adapter(api).apply(claimRequest(owner, "c", "absent"))).rejects.toThrow(
+    "claim home github.com/other/home",
+  );
+  await expect(adapter(api).restore(restoreRequest())).rejects.toBeInstanceOf(ClaimCollisionError);
+  await expect(
+    adapter(api).verify({ ...claimRequest(owner, "c", "absent"), state: "applied" }),
+  ).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+  expect(api.claimProperty).toEqual(property);
+  expect(api.mutationCount()).toBe(0);
 });

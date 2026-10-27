@@ -7,6 +7,7 @@ import {
   type GitClaimLockOptions,
   heldClaim,
 } from "../src/adapters/claims/git-lock.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import {
   AmbiguousTrackerResultError,
   ClaimCollisionError,
@@ -27,7 +28,7 @@ import {
 } from "./fixtures/git-remote.ts";
 
 const ticket = ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-900");
-const ref = "refs/interlock/claims/JWB-900";
+const ref = "refs/interlock/v2/responsibid/JWB-900";
 const alice = actorRefSchema.parse("alice");
 const bob = actorRefSchema.parse("bob");
 const lease = "2026-10-22T00:15:00.000Z";
@@ -44,7 +45,7 @@ async function setup() {
   const lock = (repository: string, options: Partial<GitClaimLockOptions> = {}) =>
     new GitClaimLock({
       repository,
-      remote: fixture.remote,
+      home: normalizeClaimHome(fixture.remote),
       clock: fixture.clock,
       git: fixture.git,
       ...options,
@@ -363,50 +364,112 @@ describe("Git remote claim lock", () => {
       ).rejects.toThrow("Claim lease must expire in the future");
       const other = ticketRefSchema.parse("jira:other:JWB:ticket:JWB-900");
       await subject.claim({ ...claimRequest(alice, "a"), ticket: other });
-      await expect(subject.read(ticket)).rejects.toThrow(`belongs to ${other}`);
+      expect(await subject.ref(other)).toBe("refs/interlock/v2/other/JWB-900");
+      expect((await subject.read(ticket)).version).toBe(ABSENT_LOCK_VERSION);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  test.each([
+    ["a newer record version", { version: 3 }, "version 3; upgrade Interlock"],
+    ["another claim home", { home: "github.com/other/home" }, "claim home github.com/other/home"],
+  ])(
+    "refuses and leaves untouched %s",
+    async (_, change, message) => {
+      const { fixture, alice: subject } = await setup();
+      const tip = await plant(fixture, ref, {
+        ...claimRecord(fixture),
+        ...change,
+      });
+      await expect(subject.read(ticket)).rejects.toThrow(message);
+      await expect(subject.claim(claimRequest(alice, "late", tip))).rejects.toThrow(message);
+      expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote, ref], fixture.alice)).toBe(
+        `${tip}\t${ref}`,
+      );
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "v1 claim refs are not read",
+    async () => {
+      const { fixture, alice: subject } = await setup();
+      const { version: _, home: __, ...v1 } = claimRecord(fixture);
+      await plant(fixture, "refs/interlock/claims/JWB-900", v1);
+      expect(await subject.read(ticket)).toEqual({ version: ABSENT_LOCK_VERSION, record: null });
     },
     GIT_TEST_TIMEOUT_MS,
   );
 });
 
-test.each([
-  "pushurl",
-  "multiple-pushurls",
-  "multiple-fetchurls",
-  "push-rewrite",
-  "literal-rewrite",
-])(
-  "claim refuses divergent or ambiguous effective destinations: %s",
-  async (configuration) => {
+function claimRecord(fixture: GitRemoteFixture) {
+  return {
+    action: "claim",
+    ticket,
+    claim: "interlock-claim:planted",
+    run: "interlock-run:planted",
+    owner: bob,
+    leaseExpiresAt: lease,
+    home: normalizeClaimHome(fixture.remote).identity,
+    version: 2,
+  };
+}
+
+async function plant(fixture: GitRemoteFixture, target: string, record: object): Promise<string> {
+  const tree = await checkedGit(fixture.git, ["mktree"], fixture.bob);
+  const commit = await checkedGit(
+    fixture.git,
+    [
+      "-c",
+      "user.name=bob",
+      "-c",
+      "user.email=bob@invalid",
+      "commit-tree",
+      tree,
+      "-m",
+      `interlock claim ${target}`,
+      "-m",
+      JSON.stringify(record),
+    ],
+    fixture.bob,
+  );
+  await checkedGit(
+    fixture.git,
+    ["push", "--quiet", fixture.remote, `${commit}:${target}`],
+    fixture.bob,
+  );
+  return commit;
+}
+
+test.each(["insteadOf", "pushInsteadOf", "command-scoped"])(
+  "claim refuses a claim home whose destination is rewritten: %s",
+  async (rewrite) => {
     const { fixture, lock } = await setup();
     const other = join(fixture.alice, "other.git");
     await checkedGit(fixture.git, ["init", "--bare", "--quiet", other], fixture.alice);
-    await checkedGit(fixture.git, ["remote", "add", "origin", fixture.remote], fixture.alice);
-    if (configuration === "pushurl" || configuration === "multiple-pushurls") {
-      if (configuration === "multiple-pushurls")
-        await checkedGit(
-          fixture.git,
-          ["config", "--add", "remote.origin.pushurl", fixture.remote],
-          fixture.alice,
-        );
+    if (rewrite !== "command-scoped")
       await checkedGit(
         fixture.git,
-        ["config", "--add", "remote.origin.pushurl", other],
+        ["config", `url.${other}.${rewrite}`, fixture.remote],
         fixture.alice,
       );
-    } else if (configuration === "multiple-fetchurls") {
-      await checkedGit(fixture.git, ["config", "--add", "remote.origin.url", other], fixture.alice);
-    } else {
-      await checkedGit(
-        fixture.git,
-        ["config", `url.${other}.pushInsteadOf`, fixture.remote],
-        fixture.alice,
-      );
-    }
     const subject = lock(fixture.alice, {
-      remote: configuration === "literal-rewrite" ? fixture.remote : "origin",
+      ...(rewrite === "command-scoped"
+        ? {
+            git: {
+              run(argv, cwd) {
+                return fixture.git.run(
+                  ["git", "-c", `url.${other}.pushInsteadOf=${fixture.remote}`, ...argv.slice(1)],
+                  cwd,
+                );
+              },
+            },
+          }
+        : {}),
     });
-    await expect(subject.claim(claimRequest(alice, "redirected"))).rejects.toThrow();
+    await expect(subject.claim(claimRequest(alice, "redirected"))).rejects.toThrow(
+      `claim home ${normalizeClaimHome(fixture.remote).identity}`,
+    );
     for (const remote of [fixture.remote, other])
       expect(await checkedGit(fixture.git, ["ls-remote", remote, ref], fixture.alice)).toBe("");
   },
@@ -414,54 +477,26 @@ test.each([
 );
 
 test(
-  "a matching explicit push URL permits verified claim and release",
+  "the lock addresses its home by URL and ignores the work repo's remotes",
   async () => {
     const { fixture, lock } = await setup();
-    await checkedGit(fixture.git, ["remote", "add", "origin", fixture.remote], fixture.alice);
-    await checkedGit(
-      fixture.git,
-      ["remote", "set-url", "--push", "origin", fixture.remote],
-      fixture.alice,
-    );
-    const subject = lock(fixture.alice, { remote: "origin" });
-    const claim = claimRequest(alice, "same-destination");
+    const other = join(fixture.alice, "other.git");
+    await checkedGit(fixture.git, ["init", "--bare", "--quiet", other], fixture.alice);
+    await checkedGit(fixture.git, ["remote", "add", "origin", other], fixture.alice);
+    const subject = lock(fixture.alice);
+    const claim = claimRequest(alice, "by-url");
     await subject.claim(claim);
-    expect(heldClaim(await subject.read(ticket))?.claim).toBe(claim.claim);
-    await subject.restore(ticket, claim.claim);
-    expect((await subject.read(ticket)).record?.action).toBe("release");
-  },
-  GIT_TEST_TIMEOUT_MS,
-);
-
-test(
-  "command-scoped remote URLs cannot bypass destination verification",
-  async () => {
-    const { fixture, lock } = await setup();
-    const other = join(fixture.alice, "other.git");
-    await checkedGit(fixture.git, ["init", "--bare", "--quiet", other], fixture.alice);
-    const subject = lock(fixture.alice, {
-      remote: "ephemeral",
-      git: {
-        run(argv, cwd) {
-          return fixture.git.run(
-            [
-              "git",
-              "-c",
-              `remote.ephemeral.url=${fixture.remote}`,
-              "-c",
-              `remote.ephemeral.pushurl=${other}`,
-              ...argv.slice(1),
-            ],
-            cwd,
-          );
-        },
-      },
+    expect(heldClaim(await subject.read(ticket))).toMatchObject({
+      claim: claim.claim,
+      home: normalizeClaimHome(fixture.remote).identity,
+      version: 2,
     });
-    await expect(subject.claim(claimRequest(alice, "scoped-remote"))).rejects.toThrow(
-      "fetch destination cannot be verified",
-    );
-    for (const remote of [fixture.remote, other])
-      expect(await checkedGit(fixture.git, ["ls-remote", remote, ref], fixture.alice)).toBe("");
+    expect(await checkedGit(fixture.git, ["ls-remote", other, ref], fixture.alice)).toBe("");
+    await subject.restore(ticket, claim.claim);
+    expect((await subject.read(ticket)).record).toMatchObject({
+      action: "release",
+      home: normalizeClaimHome(fixture.remote).identity,
+    });
   },
   GIT_TEST_TIMEOUT_MS,
 );

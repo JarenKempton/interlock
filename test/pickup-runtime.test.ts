@@ -2,10 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../src/adapters/claims/git-lock.ts";
 import type { CommandResult } from "../src/adapters/workspaces/git.ts";
 import { createApplication } from "../src/application.ts";
+import { readUserSettings } from "../src/configuration/local-settings.ts";
+import { configurationOperations } from "../src/configuration/project-files.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
+import type { Claim } from "../src/domain/model.ts";
 import { PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS, ScriptedGit } from "./fixtures/git-remote.ts";
@@ -22,7 +27,17 @@ async function fixture() {
 }
 const ref = ticketRefSchema.parse("jira:example:TEST:ticket:TEST-492");
 function lock(f: Awaited<ReturnType<typeof fixture>>) {
-  return new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git });
+  return homeLock(f, f.remote.remote);
+}
+function homeLock(f: Awaited<ReturnType<typeof fixture>>, home: string) {
+  return new GitClaimLock({
+    repository: f.remote.alice,
+    home: normalizeClaimHome(home),
+    git: f.git,
+  });
+}
+async function configure(f: Awaited<ReturnType<typeof fixture>>, key: string, value: string) {
+  expect((await f.git.run(["git", "config", key, value], f.remote.alice)).exitCode).toBe(0);
 }
 function inspect<T>(f: Awaited<ReturnType<typeof fixture>>, read: (store: StateStore) => T): T {
   const store = new StateStore(f.state);
@@ -338,18 +353,24 @@ test(
   GIT_TEST_TIMEOUT_MS,
 );
 
-test(
-  "collision never alters another owner's remote claim or Jira",
-  async () => {
+test.each([
+  ["property", "already claimed through claim home"],
+  ["lock", "already claimed in claim home"],
+])(
+  "a held %s refuses pickup without altering the remote claim or Jira",
+  async (marker, message) => {
     const f = await fixture();
     const app = createApplication(f.services);
     const first = await app.pickup.execute(f.input);
     if (!("claim" in first)) throw new Error("Expected claim");
     f.jira.issue.fields.assignee = null;
     f.jira.issue.fields.status.name = "To Do";
+    if (marker === "lock") f.jira.property = null;
     const before = await lock(f).read(ref);
     const calls = f.jira.calls.length;
-    await expect(app.pickup.execute(f.input)).rejects.toBeInstanceOf(PickupResultError);
+    await expect(app.pickup.execute(f.input)).rejects.toThrow(
+      `${message} ${normalizeClaimHome(f.remote.remote).identity}`,
+    );
     expect(await lock(f).read(ref)).toEqual(before);
     expect(
       f.jira.calls.slice(calls).filter((c) => c.startsWith("PUT") || c.startsWith("DELETE")),
@@ -907,22 +928,18 @@ test(
 );
 
 test(
-  "pickup refuses a separate push URL without leaving a claim in either remote",
+  "pickup refuses a rewritten claim home push without leaving a claim in either remote",
   async () => {
     const f = await fixture();
     const other = join(f.root, "other.git");
     expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
-    expect(
-      (await f.git.run(["git", "remote", "set-url", "--push", "origin", other], f.remote.alice))
-        .exitCode,
-    ).toBe(0);
+    await configure(f, `url.${other}.pushInsteadOf`, f.remote.remote);
     await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
-      "fetch and push",
+      `claim home ${normalizeClaimHome(f.remote.remote).identity}`,
     );
-    for (const remote of [f.remote.remote, other]) {
-      const authority = new GitClaimLock({ repository: f.remote.alice, remote, git: f.git });
-      expect((await authority.read(ref)).version).toBe("absent");
-    }
+    await configure(f, "--unset", `url.${other}.pushInsteadOf`);
+    for (const remote of [f.remote.remote, other])
+      expect((await homeLock(f, remote).read(ref)).version).toBe("absent");
     expect(f.jira.property).toBeNull();
     expect(existsSync(f.worktree)).toBe(false);
   },
@@ -930,7 +947,7 @@ test(
 );
 
 test(
-  "release refuses changed push destinations before restoring Jira",
+  "release refuses a rewritten claim home push before restoring Jira",
   async () => {
     const f = await fixture();
     const app = createApplication(f.services);
@@ -938,23 +955,138 @@ test(
     if (!("claim" in picked)) throw new Error("Expected claimed plan");
     const other = join(f.root, "other.git");
     expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
-    expect(
-      (await f.git.run(["git", "remote", "set-url", "--push", "origin", other], f.remote.alice))
-        .exitCode,
-    ).toBe(0);
+    await configure(f, `url.${other}.pushInsteadOf`, f.remote.remote);
     const before = f.jira.calls.length;
     await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
-      "fetch and push",
+      `claim home ${normalizeClaimHome(f.remote.remote).identity}`,
     );
     expect(f.jira.calls.slice(before).every((call) => call.startsWith("GET "))).toBe(true);
     expect(f.jira.property).toMatchObject({ claim: picked.claim });
     expect(f.jira.issue.fields.status.name).toBe("In Progress");
-    const original = new GitClaimLock({
-      repository: f.remote.alice,
-      remote: f.remote.remote,
-      git: f.git,
-    });
-    expect(heldClaim(await original.read(ref))?.claim).toBe(picked.claim);
+    await configure(f, "--unset", `url.${other}.pushInsteadOf`);
+    expect(heldClaim(await lock(f).read(ref))?.claim).toBe(picked.claim);
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test(
+  "pickup prints the claim home and saves it from the first verified claim, never a dry run",
+  async () => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const home = normalizeClaimHome(f.remote.remote);
+    const planned = await app.pickup.execute({ ...f.input, "dry-run": true });
+    expect(planned.claimHome).toMatchObject({
+      home: home.identity,
+      url: home.url,
+      source: expect.stringContaining("claim_home in interlock.toml on refs/heads/main at "),
+      change: expect.stringContaining("interlock config edit --set claim-home VALUE"),
+      lockRef: "refs/interlock/v2/example/TEST-492",
+      recordVersion: 2,
+    });
+    expect(readUserSettings(f.state).claim_home).toBeUndefined();
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claim");
+    expect(picked.claimHomeSaved).toBe(true);
+    expect(readUserSettings(f.state).claim_home).toBe(home.url);
+    const target = {
+      claimHome: home.identity,
+      claimHomeUrl: home.url,
+      recordVersion: 2,
+      lockRef: "refs/interlock/v2/example/TEST-492",
+      configCommit: planned.claimHome.configCommit,
+    };
+    expect(inspect(f, (s) => s.claimForRun(picked.run))).toMatchObject(target);
+    const claiming = z
+      .object({ state: z.string(), receipt_json: z.string() })
+      .array()
+      .parse(inspect(f, (s) => s.steps(picked.run)))
+      .find((step) => step.state === "claiming");
+    expect(JSON.parse(claiming?.receipt_json ?? "null").receipt).toMatchObject(target);
+    expect(heldClaim(await lock(f).read(ref))).toMatchObject({ home: home.identity, version: 2 });
+    expect(f.jira.property).toMatchObject({ home: home.identity, version: 2 });
+    await app.claim.release.execute({ claim: picked.claim, state: f.state });
+    await configureUserHome(f, "someone/else");
+    expect(readUserSettings(f.state).claim_home).toBe("https://github.com/someone/else.git");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "an existing claim-home setting is never overwritten by a claim",
+  async () => {
+    const f = await fixture();
+    await configureUserHome(f, "someone/else");
+    const picked = await createApplication(f.services).pickup.execute(f.input);
+    expect(picked).toMatchObject({ claimHomeSaved: false });
+    expect(readUserSettings(f.state).claim_home).toBe("https://github.com/someone/else.git");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "release uses the saved claim home even after the configured home changes",
+  async () => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claim");
+    const other = join(f.root, "other.git");
+    expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
+    await writeFile(join(f.remote.alice, "interlock.toml"), `claim_home = '${other}'\n`);
+    for (const argv of [
+      ["add", "interlock.toml"],
+      ["-c", "user.name=F", "-c", "user.email=f@invalid", "commit", "-m", "move home"],
+      ["push", "--quiet", "origin", "main"],
+    ])
+      expect((await f.git.run(["git", ...argv], f.remote.alice)).exitCode).toBe(0);
+    await configureUserHome(f, other);
+    await app.claim.release.execute({ claim: picked.claim, state: f.state });
+    expect((await lock(f).read(ref)).record?.action).toBe("release");
+    expect((await homeLock(f, other).read(ref)).version).toBe("absent");
+    expect(f.jira.property).toBeNull();
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each([
+  [
+    "before claim homes",
+    (claim: Claim): Claim => {
+      const { claimHome: _, claimHomeUrl: __, lockRef: ___, ...v1 } = claim;
+      return v1;
+    },
+    "was made before claim homes; remove the interlock.claim property from TEST-492 and refs/interlock/claims/TEST-492 from the claim remote",
+  ],
+  [
+    "by a newer Interlock",
+    (claim: Claim): Claim => ({ ...claim, recordVersion: 3 }),
+    "has record version 3; upgrade Interlock to release it",
+  ],
+])(
+  "release refuses a claim recorded %s without touching Jira or the lock",
+  async (_, recorded, message) => {
+    const f = await fixture();
+    const app = createApplication(f.services);
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected claim");
+    const before = await lock(f).read(ref);
+    inspect(f, (s) => {
+      s.saveClaim(recorded(s.claimForRun(picked.run)));
+    });
+    const calls = f.jira.calls.length;
+    await expect(
+      app.claim.release.execute({ claim: picked.claim, state: f.state }),
+    ).rejects.toThrow(message);
+    expect(f.jira.calls.length).toBe(calls);
+    expect(await lock(f).read(ref)).toEqual(before);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+async function configureUserHome(f: Awaited<ReturnType<typeof fixture>>, value: string) {
+  await configurationOperations({ cwd: f.root, statePath: f.state }).edit({
+    path: f.config,
+    set: ["claim-home", value],
+  });
+}

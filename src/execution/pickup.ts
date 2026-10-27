@@ -59,7 +59,13 @@ export interface PickupCoordinatorOptions {
   ids: IdFactory;
   clock: Clock;
   leaseDurationMs?: number;
+  claimTarget?: ClaimTarget;
 }
+
+export type ClaimTarget = Pick<
+  Claim,
+  "claimHome" | "claimHomeUrl" | "recordVersion" | "lockRef" | "configCommit"
+>;
 
 export class PickupCoordinator {
   readonly #options: PickupCoordinatorOptions;
@@ -124,10 +130,12 @@ export class PickupCoordinator {
       expectedVersion: snapshot.version,
     };
     receipt.state = "claiming";
+    const target = this.#options.claimTarget ?? {};
     await this.#options.ledger.recordStep(runRef, "claiming", {
       ...receipt,
       snapshot,
       owner: request.owner,
+      ...target,
     });
     try {
       try {
@@ -157,6 +165,7 @@ export class PickupCoordinator {
         leaseExpiresAt: claimRequest.leaseExpiresAt,
         status: "active",
         currentVersion: verifiedSnapshot.version,
+        ...target,
       };
       receipt.state = "claimed";
       await this.#options.ledger.commitClaim(claim, receipt);
@@ -223,6 +232,7 @@ export class PickupCoordinator {
           claimedAt: run.createdAt,
           leaseExpiresAt: run.createdAt,
           status: "released",
+          ...this.#options.claimTarget,
         });
         run.status = "compensated";
         await this.#options.ledger.saveRun(run);

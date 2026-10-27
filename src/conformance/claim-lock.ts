@@ -173,7 +173,10 @@ function release(fixture: ClaimLockFixture, expectedVersion: string): ReleaseCla
   };
 }
 
-function requireRecord(actual: ClaimLockRecord | null, expected: ClaimLockRecord) {
+function requireRecord(
+  actual: ClaimLockRecord | null,
+  expected: Omit<ClaimLockRecord, "home" | "version">,
+) {
   requireBehavior(
     actual &&
       actual.action === expected.action &&

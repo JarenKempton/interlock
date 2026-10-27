@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../src/adapters/claims/git-lock.ts";
 import { createApplication } from "../src/application.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
@@ -94,7 +95,11 @@ test.each(["complete", "kill"])(
         await expect(app.claim.release.execute({ claim: first.claim })).rejects.toThrow(
           "Claim lock changed",
         );
-        const lock = new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git });
+        const lock = new GitClaimLock({
+          repository: f.remote.alice,
+          home: normalizeClaimHome(f.remote.remote),
+          git: f.git,
+        });
         expect(heldClaim(await lock.read(ticketRefSchema.parse(first.ticket)))?.claim).toBe(
           successor.claim,
         );

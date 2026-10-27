@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../src/adapters/claims/git-lock.ts";
 import { createApplication } from "../src/application.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
@@ -65,9 +66,11 @@ test(
       ).toEqual([]);
       expect(
         heldClaim(
-          await new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git }).read(
-            ticket,
-          ),
+          await new GitClaimLock({
+            repository: f.remote.alice,
+            home: normalizeClaimHome(f.remote.remote),
+            git: f.git,
+          }).read(ticket),
         )?.claim,
       ).toBe(picked.claim);
     } finally {
@@ -150,7 +153,11 @@ test.each(["status", "assignee", "property"])(
       } finally {
         store.close();
       }
-      const lock = new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git });
+      const lock = new GitClaimLock({
+        repository: f.remote.alice,
+        home: normalizeClaimHome(f.remote.remote),
+        git: f.git,
+      });
       const writes = f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call));
       await expect(
         createApplication(f.services).claim.release.execute({ claim: picked.claim }),
@@ -196,7 +203,11 @@ test.each(["intent", "completion"])(
       await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
         receipt: { state: stage === "intent" ? "compensated" : "recovery_required" },
       });
-      const lock = new GitClaimLock({ repository: f.remote.alice, remote: "origin", git: f.git });
+      const lock = new GitClaimLock({
+        repository: f.remote.alice,
+        home: normalizeClaimHome(f.remote.remote),
+        git: f.git,
+      });
       if (stage === "intent") {
         expect(
           f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call)),

@@ -128,11 +128,9 @@ export function localOriginGit(
   };
 }
 
-export async function pickupFixture() {
-  const remote = await gitRemoteFixture();
-  const root = await realpath(dirname(remote.alice));
+export async function commitFixture(git: GitCommandExecutor, repository: string, message: string) {
   await checkedGit(
-    remote.git,
+    git,
     [
       "-c",
       "user.name=Fixture",
@@ -141,12 +139,22 @@ export async function pickupFixture() {
       "commit",
       "--allow-empty",
       "-m",
-      "fixture",
+      message,
     ],
-    remote.alice,
+    repository,
   );
+}
+
+export async function pickupFixture() {
+  const remote = await gitRemoteFixture();
+  const root = await realpath(dirname(remote.alice));
+  await writeFile(join(remote.alice, "interlock.toml"), `claim_home = '${remote.remote}'\n`);
+  await checkedGit(remote.git, ["add", "interlock.toml"], remote.alice);
+  await commitFixture(remote.git, remote.alice, "fixture");
   await checkedGit(remote.git, ["branch", "-M", "main"], remote.alice);
   await checkedGit(remote.git, ["remote", "add", "origin", remote.remote], remote.alice);
+  await checkedGit(remote.git, ["push", "--quiet", "origin", "main"], remote.alice);
+  await checkedGit(remote.git, ["symbolic-ref", "HEAD", "refs/heads/main"], remote.remote);
   const config = join(root, "interlock.toml");
   const state = join(root, "state", "runs.db");
   const t3Catalog = join(root, "catalog.json");
