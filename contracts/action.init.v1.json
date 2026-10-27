@@ -1,0 +1,18 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Project configuration file; defaults to interlock.toml in the current directory.",
+        "metavar": "FILE"
+      },
+      "from": {
+        "type": "string",
+        "description": "Copy an explicitly selected project configuration file.",
+        "metavar": "FILE"
+      }
+    },
+    "additionalProperties": false
+  }
+}

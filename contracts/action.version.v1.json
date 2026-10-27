@@ -1,0 +1,7 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

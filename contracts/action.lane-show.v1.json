@@ -1,0 +1,22 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "lane": {
+        "type": "string",
+        "description": "Recorded lane reference.",
+        "metavar": "LANE",
+        "positional": true
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "lane"
+    ],
+    "additionalProperties": false
+  }
+}

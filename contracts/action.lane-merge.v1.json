@@ -1,0 +1,28 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "lane": {
+        "type": "string",
+        "description": "Recorded lane reference.",
+        "metavar": "LANE",
+        "positional": true
+      },
+      "head": {
+        "type": "string",
+        "description": "Current head commit.",
+        "metavar": "HEAD"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "lane",
+      "head"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "ticket": {
+        "type": "string",
+        "description": "Tracker ticket reference.",
+        "metavar": "TICKET"
+      },
+      "title": {
+        "type": "string",
+        "description": "One-off task title.",
+        "metavar": "TITLE"
+      },
+      "max-review-rounds": {
+        "type": "string",
+        "description": "Maximum review rounds before attention.",
+        "metavar": "ROUNDS"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "additionalProperties": false
+  }
+}

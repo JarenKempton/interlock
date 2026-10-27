@@ -1,0 +1,28 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "lane": {
+        "type": "string",
+        "description": "Recorded lane reference.",
+        "metavar": "LANE",
+        "positional": true
+      },
+      "ticket": {
+        "type": "string",
+        "description": "Tracker ticket reference.",
+        "metavar": "TICKET"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "lane",
+      "ticket"
+    ],
+    "additionalProperties": false
+  }
+}

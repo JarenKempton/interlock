@@ -1,0 +1,13 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Project configuration file; defaults to interlock.toml in the current directory.",
+        "metavar": "FILE"
+      }
+    },
+    "additionalProperties": false
+  }
+}

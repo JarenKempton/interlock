@@ -5,6 +5,7 @@ import { type Input, parseInput, type RawInput } from "./schema.ts";
 export interface ActionView {
   readonly kind: "action";
   readonly description: string;
+  readonly version: number;
   readonly aliases: readonly string[];
   readonly fields: z.ZodRawShape;
   readonly parser: InputParser;
@@ -17,6 +18,7 @@ export function isAction(entry: ActionView | ActionTree): entry is ActionView {
 }
 export function defineAction<S extends z.ZodRawShape, O>(definition: {
   description: string;
+  version?: number;
   aliases?: readonly string[];
   input: S;
   validate?(input: Input<S>): void;
@@ -34,6 +36,7 @@ export function defineAction<S extends z.ZodRawShape, O>(definition: {
   return {
     kind: "action" as const,
     description: definition.description,
+    version: definition.version ?? 1,
     aliases: definition.aliases ?? [],
     fields: definition.input,
     parser: inputParser(definition.input),

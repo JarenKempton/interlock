@@ -1,0 +1,37 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "key": {
+        "type": "string",
+        "description": "Jira ticket key.",
+        "metavar": "KEY",
+        "positional": true
+      },
+      "config": {
+        "type": "string",
+        "description": "Project TOML path.",
+        "metavar": "PATH"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      },
+      "t3-catalog": {
+        "type": "string",
+        "description": "Fresh in-thread T3 catalog envelope; use - for stdin.",
+        "metavar": "PATH"
+      },
+      "dry-run": {
+        "description": "Print the launch plan without mutations.",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "key",
+      "t3-catalog"
+    ],
+    "additionalProperties": false
+  }
+}

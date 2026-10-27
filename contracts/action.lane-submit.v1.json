@@ -1,0 +1,46 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "lane": {
+        "type": "string",
+        "description": "Recorded lane reference.",
+        "metavar": "LANE",
+        "positional": true
+      },
+      "artifact": {
+        "type": "string",
+        "description": "Artifact URL, for example the pull request.",
+        "metavar": "ARTIFACT"
+      },
+      "head": {
+        "type": "string",
+        "description": "Head commit the evidence covers.",
+        "metavar": "HEAD"
+      },
+      "gate": {
+        "type": "string",
+        "description": "Evidence gate name.",
+        "metavar": "GATE"
+      },
+      "evidence-url": {
+        "type": "string",
+        "description": "Evidence URL for the gate at the head commit.",
+        "metavar": "URL"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "lane",
+      "artifact",
+      "head",
+      "gate",
+      "evidence-url"
+    ],
+    "additionalProperties": false
+  }
+}

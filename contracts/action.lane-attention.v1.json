@@ -1,0 +1,28 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "lane": {
+        "type": "string",
+        "description": "Recorded lane reference.",
+        "metavar": "LANE",
+        "positional": true
+      },
+      "reason": {
+        "type": "string",
+        "description": "Reason the lane needs the user.",
+        "metavar": "REASON"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "lane",
+      "reason"
+    ],
+    "additionalProperties": false
+  }
+}

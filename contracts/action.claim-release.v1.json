@@ -1,0 +1,22 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "claim": {
+        "type": "string",
+        "description": "Recorded claim reference.",
+        "metavar": "CLAIM",
+        "positional": true
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "claim"
+    ],
+    "additionalProperties": false
+  }
+}

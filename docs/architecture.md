@@ -55,6 +55,17 @@ Interlock never deletes a workspace. See the [Git adapter](../src/adapters/works
 Tracker, claim-lock, host and lane contracts are plain TypeScript interfaces;
 see the [domain model](domain-model.md#tracker).
 
+Public surfaces are frozen as JSON Schema under [`contracts/`](../contracts/):
+each action (its MCP tool and CLI `--json`), `interlock.toml`, user and
+personal settings, and the claim record. `bun run contracts:write` regenerates
+the current major's snapshot from zod and hashes it in `contracts/hashes.json`.
+It refuses a breaking change, and so does `bun run contracts:check <base-ref>`
+in CI: a removed or renamed field, a newly required field, a narrowed type or a
+removed enum value needs a new major file, and every earlier snapshot stays
+hash-locked. Additive optional changes rewrite the current major. The rules are
+in the [classifier](../src/conformance/contract-diff.ts). `bun run db:hash`
+likewise only adds hashes for new migrations.
+
 ## Verification
 
 Run the checks in [AGENTS.md](../AGENTS.md). Behavioral evidence lives in

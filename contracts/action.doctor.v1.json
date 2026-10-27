@@ -1,0 +1,13 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "project": {
+        "type": "string",
+        "description": "Jira project key to check permissions in.",
+        "metavar": "KEY"
+      }
+    },
+    "additionalProperties": false
+  }
+}

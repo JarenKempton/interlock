@@ -1,0 +1,13 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "additionalProperties": false
+  }
+}
