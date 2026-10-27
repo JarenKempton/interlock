@@ -780,7 +780,7 @@ test.each([
   [
     "an older",
     { claim: "interlock-claim:c", run: "interlock-run:c", owner: "account" },
-    "older Interlock",
+    "written before claim homes; remove the interlock.claim property from JWB-288 and refs/interlock/claims/JWB-288",
   ],
   [
     "a newer",

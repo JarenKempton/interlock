@@ -10,6 +10,7 @@ import { readUserSettings } from "../src/configuration/local-settings.ts";
 import { configurationOperations } from "../src/configuration/project-files.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
+import type { Claim } from "../src/domain/model.ts";
 import { PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS, ScriptedGit } from "./fixtures/git-remote.ts";
@@ -1048,23 +1049,35 @@ test(
   GIT_TEST_TIMEOUT_MS,
 );
 
-test(
-  "release refuses a claim recorded before claim homes without touching Jira or the lock",
-  async () => {
+test.each([
+  [
+    "before claim homes",
+    (claim: Claim): Claim => {
+      const { claimHome: _, claimHomeUrl: __, lockRef: ___, ...v1 } = claim;
+      return v1;
+    },
+    "was made before claim homes; remove the interlock.claim property from TEST-492 and refs/interlock/claims/TEST-492 from the claim remote",
+  ],
+  [
+    "by a newer Interlock",
+    (claim: Claim): Claim => ({ ...claim, recordVersion: 3 }),
+    "has record version 3; upgrade Interlock to release it",
+  ],
+])(
+  "release refuses a claim recorded %s without touching Jira or the lock",
+  async (_, recorded, message) => {
     const f = await fixture();
     const app = createApplication(f.services);
     const picked = await app.pickup.execute(f.input);
     if (!("claim" in picked)) throw new Error("Expected claim");
     const before = await lock(f).read(ref);
     inspect(f, (s) => {
-      const claim = s.claimForRun(picked.run);
-      const { claimHome: _, claimHomeUrl: __, lockRef: ___, ...v1 } = claim;
-      s.saveClaim(v1);
+      s.saveClaim(recorded(s.claimForRun(picked.run)));
     });
     const calls = f.jira.calls.length;
     await expect(
       app.claim.release.execute({ claim: picked.claim, state: f.state }),
-    ).rejects.toThrow("predates claim homes");
+    ).rejects.toThrow(message);
     expect(f.jira.calls.length).toBe(calls);
     expect(await lock(f).read(ref)).toEqual(before);
   },

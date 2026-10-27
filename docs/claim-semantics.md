@@ -99,8 +99,8 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   manual lock deletion.
 - Lock commits and the Jira `interlock.claim` property both carry the home and
   record version (2). Readers check the version first: a newer record is
-  refused and left untouched, and an older one is not read. Jira compares the
-  home and version on write, readback and restore.
+  refused and left untouched, and an older one follows the N-1 rule below.
+  Jira compares the home and version on write, readback and restore.
 - Pickup refuses when Jira shows an assignee or any `interlock.claim` property
   (naming the property's home), or when the lock in the resolved home is held.
 - The tracker only mirrors a held lock. Jira writes the `interlock.claim`
@@ -142,10 +142,21 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   restored while the lock is still held, so someone using another home can
   claim the ticket; the first claim stays held until it is released. An
   expired lease never allows a takeover.
-- Cutover from v1 is clean: v1 refs (`refs/interlock/claims/<KEY>`) and
-  version-less records are not read, and release refuses claims recorded
-  without a home. Release in-flight v1 claims with the old binary before
-  upgrading.
+- N-1 rule: every Interlock release can release and recover claim records
+  exactly one version older than its own, and refuses only newer ones, for
+  that ticket only. Other tickets are unaffected. v1 is the one exception and
+  stays unread, because no v1 claims exist: origin has no `refs/interlock/*`
+  and the ledger holds no claims. A v1 or version-less record is refused with
+  what to remove to clear it: the `interlock.claim` property and
+  `refs/interlock/claims/<KEY>` on the claim remote.
+- The record shape is frozen per version in
+  `contracts/claim-record.v<N>.json`, generated with `z.toJSONSchema` from the
+  lock record and Jira property schemas, and hashed in `contracts/hashes.json`.
+  Tests fail when the shape drifts from the current version's file, when
+  `CLAIM_RECORD_VERSION` is not the highest committed version, or when a
+  committed file changes. A format change adds a new version file and bumps the
+  constant; `bun run contracts:hash` writes the new file and hashes only files
+  without an entry.
 
 [Lock tests](../test/git-claim-lock.test.ts) and
 [lock conformance](../test/claim-lock-conformance.test.ts) run against real

@@ -1,0 +1,82 @@
+{
+  "version": 2,
+  "lockRecord": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "claim",
+          "release"
+        ]
+      },
+      "ticket": {
+        "type": "string"
+      },
+      "claim": {
+        "type": "string"
+      },
+      "run": {
+        "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "leaseExpiresAt": {
+        "type": "string"
+      },
+      "home": {
+        "type": "string"
+      },
+      "version": {
+        "type": "number",
+        "const": 2
+      },
+      "authorizedBy": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action",
+      "ticket",
+      "claim",
+      "run",
+      "owner",
+      "leaseExpiresAt",
+      "home",
+      "version"
+    ],
+    "additionalProperties": false
+  },
+  "jiraClaimProperty": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "claim": {
+        "type": "string"
+      },
+      "run": {
+        "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "home": {
+        "type": "string"
+      },
+      "version": {
+        "type": "number",
+        "const": 2
+      }
+    },
+    "required": [
+      "claim",
+      "run",
+      "owner",
+      "home",
+      "version"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -31,7 +31,7 @@ export const ABSENT_LOCK_VERSION = "absent";
 export const CLAIM_LOCK_NAMESPACE = `refs/interlock/v${CLAIM_RECORD_VERSION}`;
 
 const recordVersionSchema = z.object({ version: z.number().int() });
-const lockRecordSchema = z.strictObject({
+export const lockRecordSchema = z.strictObject({
   action: z.enum(["claim", "release"]),
   ticket: ticketRefSchema,
   claim: claimRefSchema,
@@ -240,23 +240,13 @@ export class GitClaimLock implements RecoverableClaimLock {
     if ((await this.#run(["git", "cat-file", "-e", `${tip}^{commit}`])).exitCode !== 0)
       await this.#checked(["git", "fetch", "--no-tags", this.#home.url, ref]);
     const commit = await this.#checked(["git", "cat-file", "commit", tip]);
-    const message = commit.slice(commit.indexOf("\n\n") + 2);
-    let value: unknown;
-    try {
-      value = JSON.parse(message.slice(message.indexOf("\n\n") + 2));
-    } catch {
-      throw new Error(`Invalid claim lock record at ${ref} ${tip}`);
-    }
-    const version = recordVersionSchema.safeParse(value);
-    if (version.success && version.data.version > CLAIM_RECORD_VERSION)
-      throw new Error(
-        `Claim lock record at ${ref} is version ${version.data.version}; upgrade Interlock before touching it`,
-      );
-    const record = lockRecordSchema.safeParse(value);
-    if (!record.success) throw new Error(`Invalid claim lock record at ${ref} ${tip}`);
-    if (record.data.home !== this.#home.identity)
-      throw new Error(`Claim lock record at ${ref} belongs to claim home ${record.data.home}`);
-    return record.data;
+    const record = parseLockRecordMessage(
+      commit.slice(commit.indexOf("\n\n") + 2),
+      `${ref} ${tip}`,
+    );
+    if (record.home !== this.#home.identity)
+      throw new Error(`Claim lock record at ${ref} belongs to claim home ${record.home}`);
+    return record;
   }
 
   async #tree(): Promise<string> {
@@ -308,4 +298,21 @@ function releaseRecord(
   if (!held) throw new ClaimCollisionError("Claim lock is not held");
   const { authorizedBy: _, ...record } = held;
   return { ...record, action: "release", ...(authorizedBy ? { authorizedBy } : {}) };
+}
+
+export function parseLockRecordMessage(message: string, location: string): ClaimLockRecord {
+  let value: unknown;
+  try {
+    value = JSON.parse(message.slice(message.indexOf("\n\n") + 2));
+  } catch {
+    throw new Error(`Invalid claim lock record at ${location}`);
+  }
+  const version = recordVersionSchema.safeParse(value);
+  if (version.success && version.data.version > CLAIM_RECORD_VERSION)
+    throw new Error(
+      `Claim lock record at ${location} is version ${version.data.version}; upgrade Interlock before touching it`,
+    );
+  const record = lockRecordSchema.safeParse(value);
+  if (!record.success) throw new Error(`Invalid claim lock record at ${location}`);
+  return record.data;
 }

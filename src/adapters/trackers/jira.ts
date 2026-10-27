@@ -112,7 +112,7 @@ const issueSchema = z.object({
   }),
 });
 type JiraIssue = z.infer<typeof issueSchema>;
-const claimPropertySchema = z.object({
+export const claimPropertySchema = z.object({
   claim: z.string(),
   run: z.string(),
   owner: z.string(),
@@ -564,20 +564,7 @@ export class JiraTrackerAdapter implements Tracker {
     if (property.status !== 200 && property.status !== 404)
       throw new Error(`Jira property read failed (${property.status})`);
     if (property.status === 404) return null;
-    const version = claimPropertyVersionSchema.safeParse(property.body);
-    if (!version.success) throw new Error("Invalid Jira claim property");
-    const found = version.data.value.version;
-    if (found === undefined || found < CLAIM_RECORD_VERSION)
-      throw new Error(
-        `Jira ${this.#claimProperty} on ${this.#ticketKey(ticket)} is from an older Interlock; release it with that version`,
-      );
-    if (found > CLAIM_RECORD_VERSION)
-      throw new Error(
-        `Jira ${this.#claimProperty} on ${this.#ticketKey(ticket)} is version ${found}; upgrade Interlock before touching it`,
-      );
-    const parsed = z.object({ value: claimPropertySchema }).safeParse(property.body);
-    if (!parsed.success) throw new Error("Invalid Jira claim property");
-    return parsed.data.value;
+    return parseClaimProperty(property.body, this.#claimProperty, this.#ticketKey(ticket));
   }
 
   #fields(): string[] {
@@ -722,4 +709,25 @@ export function jiraDescription(value: unknown): string | undefined {
     return `[Unsupported Jira content]${content}`;
   }
   return render(value).trimEnd();
+}
+
+export function parseClaimProperty(
+  body: unknown,
+  property: string,
+  key: string,
+): JiraClaimProperty {
+  const version = claimPropertyVersionSchema.safeParse(body);
+  if (!version.success) throw new Error("Invalid Jira claim property");
+  const found = version.data.value.version;
+  if (found === undefined || found < CLAIM_RECORD_VERSION)
+    throw new Error(
+      `Jira ${property} on ${key} was written before claim homes; remove the ${property} property from ${key} and refs/interlock/claims/${key} from the claim remote to clear it`,
+    );
+  if (found > CLAIM_RECORD_VERSION)
+    throw new Error(
+      `Jira ${property} on ${key} is version ${found}; upgrade Interlock before touching it`,
+    );
+  const parsed = z.object({ value: claimPropertySchema }).safeParse(body);
+  if (!parsed.success) throw new Error("Invalid Jira claim property");
+  return parsed.data.value;
 }

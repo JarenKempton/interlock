@@ -25,19 +25,24 @@ export async function releaseClaim(
 ) {
   return withExecutionStore(services, executionStatePath(services, input.state), async (store) => {
     const claim = store.claim(claimRef(input.claim));
-    if (!claim.claimHome || !claim.claimHomeUrl || !claim.lockRef)
+    const key = parseRef(claim.ticket).nativeId;
+    if (claim.recordVersion !== undefined && claim.recordVersion > CLAIM_RECORD_VERSION)
       throw new Error(
-        "Claim predates claim homes; release it with the Interlock version that created it",
+        `Claim ${claim.ref} on ${key} has record version ${claim.recordVersion}; upgrade Interlock to release it`,
       );
-    if (claim.recordVersion !== CLAIM_RECORD_VERSION)
+    if (
+      !claim.claimHome ||
+      !claim.claimHomeUrl ||
+      !claim.lockRef ||
+      claim.recordVersion !== CLAIM_RECORD_VERSION
+    )
       throw new Error(
-        `Claim record version ${claim.recordVersion} is not supported by this Interlock`,
+        `Claim ${claim.ref} on ${key} was made before claim homes; remove the interlock.claim property from ${key} and refs/interlock/claims/${key} from the claim remote to clear it`,
       );
     const home = { identity: claim.claimHome, url: claim.claimHomeUrl };
     const run = store.run(claim.run);
     const configuration = store.getExecutionConfiguration(run.ref);
     if (!configuration) throw new Error("Release requires the recorded execution configuration");
-    const key = parseRef(claim.ticket).nativeId;
     const intent = z
       .object({ receipt_json: z.string() })
       .parse(

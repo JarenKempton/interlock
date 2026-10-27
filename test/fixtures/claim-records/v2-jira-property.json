@@ -1,0 +1,10 @@
+{
+  "key": "interlock.claim",
+  "value": {
+    "claim": "interlock-claim:0f6c2a1e-6b1d-4f0e-9a51-2d1c7c3b9e40",
+    "run": "interlock-run:7d2e4b90-1c3a-4e55-8f0b-6a9e2c1d4f87",
+    "owner": "jira:responsibid:account:5f1c2e3d4b5a697887766554",
+    "home": "github.com/jarenkempton/interlock-locks",
+    "version": 2
+  }
+}
