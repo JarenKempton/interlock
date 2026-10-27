@@ -62,7 +62,14 @@ any other head. `lane next` returns exactly one action for the lane's state.
 Lanes persist in the local ledger, with or without a ticket; a one-off lane
 can be promoted to a ticket. Merged lanes complete only after tracker
 readback verifies the ticket is done, marking it done first when the
-tracker's merge automation has not. The `lane` actions and
+tracker's merge automation has not. Core owns the lane's one pull request:
+`lane submit` pushes the head to the branch recorded for the lane's run
+workspace through the user's own Git and `gh` auth, opens or adopts the
+branch's pull request with the ticket key in its title, records the URL on
+the lane and links it through the tracker's `link_artifact`. A second open
+pull request for the ticket is refused as `duplicate_artifact`; an
+unverified create or link is `ambiguous_write` and a resubmit adopts it. The
+lane agent needs no GitHub write credential. The `lane` actions and
 [`LaneService`](../src/execution/lane.ts) expose the machine as commands.
 
 ## Conformance

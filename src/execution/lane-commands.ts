@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
+import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
 import { defineAction } from "../cli/definition.ts";
-import { choice, optional, positional, text } from "../cli/schema.ts";
+import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { ticketRefSchema } from "../domain/identifiers.ts";
 import type { LaneResult } from "../domain/lane.ts";
 import { claimRef, laneRef, runRef } from "../persistence/command-store.ts";
@@ -19,6 +21,7 @@ export function laneActions(services: RuntimeServices) {
     new LaneService({
       store,
       ...(services.lane?.tracker ? { tracker: services.lane.tracker } : {}),
+      artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
       ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
     });
   const withLane = <T>(
@@ -96,22 +99,26 @@ export function laneActions(services: RuntimeServices) {
       exitCode,
     }),
     submit: defineAction({
-      description: "Submit one artifact at a head commit with gate evidence for that head.",
+      description:
+        "Push the lane's recorded branch at a head commit and open or update its one pull request.",
       input: {
         lane,
-        artifact: text("Artifact URL, for example the pull request.", "ARTIFACT"),
         head: text("Head commit the evidence covers.", "HEAD"),
         gate: text("Evidence gate name.", "GATE"),
         "evidence-url": text("Evidence URL for the gate at the head commit.", "URL"),
+        title: optional(text("Pull request title; the ticket key is prefixed.", "TITLE")),
+        draft: flag("Open the pull request as a draft."),
         state,
       },
       handler: (input) =>
-        apply(input.lane, input.state, {
-          type: "submit",
-          artifact: input.artifact,
-          head: input.head,
-          evidence: [{ gate: input.gate, head: input.head, url: input["evidence-url"] }],
-        }),
+        withLane(input.state, (laneService) =>
+          laneService.submit(laneRef(input.lane), {
+            head: input.head,
+            evidence: [{ gate: input.gate, head: input.head, url: input["evidence-url"] }],
+            ...(input.title ? { title: input.title } : {}),
+            draft: input.draft === true,
+          }),
+        ),
       exitCode,
     }),
     review: defineAction({

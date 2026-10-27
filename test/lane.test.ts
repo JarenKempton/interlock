@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run as runCli } from "../src/cli.ts";
-import { laneRefSchema, mapRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
+import {
+  adapterRefSchema,
+  laneRefSchema,
+  mapRefSchema,
+  runRefSchema,
+  ticketRefSchema,
+} from "../src/domain/identifiers.ts";
 import { createLane, type Lane, nextLaneAction, transitionLane } from "../src/domain/lane.ts";
 import type { Ticket } from "../src/domain/model.ts";
 import { LaneService, type LaneTrackerPort } from "../src/execution/lane.ts";
@@ -495,7 +501,24 @@ test("merged stays merged when the tracker cannot verify done", async () => {
 test("CLI runs a one-off lane through the same machine", async () => {
   const directory = mkdtempSync(join(tmpdir(), "interlock-lane-cli-"));
   const statePath = join(directory, "interlock.db");
-  const services = { statePath };
+  const seed = new StateStore(statePath);
+  seed.saveRun({
+    ref: runRefSchema.parse("interlock-run:cli"),
+    ticket: ticketRef,
+    harness: adapterRefSchema.parse("t3"),
+    workspace: { path: directory, branch: "local/cli" },
+    capabilities: {},
+    status: "claimed",
+    createdAt: now,
+    updatedAt: now,
+  });
+  seed.close();
+  const artifacts = {
+    push: async () => {},
+    pullRequests: async () => [],
+    open: async () => "https://example.test/pr/1",
+  };
+  const services = { statePath, lane: { artifacts } };
   try {
     const call = async (args: string[]) => {
       const output: string[] = [];
@@ -508,14 +531,12 @@ test("CLI runs a one-off lane through the same machine", async () => {
     expect(created.value.value.state).toBe("queued");
     expect((await call(["lane", "next", id, "--json"])).value.value.kind).toBe("claim");
     expect((await call(["lane", "start", id, "--json"])).code).toBe(1);
-    await call(["lane", "claim", id, "--json"]);
+    await call(["lane", "claim", id, "--run", "interlock-run:cli", "--json"]);
     await call(["lane", "start", id, "--json"]);
     await call([
       "lane",
       "submit",
       id,
-      "--artifact",
-      "https://example.test/pr/1",
       "--head",
       "abc",
       "--gate",
