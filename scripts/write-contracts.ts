@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { breakingChanges } from "../src/conformance/contract-diff.ts";
+import { contractBreakingChanges } from "../src/conformance/contract-diff.ts";
 import {
   CONTRACT_HASHES_PATH,
   CONTRACTS_DIRECTORY,
@@ -21,7 +21,7 @@ for (const surface of contractSurfaces()) {
   if (existsSync(path)) {
     const current = readFileSync(path, "utf8");
     if (current === next) continue;
-    const breaking = breakingChanges(JSON.parse(current), JSON.parse(next));
+    const breaking = contractBreakingChanges(JSON.parse(current), JSON.parse(next));
     if (surface.frozen || breaking.length > 0) {
       refused.push(
         `${file}: ${surface.frozen ? "frozen; bump its version" : `breaking without a major bump: ${breaking.join("; ")}`}`,

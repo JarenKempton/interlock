@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApplication } from "../src/application.ts";
 import { registeredActions } from "../src/cli/catalog.ts";
-import { breakingChanges } from "../src/conformance/contract-diff.ts";
+import { breakingChanges, contractBreakingChanges } from "../src/conformance/contract-diff.ts";
 import {
   CONTRACTS_DIRECTORY,
   committedContractFiles,
@@ -70,6 +70,28 @@ describe("contract classifier", () => {
         }),
       ),
     ).toEqual([]);
+  });
+
+  test("an optional field added inside a union option passes and a removed option fails", () => {
+    const result = (value: object) => ({ anyOf: [value, object({ code: name }, ["code"])] });
+    expect(breakingChanges(result(object({ name })), result(object({ name, note: name })))).toEqual(
+      [],
+    );
+    expect(breakingChanges(result(object({ name })), { anyOf: [object({ name })] })).toEqual([
+      "$: anyOf option 1 removed",
+    ]);
+  });
+
+  test("a removed input or output schema fails and an added one passes", () => {
+    expect(
+      contractBreakingChanges({ input: object({}) }, { input: object({}), output: name }),
+    ).toEqual([]);
+    expect(
+      contractBreakingChanges({ input: object({}), output: name }, { input: object({}) }),
+    ).toEqual(["output: removed"]);
+    expect(contractBreakingChanges({ output: object({ name }) }, { output: object({}) })).toEqual([
+      "output.name: removed",
+    ]);
   });
 
   test("documentation changes pass", () => {

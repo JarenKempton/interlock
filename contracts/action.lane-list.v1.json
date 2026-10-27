@@ -9,5 +9,143 @@
       }
     },
     "additionalProperties": false
+  },
+  "output": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        },
+        "claim": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "claimed",
+            "implementing",
+            "submitted",
+            "reviewing",
+            "approved",
+            "merged",
+            "done",
+            "attention"
+          ]
+        },
+        "previousState": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "claimed",
+            "implementing",
+            "submitted",
+            "reviewing",
+            "approved",
+            "merged",
+            "done",
+            "attention"
+          ]
+        },
+        "attentionReason": {
+          "type": "string"
+        },
+        "artifact": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        },
+        "evidence": {
+          "readOnly": true,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "gate": {
+                "type": "string"
+              },
+              "head": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "gate",
+              "head",
+              "url"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "verdict": {
+          "type": "object",
+          "properties": {
+            "head": {
+              "type": "string"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "approved",
+                "changes_requested"
+              ]
+            },
+            "findings": {
+              "readOnly": true,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "round": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "head",
+            "decision",
+            "findings",
+            "round"
+          ],
+          "additionalProperties": false
+        },
+        "reviewRound": {
+          "type": "number"
+        },
+        "maxReviewRounds": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "evidence",
+        "reviewRound",
+        "maxReviewRounds",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    }
   }
 }

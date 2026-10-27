@@ -7,6 +7,7 @@ import {
 } from "../adapters/trackers/jira.ts";
 import { GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
+import { claimRefSchema, runRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
 import { parseRef } from "../domain/reference.ts";
 import { claimRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
@@ -18,6 +19,16 @@ import {
   repositorySpec,
   withExecutionStore,
 } from "./pickup-runtime.ts";
+
+export const releaseResultSchema = z.strictObject({
+  ok: z.literal(true),
+  state: z.literal("released"),
+  run: runRefSchema,
+  claim: claimRefSchema,
+  ticket: ticketRefSchema,
+  lockVersion: z.string(),
+  mirror: z.literal("restored_verified"),
+});
 
 export async function releaseClaim(
   services: RuntimeServices,
@@ -126,7 +137,7 @@ export async function releaseClaim(
       claim.currentVersion = verified.version;
       run.status = "released";
       run.updatedAt = (services.execution?.clock?.now() ?? new Date()).toISOString();
-      const receipt = {
+      const receipt: z.infer<typeof releaseResultSchema> = {
         ok: true,
         state: "released",
         run: run.ref,

@@ -57,5 +57,402 @@
       }
     },
     "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "number",
+        "const": 1
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "initialized",
+          "configuration",
+          "edited"
+        ]
+      },
+      "path": {
+        "type": "string"
+      },
+      "configuration": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "project": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "claim_home": {
+                "type": "string"
+              },
+              "repositories": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "github": {
+                      "type": "string",
+                      "pattern": "^[\\w.-]+\\/[\\w.-]+$"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "worktree_root": {
+                      "type": "string"
+                    },
+                    "base_branch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "github",
+                    "path",
+                    "worktree_root",
+                    "base_branch"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "maps": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "repository": {
+                      "type": "string"
+                    },
+                    "claim_status": {
+                      "type": "string"
+                    },
+                    "available_statuses": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "repository",
+                    "claim_status",
+                    "available_statuses"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "tracker": {
+                "type": "object",
+                "properties": {
+                  "jira": {
+                    "type": "object",
+                    "properties": {
+                      "site": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "site"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "jira"
+                ],
+                "additionalProperties": false
+              },
+              "t3": {
+                "default": {},
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "thinking_effort": {
+                    "type": "string"
+                  },
+                  "context_window": {
+                    "type": "string"
+                  },
+                  "runtime_mode": {
+                    "type": "string"
+                  },
+                  "interaction_mode": {
+                    "type": "string"
+                  },
+                  "open": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "browser"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "defaults": {
+                "default": {},
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "agent": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "effort": {
+                    "type": "string"
+                  },
+                  "context_window": {
+                    "type": "string"
+                  },
+                  "runtime_mode": {
+                    "type": "string"
+                  },
+                  "interaction_mode": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "required": {
+                "default": {},
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "agent": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "effort": {
+                    "type": "string"
+                  },
+                  "context_window": {
+                    "type": "string"
+                  },
+                  "runtime_mode": {
+                    "type": "string"
+                  },
+                  "interaction_mode": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "roles": {
+                "type": "object",
+                "properties": {
+                  "implementer": {
+                    "type": "object",
+                    "properties": {
+                      "provider": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "options": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": [
+                            "string",
+                            "boolean"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "model"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "reviewers": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "provider": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "options": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": [
+                              "string",
+                              "boolean"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "provider",
+                        "model"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "instructions": {
+                "type": "object",
+                "properties": {
+                  "runtime_contract": {
+                    "type": "string"
+                  },
+                  "role_templates": {
+                    "type": "object",
+                    "properties": {
+                      "task": {
+                        "type": "string"
+                      },
+                      "research": {
+                        "type": "string"
+                      },
+                      "prototype": {
+                        "type": "string"
+                      },
+                      "decision": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "version",
+              "repositories",
+              "maps",
+              "tracker",
+              "t3",
+              "defaults",
+              "required"
+            ],
+            "additionalProperties": false
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string"
+              },
+              "agent": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string"
+              },
+              "context_window": {
+                "type": "string"
+              },
+              "runtime_mode": {
+                "type": "string"
+              },
+              "interaction_mode": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "sources": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "host",
+                "agent",
+                "model",
+                "effort",
+                "context_window",
+                "runtime_mode",
+                "interaction_mode"
+              ]
+            },
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "default",
+                "personal",
+                "required"
+              ]
+            }
+          }
+        },
+        "required": [
+          "version",
+          "source",
+          "project",
+          "settings",
+          "sources"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "version",
+      "action",
+      "path",
+      "configuration"
+    ],
+    "additionalProperties": false
   }
 }

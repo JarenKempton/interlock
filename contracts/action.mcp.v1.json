@@ -27,5 +27,8 @@
       }
     },
     "additionalProperties": false
+  },
+  "output": {
+    "type": "string"
   }
 }

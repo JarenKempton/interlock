@@ -1,27 +1,29 @@
 {
-  "type": "object",
-  "properties": {
-    "host": {
-      "type": "string"
+  "file": {
+    "type": "object",
+    "properties": {
+      "host": {
+        "type": "string"
+      },
+      "agent": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "string"
+      },
+      "context_window": {
+        "type": "string"
+      },
+      "runtime_mode": {
+        "type": "string"
+      },
+      "interaction_mode": {
+        "type": "string"
+      }
     },
-    "agent": {
-      "type": "string"
-    },
-    "model": {
-      "type": "string"
-    },
-    "effort": {
-      "type": "string"
-    },
-    "context_window": {
-      "type": "string"
-    },
-    "runtime_mode": {
-      "type": "string"
-    },
-    "interaction_mode": {
-      "type": "string"
-    }
-  },
-  "additionalProperties": false
+    "additionalProperties": false
+  }
 }

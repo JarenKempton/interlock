@@ -83,9 +83,13 @@ export function breakingChanges(before: unknown, after: unknown, path = "$"): st
   if (old.items !== undefined || next.items !== undefined)
     changes.push(...breakingChanges(old.items, next.items, `${path}[]`));
   for (const union of ["anyOf", "oneOf"]) {
-    const options = new Set(list(next[union]).map(key));
-    for (const option of list(old[union]))
-      if (!options.has(key(option))) changes.push(`${path}: ${union} option removed or changed`);
+    const options = list(next[union]);
+    for (const [index, option] of list(old[union]).entries())
+      changes.push(
+        ...(index < options.length
+          ? breakingChanges(option, options[index], `${path}|${index}`)
+          : [`${path}: ${union} option ${index} removed`]),
+      );
     if (old[union] === undefined && next[union] !== undefined)
       changes.push(`${path}: ${union} added`);
   }
@@ -93,4 +97,12 @@ export function breakingChanges(before: unknown, after: unknown, path = "$"): st
     if (!HANDLED.has(keyword) && key(old[keyword]) !== key(next[keyword]))
       changes.push(`${path}: unclassified change to ${keyword}`);
   return changes;
+}
+
+export function contractBreakingChanges(before: unknown, after: unknown): string[] {
+  const old = schema(before);
+  const next = schema(after);
+  return Object.keys(old).flatMap((name) =>
+    Object.hasOwn(next, name) ? breakingChanges(old[name], next[name], name) : [`${name}: removed`],
+  );
 }

@@ -3,5 +3,8 @@
     "type": "object",
     "properties": {},
     "additionalProperties": false
+  },
+  "output": {
+    "type": "string"
   }
 }

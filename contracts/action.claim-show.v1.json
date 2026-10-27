@@ -18,5 +18,78 @@
       "claim"
     ],
     "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "ref": {
+        "type": "string"
+      },
+      "ticket": {
+        "type": "string"
+      },
+      "humanOwner": {
+        "type": "string"
+      },
+      "run": {
+        "type": "string"
+      },
+      "previousState": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "payload": {}
+        },
+        "required": [
+          "version",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "claimedAt": {
+        "type": "string"
+      },
+      "leaseExpiresAt": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "active",
+          "released"
+        ]
+      },
+      "currentVersion": {
+        "type": "string"
+      },
+      "claimHome": {
+        "type": "string"
+      },
+      "claimHomeUrl": {
+        "type": "string"
+      },
+      "recordVersion": {
+        "type": "number"
+      },
+      "lockRef": {
+        "type": "string"
+      },
+      "configCommit": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref",
+      "ticket",
+      "humanOwner",
+      "run",
+      "previousState",
+      "claimedAt",
+      "leaseExpiresAt",
+      "status"
+    ],
+    "additionalProperties": false
   }
 }

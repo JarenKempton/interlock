@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { breakingChanges } from "../src/conformance/contract-diff.ts";
+import { contractBreakingChanges } from "../src/conformance/contract-diff.ts";
 import {
   CONTRACTS_DIRECTORY,
   committedContractHashes,
@@ -51,7 +51,7 @@ for (const [file, hash] of Object.entries(baseHashes)) {
   }
   const before = JSON.parse(show(file) ?? "{}");
   const after = JSON.parse(readFileSync(join(CONTRACTS_DIRECTORY, file), "utf8"));
-  const breaking = breakingChanges(before, after);
+  const breaking = contractBreakingChanges(before, after);
   if (breaking.length > 0)
     failures.push(`${file}: breaking change without a major bump\n  ${breaking.join("\n  ")}`);
   else additive.push(`${file}: additive`);

@@ -9,5 +9,84 @@
       }
     },
     "additionalProperties": false
+  },
+  "output": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "ticket": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        "capabilities": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "conditional_update"
+            ]
+          },
+          "additionalProperties": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planning",
+            "claimed",
+            "compensated",
+            "collision",
+            "released",
+            "recovery_required"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "ticket",
+        "harness",
+        "workspace",
+        "capabilities",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    }
   }
 }

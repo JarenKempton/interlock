@@ -33,5 +33,591 @@
       "t3-catalog"
     ],
     "additionalProperties": false
+  },
+  "output": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "repository": {
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "worktree": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "modelSelection": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "instanceId": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "options": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "boolean"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "provider",
+              "instanceId",
+              "model",
+              "options"
+            ],
+            "additionalProperties": false
+          },
+          "reviewers": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "instanceId": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "boolean"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "provider",
+                "instanceId",
+                "model",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "hostVerification": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "const": "caller-supplied-t3-catalog"
+              },
+              "observedAt": {
+                "type": "string"
+              },
+              "threadId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "observedAt",
+              "threadId"
+            ],
+            "additionalProperties": false
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "resolvedPath": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "resolvedPath",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "claimHome": {
+            "type": "object",
+            "properties": {
+              "home": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "change": {
+                "type": "string"
+              },
+              "lockRef": {
+                "type": "string"
+              },
+              "recordVersion": {
+                "type": "number"
+              },
+              "configCommit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "home",
+              "url",
+              "source",
+              "change",
+              "lockRef",
+              "recordVersion",
+              "configCommit"
+            ],
+            "additionalProperties": false
+          },
+          "launch": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "modelSelection": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "instanceId": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "boolean"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "provider",
+                  "instanceId",
+                  "model",
+                  "options"
+                ],
+                "additionalProperties": false
+              },
+              "runtimeMode": {
+                "type": "string"
+              },
+              "interactionMode": {
+                "type": "string"
+              },
+              "workspaceStrategy": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "existing_worktree"
+                  },
+                  "worktreePath": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "worktreePath",
+                  "branch"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "title",
+              "message",
+              "modelSelection",
+              "runtimeMode",
+              "interactionMode",
+              "workspaceStrategy"
+            ],
+            "additionalProperties": false
+          },
+          "dryRun": {
+            "type": "boolean",
+            "const": true
+          },
+          "state": {
+            "type": "string",
+            "const": "planned"
+          }
+        },
+        "required": [
+          "version",
+          "repository",
+          "ticket",
+          "worktree",
+          "branch",
+          "title",
+          "modelSelection",
+          "reviewers",
+          "prompt",
+          "hostVerification",
+          "instructions",
+          "claimHome",
+          "launch",
+          "dryRun",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "repository": {
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "worktree": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "modelSelection": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "instanceId": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "options": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "boolean"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "provider",
+              "instanceId",
+              "model",
+              "options"
+            ],
+            "additionalProperties": false
+          },
+          "reviewers": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "instanceId": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "boolean"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "provider",
+                "instanceId",
+                "model",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "hostVerification": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "const": "caller-supplied-t3-catalog"
+              },
+              "observedAt": {
+                "type": "string"
+              },
+              "threadId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "observedAt",
+              "threadId"
+            ],
+            "additionalProperties": false
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "resolvedPath": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "resolvedPath",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "claimHome": {
+            "type": "object",
+            "properties": {
+              "home": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "change": {
+                "type": "string"
+              },
+              "lockRef": {
+                "type": "string"
+              },
+              "recordVersion": {
+                "type": "number"
+              },
+              "configCommit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "home",
+              "url",
+              "source",
+              "change",
+              "lockRef",
+              "recordVersion",
+              "configCommit"
+            ],
+            "additionalProperties": false
+          },
+          "launch": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "modelSelection": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "instanceId": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "boolean"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "provider",
+                  "instanceId",
+                  "model",
+                  "options"
+                ],
+                "additionalProperties": false
+              },
+              "runtimeMode": {
+                "type": "string"
+              },
+              "interactionMode": {
+                "type": "string"
+              },
+              "workspaceStrategy": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "existing_worktree"
+                  },
+                  "worktreePath": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "worktreePath",
+                  "branch"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "title",
+              "message",
+              "modelSelection",
+              "runtimeMode",
+              "interactionMode",
+              "workspaceStrategy"
+            ],
+            "additionalProperties": false
+          },
+          "dryRun": {
+            "type": "boolean",
+            "const": false
+          },
+          "state": {
+            "type": "string",
+            "const": "claimed"
+          },
+          "run": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          },
+          "claimHomeSaved": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "repository",
+          "ticket",
+          "worktree",
+          "branch",
+          "title",
+          "modelSelection",
+          "reviewers",
+          "prompt",
+          "hostVerification",
+          "instructions",
+          "claimHome",
+          "launch",
+          "dryRun",
+          "state",
+          "run",
+          "claim",
+          "claimHomeSaved"
+        ],
+        "additionalProperties": false
+      }
+    ]
   }
 }

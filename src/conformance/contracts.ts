@@ -22,7 +22,7 @@ export interface ContractSurface {
   name: string;
   version: number;
   frozen: boolean;
-  document(): unknown;
+  document(): Record<string, unknown>;
 }
 
 const identifierAsString: Parameters<typeof z.toJSONSchema>[1] = {
@@ -32,11 +32,8 @@ const identifierAsString: Parameters<typeof z.toJSONSchema>[1] = {
   },
 };
 
-function fileSchema(schema: z.ZodType): unknown {
-  const { $schema: _schema, ...document } = z.toJSONSchema(schema, {
-    ...identifierAsString,
-    io: "input",
-  });
+function jsonSchema(schema: z.ZodType, io: "input" | "output"): Record<string, unknown> {
+  const { $schema: _schema, ...document } = z.toJSONSchema(schema, { ...identifierAsString, io });
   return document;
 }
 
@@ -45,7 +42,10 @@ export function contractSurfaces(): ContractSurface[] {
     name: `action.${command.join("-")}`,
     version: action.version,
     frozen: false,
-    document: () => ({ input: actionInputSchema(action) }),
+    document: () => ({
+      input: actionInputSchema(action),
+      output: jsonSchema(action.result, "output"),
+    }),
   }));
   return [
     {
@@ -62,19 +62,19 @@ export function contractSurfaces(): ContractSurface[] {
       name: "interlock-toml",
       version: projectConfigurationSchema.shape.version.value,
       frozen: false,
-      document: () => fileSchema(projectConfigurationSchema),
+      document: () => ({ file: jsonSchema(projectConfigurationSchema, "input") }),
     },
     {
       name: "user-settings",
       version: 1,
       frozen: false,
-      document: () => fileSchema(userSettingsSchema),
+      document: () => ({ file: jsonSchema(userSettingsSchema, "input") }),
     },
     {
       name: "personal-settings",
       version: 1,
       frozen: false,
-      document: () => fileSchema(personalSettingsSchema),
+      document: () => ({ file: jsonSchema(personalSettingsSchema, "input") }),
     },
     ...actions,
   ];

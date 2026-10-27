@@ -13,7 +13,7 @@ import { withStore } from "./persistence/command-store.ts";
 import { databasePath } from "./persistence/paths.ts";
 import type { RuntimeServices } from "./runtime-services.ts";
 import { signInActions } from "./sign-in/commands.ts";
-import { doctorChecks, renderDoctor } from "./sign-in/doctor.ts";
+import { doctorChecks, doctorReportSchema, renderDoctor } from "./sign-in/doctor.ts";
 
 export function createApplication(services: RuntimeServices = {}) {
   let tree: ActionTree;
@@ -22,6 +22,7 @@ export function createApplication(services: RuntimeServices = {}) {
       description:
         "Check local state, tracker sign-in and permissions, and claim-lock push access.",
       input: { project: optional(text("Jira project key to check permissions in.", "KEY")) },
+      result: doctorReportSchema,
       handler: async (input) => {
         const checks = await doctorChecks(services, input.project);
         return withStore(services, () => ({
@@ -39,6 +40,7 @@ export function createApplication(services: RuntimeServices = {}) {
       aliases: ["--version"],
       description: "Print the embedded build version.",
       input: {},
+      result: z.string(),
       handler: () => VERSION,
     }),
     completions: defineAction({
@@ -51,6 +53,7 @@ export function createApplication(services: RuntimeServices = {}) {
           .describe("Return completion candidates for a command prefix (empty for root).")
           .meta({ metavar: "PREFIX" }),
       },
+      result: z.string(),
       handler: (input): string =>
         input.at === undefined
           ? completionScript(input.shell)
@@ -59,6 +62,7 @@ export function createApplication(services: RuntimeServices = {}) {
     man: defineAction({
       description: "Print the manual for the registered actions.",
       input: {},
+      result: z.string(),
       handler: (): string => manPage(VERSION, tree),
     }),
     mcp: defineAction({
@@ -69,6 +73,7 @@ export function createApplication(services: RuntimeServices = {}) {
         lane: flag("Expose only the allowlisted lane actions; token from INTERLOCK_MCP_TOKEN."),
         allow: optional(text("Comma-separated action commands exposed in lane mode.", "LIST")),
       },
+      result: z.string(),
       validate(input) {
         if (input.transport === "socket" && !input.socket)
           throw new Error("Socket transport requires a socket path");

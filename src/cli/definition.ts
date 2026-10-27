@@ -8,6 +8,7 @@ export interface ActionView {
   readonly version: number;
   readonly aliases: readonly string[];
   readonly fields: z.ZodRawShape;
+  readonly result: z.ZodType;
   readonly parser: InputParser;
   invoke(input: unknown): Promise<unknown>;
   call(input: unknown, json: boolean): Promise<{ lines: string[]; exitCode: number }>;
@@ -16,22 +17,26 @@ export type ActionTree = { readonly [command: string]: ActionView | ActionTree }
 export function isAction(entry: ActionView | ActionTree): entry is ActionView {
   return entry.kind === "action" && typeof entry.invoke === "function";
 }
-export function defineAction<S extends z.ZodRawShape, O>(definition: {
+export function defineAction<S extends z.ZodRawShape, R extends z.ZodType>(definition: {
   description: string;
   version?: number;
   aliases?: readonly string[];
   input: S;
+  result: R;
   validate?(input: Input<S>): void;
-  handler(input: Input<S>): O | Promise<O>;
-  output?(value: unknown): O;
-  render?(output: O, json: boolean): string[];
-  exitCode?(output: O): number;
+  handler(input: Input<S>): z.input<R> | Promise<z.input<R>>;
+  render?(output: z.output<R>, json: boolean): string[];
+  exitCode?(output: z.output<R>): number;
 }) {
-  async function invoke(raw: unknown): Promise<O> {
+  async function invoke(raw: unknown): Promise<z.output<R>> {
     const input = parseInput(definition.input, raw);
     definition.validate?.(input);
-    const result = await definition.handler(input);
-    return definition.output ? definition.output(result) : result;
+    const parsed = definition.result.safeParse(await definition.handler(input));
+    if (!parsed.success)
+      throw new Error(
+        `Action result does not match its contract at ${parsed.error.issues[0]?.path.join(".") || "result"}`,
+      );
+    return parsed.data;
   }
   return {
     kind: "action" as const,
@@ -39,9 +44,10 @@ export function defineAction<S extends z.ZodRawShape, O>(definition: {
     version: definition.version ?? 1,
     aliases: definition.aliases ?? [],
     fields: definition.input,
+    result: definition.result,
     parser: inputParser(definition.input),
     invoke,
-    execute(input: RawInput<S>): Promise<O> {
+    execute(input: RawInput<S>): Promise<z.output<R>> {
       return invoke(input);
     },
     async call(input: unknown, json: boolean) {

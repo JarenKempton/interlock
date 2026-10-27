@@ -23,5 +23,8 @@
       "shell"
     ],
     "additionalProperties": false
+  },
+  "output": {
+    "type": "string"
   }
 }

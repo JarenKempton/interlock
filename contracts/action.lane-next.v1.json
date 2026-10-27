@@ -18,5 +18,233 @@
       "lane"
     ],
     "additionalProperties": false
+  },
+  "output": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "claim"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "implement"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "submit"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "review"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "record_verdict"
+                  },
+                  "lane": {
+                    "type": "string"
+                  },
+                  "head": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "merge"
+                  },
+                  "lane": {
+                    "type": "string"
+                  },
+                  "head": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "verify_done"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "attention"
+                  },
+                  "lane": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "none"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": false
+          },
+          "refusal": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "claim_collision",
+                  "stale_version",
+                  "unsupported_capability",
+                  "ambiguous_write",
+                  "invalid_transition",
+                  "stale_evidence",
+                  "recovery_required",
+                  "gates_unmet",
+                  "artifact_required",
+                  "artifact_mismatch",
+                  "tracker_not_done",
+                  "lane_not_found"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "refusal"
+        ],
+        "additionalProperties": false
+      }
+    ]
   }
 }
