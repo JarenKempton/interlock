@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HttpTransport } from "../src/adapters/trackers/http.ts";
@@ -118,7 +118,8 @@ function harness(
   };
   const output: string[] = [];
   const cli = (...args: string[]) => run(args, (line) => output.push(line), services);
-  return { services, store, jira, terminal, git, statePath, output, cli };
+  const configPath = join(realpathSync(directory), "interlock.toml");
+  return { services, store, jira, terminal, git, statePath, configPath, output, cli };
 }
 
 function userSettings(statePath: string) {
@@ -343,6 +344,7 @@ test("doctor prints one line per check when everything is ready", async () => {
     "✓ Jira permissions in JWB: browse, transition, assign, edit issue properties",
     "✓ Claim lock dry-run push to origin from /work/repo",
     `✓ Database ${subject.statePath}`,
+    `✓ Config ${subject.configPath} (not found)`,
   ]);
 });
 
@@ -357,6 +359,7 @@ test("doctor follows each failing check with its fix", async () => {
     "✗ Claim lock dry-run push failed",
     "  → Git claim lock: origin refuses a dry-run push from /work/repo",
     `✓ Database ${subject.statePath}`,
+    `✓ Config ${subject.configPath} (not found)`,
   ]);
 });
 

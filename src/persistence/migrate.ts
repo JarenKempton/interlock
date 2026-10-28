@@ -41,17 +41,15 @@ export function migrateLedger(
   const latest = migrations.length;
   const applied = ledgerVersion(database);
   if (applied > latest) {
-    const backupPath =
-      path === ":memory:" ? `${path}.backup-${Date.now()}` : backupLedger(database, path);
     throw new Error(
-      `Ledger schema version ${applied} is newer than this Interlock supports (version ${latest}); refusing to downgrade or open it. Backup: ${backupPath}`,
+      `Ledger schema version ${applied} is newer than this Interlock supports (version ${latest}); refusing to downgrade or open it. The ledger was left unchanged.`,
     );
   }
   const adopting = applied === 0 && hasTable(database, "runs") && migrations.length > 0;
   const startIndex = adopting ? 1 : applied;
   const pending = migrations.slice(startIndex);
   if (!adopting && pending.length === 0) return { version: applied };
-  const hadLedger = path !== ":memory:" && existsSync(path);
+  const hadLedger = path !== ":memory:" && (applied > 0 || adopting) && existsSync(path);
   let unlock: (() => void) | undefined;
   let backupPath: string | undefined;
   if (path !== ":memory:") {

@@ -51,9 +51,9 @@ jobs:
           if [ -f dist/interlock.exe ]; then bin="dist/interlock.exe"; else bin="./dist/interlock"; fi
           "$bin" runs list
           case "$(uname -s)" in
-            Darwin) ledger="$HOME/Library/Application Support/interlock/interlock.db" ;;
-            MINGW*|MSYS*|CYGWIN*) ledger="$LOCALAPPDATA/Interlock/interlock.db" ;;
-            *) ledger="$XDG_STATE_HOME/interlock/interlock.db" ;;
+            Darwin) ledger="$HOME/Library/Application Support/interlock-dev/interlock.db" ;;
+            MINGW*|MSYS*|CYGWIN*) ledger="$LOCALAPPDATA/Interlock-dev/interlock.db" ;;
+            *) ledger="$XDG_STATE_HOME/interlock-dev/interlock.db" ;;
           esac
           test -f "$ledger"
           cp test/fixtures/ledgers/v1.db "$ledger"
