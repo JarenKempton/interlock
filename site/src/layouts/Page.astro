@@ -1,0 +1,125 @@
+---
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const icon = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#1b1d1a"/><circle cx="11" cy="16" r="6" fill="#c8331f"/><circle cx="21" cy="16" r="6" fill="#2f8a4c" opacity=".9"/></svg>',
+)}`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#efe9da" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f130f" media="(prefers-color-scheme: dark)" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={Astro.site} />
+    <link rel="canonical" href={Astro.site} />
+    <link rel="icon" href={icon} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --paper: #efe9da;
+    --frame: #f7f2e6;
+    --panel: #fbf8f0;
+    --ink: #1b1d1a;
+    --panel-ink: #23251f;
+    --muted: #55574d;
+    --rule: #8d8b7c;
+    --slot: #d6cfbc;
+    --steel: #b9b5a7;
+    --red: #b02a17;
+    --green: #1d6b38;
+    --blue: #1f4e8c;
+    --on-lever: #fff;
+    --amber-bg: #f1c34a;
+    --amber-ink: #1b1d1a;
+    --focus: #1f4e8c;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", "URW Palladio L",
+      P052, Georgia, serif;
+    --mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono",
+      ui-monospace, monospace;
+    --body: "Seravek", "Gill Sans Nova", "Gill Sans", "Gill Sans MT", Ubuntu, Calibri,
+      "DejaVu Sans", sans-serif;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0f130f;
+      --frame: #161b16;
+      --panel: #0a0d0a;
+      --ink: #e8e2cf;
+      --panel-ink: #d9d3c0;
+      --muted: #a7a493;
+      --rule: #4c5146;
+      --slot: #2a3029;
+      --steel: #7d7a6e;
+      --red: #ff7a63;
+      --green: #6fd38e;
+      --blue: #7fb0ff;
+      --on-lever: #0f130f;
+      --amber-bg: #f1c34a;
+      --amber-ink: #0f130f;
+      --focus: #f1c34a;
+    }
+  }
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  html {
+    background: var(--paper);
+    color: var(--ink);
+    font: 1.0625rem/1.55 var(--body);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--slot) 45%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--slot) 45%, transparent) 1px, transparent 1px);
+    background-size: 2.5rem 2.5rem;
+    background-position: -1px -1px;
+    background-attachment: fixed;
+  }
+  a {
+    color: inherit;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+  a:hover {
+    color: var(--red);
+  }
+  a:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+  .skip {
+    position: absolute;
+    left: 1rem;
+    top: -4rem;
+    padding: 0.5rem 0.8rem;
+    background: var(--ink);
+    color: var(--paper);
+    z-index: 2;
+  }
+  .skip:focus {
+    top: 1rem;
+  }
+</style>

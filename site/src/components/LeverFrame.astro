@@ -1,0 +1,190 @@
+---
+const levers = [
+  {
+    number: 1,
+    name: "Claim",
+    colour: "blue",
+    role: "Lock lever",
+    body: "Writes a claim record to a ref on your Git remote, then mirrors it to the tracker: assignee set, status moved to In Progress.",
+  },
+  {
+    number: 2,
+    name: "Prepare",
+    colour: "black",
+    role: "Points lever",
+    body: "Sets the points: a Git worktree on task/KEY, cut from the base branch, for this ticket only.",
+  },
+  {
+    number: 3,
+    name: "Hand off",
+    colour: "red",
+    role: "Signal lever",
+    body: "Clears the signal: T3 Code launch arguments with the ticket, its acceptance criteria, the model, and the worktree.",
+  },
+];
+---
+
+<section class="frame" aria-labelledby="frame-title">
+  <h2 id="frame-title" class="plate">Lever frame · pickup KEY</h2>
+  <ol>
+    {
+      levers.map((lever) => (
+        <li class={`lever ${lever.colour}`} style={`--i:${lever.number}`}>
+          <div class="post" aria-hidden="true">
+            <span class="rod" />
+          </div>
+          <div class="text">
+            <p class="badge">
+              <span class="no">{lever.number}</span>
+              <span class="role">{lever.role}</span>
+            </p>
+            <h3>{lever.name}</h3>
+            <p>{lever.body}</p>
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+  <p class="equation">
+    <span>1 lane</span><span aria-hidden="true">=</span><span>1 ticket</span><span
+      aria-hidden="true">=</span
+    ><span>1 pull request</span>
+  </p>
+</section>
+
+<style>
+  .frame {
+    border: 2px solid var(--ink);
+    background: var(--frame);
+    box-shadow: 8px 8px 0 var(--ink);
+  }
+  .plate {
+    margin: 0;
+    padding: 0.55rem 0.9rem;
+    border-bottom: 2px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    font: 700 0.75rem/1.2 var(--mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .lever {
+    display: grid;
+    grid-template-columns: 3.2rem 1fr;
+    gap: 1rem;
+    padding: 1rem 1.1rem;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .post {
+    position: relative;
+    height: 100%;
+    min-height: 6.5rem;
+    border-radius: 3px;
+    background: repeating-linear-gradient(
+      0deg,
+      var(--slot) 0 2px,
+      transparent 2px 9px
+    );
+  }
+  .rod {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 0.75rem;
+    height: 82%;
+    margin-left: -0.375rem;
+    border: 2px solid var(--ink);
+    border-radius: 2px 2px 0 0;
+    background: var(--lever);
+    transform-origin: 50% 100%;
+    animation: pull 700ms cubic-bezier(0.3, 1.4, 0.5, 1) both;
+    animation-delay: calc(var(--i) * 260ms + 200ms);
+  }
+  .rod::before {
+    content: "";
+    position: absolute;
+    top: -0.7rem;
+    left: 50%;
+    width: 1.6rem;
+    height: 0.6rem;
+    margin-left: -0.8rem;
+    border: 2px solid var(--ink);
+    border-radius: 0.3rem;
+    background: var(--steel);
+  }
+  .blue {
+    --lever: var(--blue);
+  }
+  .black {
+    --lever: var(--ink);
+  }
+  .red {
+    --lever: var(--red);
+  }
+  @keyframes pull {
+    from {
+      transform: rotate(-14deg);
+    }
+    to {
+      transform: rotate(14deg);
+    }
+  }
+  .badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    font: 600 0.68rem/1 var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .no {
+    display: inline-grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: var(--lever);
+    color: var(--on-lever);
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  .black .no {
+    color: var(--paper);
+  }
+  h3 {
+    margin: 0.35rem 0 0.25rem;
+    font: 700 1.45rem/1 var(--display);
+  }
+  .text p:last-child {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+  .equation {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem 0.8rem;
+    margin: 0;
+    padding: 0.8rem;
+    font: 700 0.8rem/1 var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .equation span[aria-hidden] {
+    color: var(--red);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rod {
+      animation: none;
+      transform: rotate(14deg);
+    }
+  }
+</style>

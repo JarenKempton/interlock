@@ -1,0 +1,15 @@
+{
+  "name": "interlock-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro build && wrangler dev",
+    "check:deploy": "astro build && wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "astro": "7.4.2",
+    "wrangler": "4.154.0"
+  }
+}

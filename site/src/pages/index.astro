@@ -1,0 +1,403 @@
+---
+import Install from "../components/Install.astro";
+import LeverFrame from "../components/LeverFrame.astro";
+import Terminal from "../components/Terminal.astro";
+import Page from "../layouts/Page.astro";
+import doctor from "../output/doctor.txt?raw";
+import help from "../output/help.txt?raw";
+import laneCreate from "../output/lane-create.json?raw";
+import pickupDryRun from "../output/pickup-dry-run.json?raw";
+import versionOutput from "../output/version.txt?raw";
+
+const version = versionOutput.trim();
+const plan = JSON.parse(pickupDryRun);
+const planExcerpt = JSON.stringify(
+  {
+    ticket: plan.ticket,
+    worktree: plan.worktree,
+    branch: plan.branch,
+    title: plan.title,
+    claimHome: { lockRef: plan.claimHome.lockRef, recordVersion: plan.claimHome.recordVersion },
+    launch: { workspaceStrategy: plan.launch.workspaceStrategy },
+    dryRun: plan.dryRun,
+    state: plan.state,
+  },
+  null,
+  2,
+);
+const fixture = plan.worktree.replace(/\/worktrees\/TEST-492$/, "");
+const pickupCommand = `interlock pickup TEST-492 --config ${fixture}/interlock.toml --t3-catalog ${fixture}/catalog.json --dry-run --state ${fixture}/state/runs.db`;
+const repo = "https://github.com/JarenKempton/interlock";
+---
+
+<Page
+  title="Interlock — one ticket, one lane, one pull request"
+  description="Interlock claims a tracker ticket through a lock on your Git remote, prepares its worktree, and hands it to an agent in its own lane."
+>
+  <header class="bar">
+    <a class="mark" href="/" aria-label="Interlock home">
+      <span class="lamps" aria-hidden="true"><i></i><i></i></span>
+      Interlock
+    </a>
+    <span class="alpha">Alpha · v{version}</span>
+    <a class="gh" href={repo}>GitHub</a>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="pitch">
+        <p class="eyebrow">Tracker → agent dispatcher</p>
+        <h1>One ticket.<br />One lane.<br /><em>One pull request.</em></h1>
+        <p class="lede">
+          Interlock claims a ticket through a lock on your Git remote, prepares a worktree for it,
+          and hands it to an agent in its own lane. A second agent can’t take the same ticket.
+        </p>
+        <Install version={version} />
+      </div>
+      <LeverFrame />
+    </section>
+
+    <section class="lock" aria-labelledby="lock-title">
+      <div class="copy">
+        <h2 id="lock-title">The lock lives on your Git remote.</h2>
+        <p>
+          A claim is a commit on a ref under <code>refs/interlock/v2/</code>, pushed without force.
+          If another agent claimed the ticket first, the push is rejected and yours stops before it
+          touches anything. The tracker mirrors the claim; the remote decides it.
+        </p>
+        <p>
+          Interlock never releases or reassigns an expired claim on its own,
+          and <code>claim release</code> gives the ticket back without deleting the worktree.
+        </p>
+      </div>
+      <svg
+        class="route"
+        viewBox="0 0 560 200"
+        role="img"
+        aria-labelledby="route-title route-desc"
+      >
+        <title id="route-title">Two agents, one ticket</title>
+        <desc id="route-desc">
+          Agent A and agent B approach the same ticket. Agent A holds the claim lock and gets a
+          clear signal; agent B is held at a red signal.
+        </desc>
+        <g class="track">
+          <path d="M20 50 H200 C250 50 260 100 310 100 H500"></path>
+          <path d="M20 150 H200 C250 150 260 100 310 100"></path>
+        </g>
+        <g class="sleepers">
+          <path d="M40 42v16M70 42v16M100 42v16M130 42v16M160 42v16M190 42v16"></path>
+          <path d="M40 142v16M70 142v16M100 142v16M130 142v16M160 142v16M190 142v16"></path>
+          <path d="M330 92v16M360 92v16M390 92v16M420 92v16M450 92v16M480 92v16M510 92v16"></path>
+        </g>
+        <g class="signal">
+          <line x1="215" y1="50" x2="215" y2="18"></line>
+          <rect x="205" y="4" width="20" height="20" rx="4"></rect>
+          <circle class="go" cx="215" cy="14" r="6"></circle>
+        </g>
+        <g class="signal">
+          <line x1="215" y1="150" x2="215" y2="182"></line>
+          <rect x="205" y="176" width="20" height="20" rx="4"></rect>
+          <circle class="stop" cx="215" cy="186" r="6"></circle>
+        </g>
+        <text x="20" y="34">AGENT A · claim held</text>
+        <text x="20" y="178">AGENT B · held</text>
+        <text x="330" y="80">TEST-492</text>
+        <text x="330" y="132" class="small">refs/interlock/v2/example/TEST-492</text>
+      </svg>
+      <Terminal
+        caption="Before the first pickup · signed out"
+        command="interlock doctor --project JWB"
+        output={doctor}
+      />
+    </section>
+
+    <section class="facts" aria-labelledby="facts-title">
+      <h2 id="facts-title">Personal first.</h2>
+      <ul>
+        <li>
+          <h3>Works for one person</h3>
+          <p>
+            No team rollout and no server. Project defaults live in <code>interlock.toml</code>;
+            your own choices stay in a local SQLite file. Credentials go to the OS credential
+            store.
+          </p>
+        </li>
+        <li>
+          <h3>Pluggable tracker and host</h3>
+          <p>
+            Trackers and agent hosts are adapters behind portable contracts. Today that means
+            Jira and T3 Code. The model is whatever your host runs.
+          </p>
+        </li>
+        <li>
+          <h3>Plans before it mutates</h3>
+          <p>
+            <code>pickup --dry-run</code> prints the whole launch plan and writes nothing: no
+            claim, no worktree, no tracker change.
+          </p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="output" aria-labelledby="output-title">
+      <h2 id="output-title">Real output.</h2>
+      <p class="note">
+        Captured from <code>interlock</code> v{version} and the fake-tracker fixtures in
+        the repo’s <code>test/fixtures</code>. Nothing here is mocked up by hand.
+      </p>
+      <div class="grid">
+        <Terminal
+          caption="Fake tracker · selected fields"
+          command={pickupCommand}
+          output={planExcerpt}
+        />
+        <Terminal
+          caption="Fake tracker"
+          command='interlock lane create --ticket TEST-492 --title "Prepare a real pickup"'
+          output={laneCreate}
+        />
+      </div>
+      <details>
+        <summary>interlock --help</summary>
+        <Terminal caption={`v${version}`} command="interlock --help" output={help} />
+      </details>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>
+      <strong>Alpha.</strong> v{version} is a prerelease. Commands and configuration can change between
+      releases.
+    </p>
+    <p>
+      <a href={repo}>Source</a> · <a href={`${repo}/releases`}>Releases</a> ·
+      <a href={`${repo}/blob/main/LICENSE`}>MIT license</a>
+    </p>
+  </footer>
+</Page>
+
+<style>
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    max-width: 76rem;
+    margin: 0 auto;
+    padding: 1rem 1.25rem;
+  }
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font: 700 1.3rem/1 var(--display);
+    text-decoration: none;
+  }
+  .lamps {
+    display: inline-flex;
+    gap: 3px;
+    padding: 4px;
+    border-radius: 5px;
+    background: var(--ink);
+  }
+  .lamps i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+  }
+  .lamps i + i {
+    background: var(--green);
+  }
+  .alpha {
+    padding: 0.2rem 0.45rem;
+    background: var(--amber-bg);
+    color: var(--amber-ink);
+    font: 700 0.68rem/1.2 var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .gh {
+    margin-left: auto;
+    font: 600 0.8rem/1 var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  main {
+    max-width: 76rem;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 3rem;
+    align-items: start;
+    padding: 1.5rem 0 4rem;
+  }
+  .eyebrow {
+    margin: 0 0 0.75rem;
+    font: 700 0.75rem/1 var(--mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--red);
+  }
+  h1 {
+    margin: 0;
+    font: 700 clamp(2.6rem, 6.2vw, 4.6rem) / 0.98 var(--display);
+    letter-spacing: -0.02em;
+  }
+  h1 em {
+    font-style: italic;
+    color: var(--red);
+  }
+  .lede {
+    max-width: 34rem;
+    margin: 1.2rem 0 1.6rem;
+    font-size: 1.15rem;
+  }
+  h2 {
+    margin: 0 0 0.8rem;
+    font: 700 clamp(1.7rem, 3.4vw, 2.4rem) / 1.05 var(--display);
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+  }
+  .lock {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2rem 3rem;
+    padding: 3rem 0;
+    border-top: 2px solid var(--ink);
+  }
+  .copy p {
+    max-width: 34rem;
+  }
+  .route {
+    width: 100%;
+    height: auto;
+    align-self: center;
+  }
+  .track path {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 4;
+  }
+  .sleepers path {
+    stroke: var(--rule);
+    stroke-width: 3;
+  }
+  .signal line {
+    stroke: var(--ink);
+    stroke-width: 3;
+  }
+  .signal rect {
+    fill: var(--ink);
+  }
+  .go {
+    fill: #36c46a;
+  }
+  .stop {
+    fill: #ff4b33;
+  }
+  .route text {
+    fill: var(--ink);
+    font: 700 13px var(--mono);
+    letter-spacing: 0.06em;
+  }
+  .route .small {
+    font-size: 10px;
+    font-weight: 400;
+    fill: var(--muted);
+  }
+  .lock :global(.terminal) {
+    grid-column: 1 / -1;
+  }
+  .facts {
+    padding: 3rem 0;
+    border-top: 2px solid var(--ink);
+  }
+  .facts ul {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .facts li {
+    padding-top: 0.8rem;
+    border-top: 6px solid var(--ink);
+  }
+  .facts li:nth-child(1) {
+    border-color: var(--blue);
+  }
+  .facts li:nth-child(3) {
+    border-color: var(--red);
+  }
+  h3 {
+    margin: 0 0 0.4rem;
+    font: 700 1.25rem/1.15 var(--display);
+  }
+  .facts p {
+    margin: 0;
+  }
+  .output {
+    padding: 3rem 0 4rem;
+    border-top: 2px solid var(--ink);
+  }
+  .note {
+    max-width: 40rem;
+    margin: 0 0 1.5rem;
+    color: var(--muted);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+    align-items: start;
+  }
+  details {
+    margin-top: 2rem;
+  }
+  summary {
+    width: max-content;
+    margin-bottom: 1rem;
+    font: 700 0.85rem/1.4 var(--mono);
+    cursor: pointer;
+  }
+  summary:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem 2rem;
+    max-width: 76rem;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 2.5rem;
+    border-top: 2px solid var(--ink);
+    font-size: 0.92rem;
+  }
+  .foot p {
+    margin: 0;
+  }
+  @media (max-width: 860px) {
+    .hero,
+    .lock,
+    .grid,
+    .facts ul {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .hero {
+      gap: 2.5rem;
+      padding-bottom: 3rem;
+    }
+    .alpha {
+      display: none;
+    }
+  }
+</style>

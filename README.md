@@ -54,6 +54,7 @@ configuration or initializing the database.
 | Understand execution | [Execution](src/execution/) and [portable contracts](src/domain/contracts.ts) |
 | Understand boundaries and contracts | [Architecture](docs/architecture.md) |
 | Install releases or configure shell integration | [Distribution](docs/distribution.md) |
+| Change the landing page | [site/](site/): Astro, served as Worker static assets; `bun run dev` inside it |
 
 ```sh
 bun test
