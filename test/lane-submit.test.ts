@@ -557,33 +557,33 @@ test("tracker failure retains the PR identity before a retry after closure", asy
 });
 
 test("a similarly prefixed ticket is not the branch ticket", async () => {
-  const { service, artifacts, cleanup } = setup({ branch: "feature/JWB-8780-core" });
-  try {
-    const id = await implementing(service);
-    expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
-      ok: false,
-      refusal: { code: "gates_unmet" },
-    });
-    expect(artifacts.pushes).toEqual([]);
-  } finally {
-    cleanup();
+  for (const branch of ["feature/JWB-8780-core", "task/X_JWB-878"]) {
+    const { service, artifacts, cleanup } = setup({ branch });
+    try {
+      const id = await implementing(service);
+      expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+        ok: false,
+        refusal: { code: "gates_unmet" },
+      });
+      expect(artifacts.pushes).toEqual([]);
+    } finally {
+      cleanup();
+    }
   }
 });
 
 test("title prefix and existing title checks require the complete ticket key", async () => {
-  const first = setup();
-  try {
-    const id = await implementing(first.service);
-    await first.service.submit(id, {
-      head: "abc",
-      evidence: evidence("abc"),
-      title: "JWB-8780: other",
-    });
-    expect(first.artifacts.opens[0]?.title).toBe("JWB-878: JWB-8780: other");
-  } finally {
-    first.cleanup();
+  for (const title of ["JWB-8780: other", "X_JWB-878: other"]) {
+    const first = setup();
+    try {
+      const id = await implementing(first.service);
+      await first.service.submit(id, { head: "abc", evidence: evidence("abc"), title });
+      expect(first.artifacts.opens[0]?.title).toBe(`JWB-878: ${title}`);
+    } finally {
+      first.cleanup();
+    }
   }
-  for (const title of ["Unrelated feature", "JWB-8780: other"]) {
+  for (const title of ["Unrelated feature", "JWB-8780: other", "X_JWB-878: other"]) {
     const { service, artifacts, cleanup } = setup();
     try {
       artifacts.open_ = [{ url: prUrl, branch, title, state: "OPEN" }];

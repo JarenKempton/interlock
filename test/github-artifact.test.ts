@@ -125,6 +125,7 @@ test("title search excludes a longer ticket key, and keeps closed matching PRs",
   );
   commands.listed = [
     { ...pr, title: "JWB-8780: other" },
+    { ...pr, title: "X_JWB-878: other" },
     { ...pr, url: "https://github.com/o/r/pull/8", title: "JWB-878: closed", state: "CLOSED" },
   ];
   expect(await new GitHubArtifactHost(commands).pullRequests(target, "JWB-878")).toEqual([
