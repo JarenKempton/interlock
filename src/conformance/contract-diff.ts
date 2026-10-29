@@ -52,6 +52,15 @@ export function breakingChanges(
   path = "$",
   output = false,
 ): string[] {
+  if (
+    [before, after].some(
+      (value) =>
+        value !== undefined &&
+        typeof value !== "boolean" &&
+        (value === null || typeof value !== "object" || Array.isArray(value)),
+    )
+  )
+    return [`${path}: unsupported schema change`];
   if (before === after) return [];
   if (typeof before === "boolean" || typeof after === "boolean") {
     if (after === false && before !== false) return [`${path}: schema closed`];
@@ -66,12 +75,6 @@ export function breakingChanges(
       output,
     );
   }
-  if (
-    (before !== undefined &&
-      (before === null || typeof before !== "object" || Array.isArray(before))) ||
-    (after !== undefined && (after === null || typeof after !== "object" || Array.isArray(after)))
-  )
-    return [`${path}: unsupported schema change`];
   const old = schema(before);
   const next = schema(after);
   const changes: string[] = [];
@@ -119,14 +122,21 @@ export function breakingChanges(
   else if (old.additionalProperties !== undefined || next.additionalProperties !== undefined)
     changes.push(
       ...breakingChanges(
-        old.additionalProperties ?? true,
-        next.additionalProperties ?? true,
+        old.additionalProperties === undefined ? true : old.additionalProperties,
+        next.additionalProperties === undefined ? true : next.additionalProperties,
         `${path}.*`,
         output,
       ),
     );
   if (old.items !== undefined || next.items !== undefined)
-    changes.push(...breakingChanges(old.items ?? true, next.items ?? true, `${path}[]`, output));
+    changes.push(
+      ...breakingChanges(
+        old.items === undefined ? true : old.items,
+        next.items === undefined ? true : next.items,
+        `${path}[]`,
+        output,
+      ),
+    );
   for (const union of ["anyOf", "oneOf"]) {
     const options = list(next[union]);
     const previous = list(old[union]);

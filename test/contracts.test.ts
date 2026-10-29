@@ -95,6 +95,15 @@ describe("contract classifier", () => {
     expect(breakingChanges({ items: true }, { items: false }).length).toBeGreaterThan(0);
     expect(breakingChanges({ items: false }, { items: true })).toEqual([]);
     expect(breakingChanges({ items: name }, { items: [name] }).length).toBeGreaterThan(0);
+    expect(breakingChanges({ items: name }, { items: null })).toEqual([
+      "$[]: unsupported schema change",
+    ]);
+    expect(
+      breakingChanges({ type: "object" }, { type: "object", additionalProperties: null }),
+    ).toEqual(["$.*: unsupported schema change"]);
+    expect(
+      breakingChanges({ additionalProperties: false }, { additionalProperties: null }),
+    ).toEqual(["$.*: unsupported schema change"]);
   });
 
   test("input union alternatives can be reordered or prepended", () => {
