@@ -33,7 +33,7 @@ export class SubmissionRefusal extends Error {
 
 export function ticketKeyMatches(value: string, key: string): boolean {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`).test(value);
+  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`).test(value);
 }
 
 export function sameSubmission(left: SubmissionIdentity, right: SubmissionIdentity): boolean {
