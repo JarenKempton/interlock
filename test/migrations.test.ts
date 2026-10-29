@@ -200,7 +200,7 @@ test("table rebuild migration preserves rows and foreign keys", () => {
   }
 });
 
-test("ledger migrated by a newer Interlock is refused naming both versions and the backup", () => {
+test("ledger migrated by a newer Interlock is refused naming both versions without a backup", () => {
   const dir = directory();
   const path = join(dir, "interlock.db");
   try {
@@ -211,24 +211,43 @@ test("ledger migrated by a newer Interlock is refused naming both versions and t
       .query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
       .run("from-the-future", Date.now());
     newer.close();
+    const before = readdirSync(dir);
     let message = "";
-    try {
-      new StateStore(path);
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
+    for (const _ of [1, 2]) {
+      try {
+        new StateStore(path);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
     }
     expect(message).toContain(`version ${latestLedgerVersion + 1}`);
     expect(message).toContain(`version ${latestLedgerVersion}`);
-    expect(message).toContain("Backup:");
     expect(message).toContain("refusing");
-    const backupPath = message.split("Backup:")[1]?.trim() ?? "";
-    expect(existsSync(backupPath)).toBe(true);
+    expect(message).not.toContain("Backup:");
+    expect(readdirSync(dir).filter((name) => name.includes(".backup-"))).toEqual([]);
+    expect(readdirSync(dir).sort()).toEqual(before.sort());
     const check = new Database(path, { readonly: true });
     const count = check
       .query<{ count: number }, []>("SELECT COUNT(*) AS count FROM __drizzle_migrations")
       .get();
     check.close();
     expect(count?.count).toBe(latestLedgerVersion + 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("opening a fresh or current ledger writes no backup", () => {
+  const dir = directory();
+  const path = join(dir, "interlock.db");
+  try {
+    const fresh = new StateStore(path);
+    expect(fresh.migrationBackupPath).toBeUndefined();
+    fresh.close();
+    const current = new StateStore(path);
+    expect(current.migrationBackupPath).toBeUndefined();
+    current.close();
+    expect(readdirSync(dir).filter((name) => name.includes(".backup-"))).toEqual([]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

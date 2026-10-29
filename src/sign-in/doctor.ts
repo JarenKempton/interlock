@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
 import { CLAIM_LOCK_NAMESPACE } from "../adapters/claims/git-lock.ts";
 import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
+import { projectConfigPath } from "../configuration/files.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { lookupCredentials, savedSite, trackerSignIns } from "./credentials.ts";
 
@@ -75,8 +77,16 @@ async function pushAccess(services: RuntimeServices) {
   };
 }
 
+export function doctorConfig(services: RuntimeServices) {
+  const path = projectConfigPath(services.configuration?.cwd ?? process.cwd());
+  return { path, found: existsSync(path) };
+}
+
 export function renderDoctor(
-  report: Awaited<ReturnType<typeof doctorChecks>> & { database: string },
+  report: Awaited<ReturnType<typeof doctorChecks>> & {
+    database: string;
+    config: ReturnType<typeof doctorConfig>;
+  },
 ) {
   const { jira, claimLock } = report;
   const lockFix = claimLock.dryRunPush ? [] : report.missing.slice(-1);
@@ -98,6 +108,7 @@ export function renderDoctor(
       ? check(true, `Claim lock dry-run push to origin from ${claimLock.repository}`)
       : check(false, "Claim lock dry-run push failed", lockFix)),
     ...check(true, `Database ${report.database}`),
+    ...check(true, `Config ${report.config.path}${report.config.found ? "" : " (not found)"}`),
   ];
 }
 
