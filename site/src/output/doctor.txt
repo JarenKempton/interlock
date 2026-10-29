@@ -1,6 +1,0 @@
-✗ Jira not signed in
-  → Jira sign-in: run interlock login jira
-✗ Jira permissions not checked
-  → sign in first: run interlock login jira
-✓ Claim lock dry-run push to origin from /home/jaren/.t3/worktrees/wayfinder-cli/task-JWB-907
-✓ Database /tmp/tmp.K3TIRVTTVN/state/interlock/interlock.db

@@ -1,403 +1,575 @@
 ---
-import Install from "../components/Install.astro";
-import LeverFrame from "../components/LeverFrame.astro";
-import Terminal from "../components/Terminal.astro";
-import Page from "../layouts/Page.astro";
-import doctor from "../output/doctor.txt?raw";
-import help from "../output/help.txt?raw";
-import laneCreate from "../output/lane-create.json?raw";
-import pickupDryRun from "../output/pickup-dry-run.json?raw";
-import versionOutput from "../output/version.txt?raw";
-
-const version = versionOutput.trim();
-const plan = JSON.parse(pickupDryRun);
-const planExcerpt = JSON.stringify(
-  {
-    ticket: plan.ticket,
-    worktree: plan.worktree,
-    branch: plan.branch,
-    title: plan.title,
-    claimHome: { lockRef: plan.claimHome.lockRef, recordVersion: plan.claimHome.recordVersion },
-    launch: { workspaceStrategy: plan.launch.workspaceStrategy },
-    dryRun: plan.dryRun,
-    state: plan.state,
-  },
-  null,
-  2,
-);
-const fixture = plan.worktree.replace(/\/worktrees\/TEST-492$/, "");
-const pickupCommand = `interlock pickup TEST-492 --config ${fixture}/interlock.toml --t3-catalog ${fixture}/catalog.json --dry-run --state ${fixture}/state/runs.db`;
-const repo = "https://github.com/JarenKempton/interlock";
+import Stage from "../components/Stage.astro";
+import Layers from "../components/Layers.astro";
+import { product, hero, install, steps, principle, plane, footer, sections, stageCommands } from "../content.ts";
 ---
 
-<Page
-  title="Interlock — one ticket, one lane, one pull request"
-  description="Interlock claims a tracker ticket through a lock on your Git remote, prepares its worktree, and hands it to an agent in its own lane."
->
-  <header class="bar">
-    <a class="mark" href="/" aria-label="Interlock home">
-      <span class="lamps" aria-hidden="true"><i></i><i></i></span>
-      Interlock
-    </a>
-    <span class="alpha">Alpha · v{version}</span>
-    <a class="gh" href={repo}>GitHub</a>
-  </header>
-
-  <main id="main">
-    <section class="hero">
-      <div class="pitch">
-        <p class="eyebrow">Tracker → agent dispatcher</p>
-        <h1>One ticket.<br />One lane.<br /><em>One pull request.</em></h1>
-        <p class="lede">
-          Interlock claims a ticket through a lock on your Git remote, prepares a worktree for it,
-          and hands it to an agent in its own lane. A second agent can’t take the same ticket.
-        </p>
-        <Install version={version} />
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#08090b" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)" />
+    <title>{product.name} · {principle}</title>
+    <meta name="description" content={hero.description} />
+    <link rel="canonical" href="https://interlock.jarenkempton.dev/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="nav">
+      <div class="wrap nav-in">
+        <a class="brand" href="/" aria-label={`${product.name} home`}>
+          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="2" y="2" width="9" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"></rect><rect x="9" y="2" width="9" height="16" rx="2" fill="currentColor" opacity="0.9"></rect></svg>
+          {product.name}
+        </a>
+        <nav aria-label="Primary">
+          <a href="#install">{sections.install}</a>
+          <a class="gh" href={product.github}>GitHub</a>
+        </nav>
       </div>
-      <LeverFrame />
-    </section>
+    </header>
 
-    <section class="lock" aria-labelledby="lock-title">
-      <div class="copy">
-        <h2 id="lock-title">The lock lives on your Git remote.</h2>
-        <p>
-          A claim is a commit on a ref under <code>refs/interlock/v2/</code>, pushed without force.
-          If another agent claimed the ticket first, the push is rejected and yours stops before it
-          touches anything. The tracker mirrors the claim; the remote decides it.
-        </p>
-        <p>
-          Interlock never releases or reassigns an expired claim on its own,
-          and <code>claim release</code> gives the ticket back without deleting the worktree.
-        </p>
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="wrap hero-in">
+          <h1 id="hero-title">{principle}</h1>
+        </div>
+        <div class="stage-sec">
+          <div class="stage-frame">
+            <ol class="sr-only">
+              {steps.map((s) => <li>{s.title}: {s.caption}</li>)}
+              {stageCommands.map((c) => <li>{c.label}: {c.text}</li>)}
+            </ol>
+            <Stage />
+            <ol class="frames">
+              {
+                steps.map((s, i) => (
+                  <li class="fr">
+                    <Stage frame={i} />
+                  </li>
+                ))
+              }
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section id="install" class="sec" aria-labelledby="install-title">
+        <div class="wrap narrow">
+          <h2 id="install-title">{sections.install}</h2>
+          <fieldset class="platforms">
+            <legend class="sr-only">Platform</legend>
+            {
+              install.platforms.map((p, i) => (
+                <label>
+                  <input type="radio" name="platform" value={p.id} data-command={p.command} checked={i === 0} />
+                  <span>{p.label}</span>
+                </label>
+              ))
+            }
+          </fieldset>
+          <div class="cmd">
+            <pre tabindex="0" aria-label="Install command"><code data-install>{install.platforms[0].command}</code></pre>
+            <button type="button" class="copy" data-copy={install.platforms[0].command} data-install-copy>Copy</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="drive" class="sec" aria-labelledby="drive-title">
+        <div class="wrap narrow">
+          <h2 id="drive-title">{hero.drive.title}</h2>
+          <p class="lede">{hero.drive.body}</p>
+          <dl class="ways">
+            <div>
+              <dt>{hero.drive.terminal.label}</dt>
+              <dd class="way-term"><span aria-hidden="true">$ </span><code>{hero.drive.terminal.text}</code></dd>
+            </div>
+            <div>
+              <dt>{hero.drive.agent.label}</dt>
+              <dd class="way-ask">“{hero.drive.agent.text}”</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+      <section id="layers" class="sec" aria-labelledby="layers-title">
+        <div class="wrap narrow">
+          <h2 id="layers-title">{plane.title}</h2>
+          <p class="lede">{plane.body}</p>
+          <Layers />
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="foot">
+      <div class="wrap narrow foot-in">
+        <span class="brand sm">{product.name}</span>
+        <nav aria-label="Footer">
+          <a href={product.github}>GitHub</a>
+          <a href={product.releases}>Releases</a>
+          <a href={product.license}>{footer.license}</a>
+        </nav>
+        <p class="credits">{footer.credits}</p>
       </div>
-      <svg
-        class="route"
-        viewBox="0 0 560 200"
-        role="img"
-        aria-labelledby="route-title route-desc"
-      >
-        <title id="route-title">Two agents, one ticket</title>
-        <desc id="route-desc">
-          Agent A and agent B approach the same ticket. Agent A holds the claim lock and gets a
-          clear signal; agent B is held at a red signal.
-        </desc>
-        <g class="track">
-          <path d="M20 50 H200 C250 50 260 100 310 100 H500"></path>
-          <path d="M20 150 H200 C250 150 260 100 310 100"></path>
-        </g>
-        <g class="sleepers">
-          <path d="M40 42v16M70 42v16M100 42v16M130 42v16M160 42v16M190 42v16"></path>
-          <path d="M40 142v16M70 142v16M100 142v16M130 142v16M160 142v16M190 142v16"></path>
-          <path d="M330 92v16M360 92v16M390 92v16M420 92v16M450 92v16M480 92v16M510 92v16"></path>
-        </g>
-        <g class="signal">
-          <line x1="215" y1="50" x2="215" y2="18"></line>
-          <rect x="205" y="4" width="20" height="20" rx="4"></rect>
-          <circle class="go" cx="215" cy="14" r="6"></circle>
-        </g>
-        <g class="signal">
-          <line x1="215" y1="150" x2="215" y2="182"></line>
-          <rect x="205" y="176" width="20" height="20" rx="4"></rect>
-          <circle class="stop" cx="215" cy="186" r="6"></circle>
-        </g>
-        <text x="20" y="34">AGENT A · claim held</text>
-        <text x="20" y="178">AGENT B · held</text>
-        <text x="330" y="80">TEST-492</text>
-        <text x="330" y="132" class="small">refs/interlock/v2/example/TEST-492</text>
-      </svg>
-      <Terminal
-        caption="Before the first pickup · signed out"
-        command="interlock doctor --project JWB"
-        output={doctor}
-      />
-    </section>
+    </footer>
 
-    <section class="facts" aria-labelledby="facts-title">
-      <h2 id="facts-title">Personal first.</h2>
-      <ul>
-        <li>
-          <h3>Works for one person</h3>
-          <p>
-            No team rollout and no server. Project defaults live in <code>interlock.toml</code>;
-            your own choices stay in a local SQLite file. Credentials go to the OS credential
-            store.
-          </p>
-        </li>
-        <li>
-          <h3>Pluggable tracker and host</h3>
-          <p>
-            Trackers and agent hosts are adapters behind portable contracts. Today that means
-            Jira and T3 Code. The model is whatever your host runs.
-          </p>
-        </li>
-        <li>
-          <h3>Plans before it mutates</h3>
-          <p>
-            <code>pickup --dry-run</code> prints the whole launch plan and writes nothing: no
-            claim, no worktree, no tracker change.
-          </p>
-        </li>
-      </ul>
-    </section>
+    <script is:inline>
+      document.querySelectorAll('input[name="platform"]').forEach((r) =>
+        r.addEventListener("change", () => {
+          document.querySelector("[data-install]").textContent = r.dataset.command;
+          document.querySelector("[data-install-copy]").dataset.copy = r.dataset.command;
+        }),
+      );
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-copy]");
+        if (!b) return;
+        navigator.clipboard.writeText(b.dataset.copy).then(() => {
+          b.textContent = "Copied";
+          setTimeout(() => (b.textContent = "Copy"), 1600);
+        });
+      });
+      (() => {
+        const root = document.getElementById("stage");
+        if (!root || !root.getAnimations || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const clock = root.querySelector(".col");
+        matchMedia("(max-width: 860px)").addEventListener("change", () =>
+          requestAnimationFrame(() => {
+            const t = clock.getAnimations()[0]?.currentTime ?? 0;
+            root.getAnimations({ subtree: true }).forEach((a) => (a.currentTime = t));
+          }),
+        );
+      })();
+    </script>
+  </body>
+</html>
 
-    <section class="output" aria-labelledby="output-title">
-      <h2 id="output-title">Real output.</h2>
-      <p class="note">
-        Captured from <code>interlock</code> v{version} and the fake-tracker fixtures in
-        the repo’s <code>test/fixtures</code>. Nothing here is mocked up by hand.
-      </p>
-      <div class="grid">
-        <Terminal
-          caption="Fake tracker · selected fields"
-          command={pickupCommand}
-          output={planExcerpt}
-        />
-        <Terminal
-          caption="Fake tracker"
-          command='interlock lane create --ticket TEST-492 --title "Prepare a real pickup"'
-          output={laneCreate}
-        />
-      </div>
-      <details>
-        <summary>interlock --help</summary>
-        <Terminal caption={`v${version}`} command="interlock --help" output={help} />
-      </details>
-    </section>
-  </main>
-
-  <footer class="foot">
-    <p>
-      <strong>Alpha.</strong> v{version} is a prerelease. Commands and configuration can change between
-      releases.
-    </p>
-    <p>
-      <a href={repo}>Source</a> · <a href={`${repo}/releases`}>Releases</a> ·
-      <a href={`${repo}/blob/main/LICENSE`}>MIT license</a>
-    </p>
-  </footer>
-</Page>
-
-<style>
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    max-width: 76rem;
-    margin: 0 auto;
-    padding: 1rem 1.25rem;
+<style is:global>
+  :root {
+    --bg: #08090b;
+    --bg-2: #0e1013;
+    --panel: #0c0e11;
+    --col-bg: #0c0e11;
+    --col-on: #0f151c;
+    --row-on: rgba(255, 255, 255, 0.035);
+    --code-bg: #0b0d10;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-2: rgba(255, 255, 255, 0.15);
+    --fg: #eceef1;
+    --fg-2: #b6bbc4;
+    --muted: #8d939d;
+    --accent: #7cc4ff;
+    --accent-ink: #04121f;
+    --accent-tint: rgba(124, 196, 255, 0.08);
+    --accent-line: rgba(124, 196, 255, 0.42);
+    --ok: #4cd49c;
+    --no: #ff8080;
+    --str: #c9d4e0;
+    --grid: rgba(255, 255, 255, 0.035);
+    --sans: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", "Adwaita Sans", ui-sans-serif, system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", "JetBrainsMono Nerd Font", "Adwaita Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
   }
-  .mark {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-    font: 700 1.3rem/1 var(--display);
-    text-decoration: none;
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #fbfbfc;
+      --bg-2: #f4f5f7;
+      --panel: #ffffff;
+      --col-bg: #ffffff;
+      --col-on: #f5f9ff;
+      --row-on: rgba(10, 12, 16, 0.03);
+      --code-bg: #fdfdfe;
+      --line: rgba(10, 12, 16, 0.09);
+      --line-2: rgba(10, 12, 16, 0.17);
+      --fg: #0b0d10;
+      --fg-2: #3a3f47;
+      --muted: #5c626c;
+      --accent: #0a62c9;
+      --accent-ink: #ffffff;
+      --accent-tint: rgba(10, 98, 201, 0.06);
+      --accent-line: rgba(10, 98, 201, 0.4);
+      --ok: #0e6a3c;
+      --no: #b4232b;
+      --str: #1d3b5c;
+      --grid: rgba(10, 12, 16, 0.045);
+      color-scheme: light;
+    }
   }
-  .lamps {
-    display: inline-flex;
-    gap: 3px;
-    padding: 4px;
-    border-radius: 5px;
-    background: var(--ink);
+  @property --hl {
+    syntax: "<number>";
+    inherits: false;
+    initial-value: 0;
   }
-  .lamps i {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--red);
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
   }
-  .lamps i + i {
-    background: var(--green);
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
   }
-  .alpha {
-    padding: 0.2rem 0.45rem;
-    background: var(--amber-bg);
-    color: var(--amber-ink);
-    font: 700 0.68rem/1.2 var(--mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .gh {
-    margin-left: auto;
-    font: 600 0.8rem/1 var(--mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  main {
-    max-width: 76rem;
-    margin: 0 auto;
-    padding: 0 1.25rem;
-  }
-  .hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-    gap: 3rem;
-    align-items: start;
-    padding: 1.5rem 0 4rem;
-  }
-  .eyebrow {
-    margin: 0 0 0.75rem;
-    font: 700 0.75rem/1 var(--mono);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--red);
-  }
-  h1 {
+  body {
     margin: 0;
-    font: 700 clamp(2.6rem, 6.2vw, 4.6rem) / 0.98 var(--display);
-    letter-spacing: -0.02em;
+    background: var(--bg);
+    color: var(--fg);
+    font: 400 1rem/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  h1 em {
-    font-style: italic;
-    color: var(--red);
-  }
-  .lede {
-    max-width: 34rem;
-    margin: 1.2rem 0 1.6rem;
-    font-size: 1.15rem;
-  }
-  h2 {
-    margin: 0 0 0.8rem;
-    font: 700 clamp(1.7rem, 3.4vw, 2.4rem) / 1.05 var(--display);
+  a {
+    color: inherit;
   }
   code {
     font-family: var(--mono);
-    font-size: 0.88em;
   }
-  .lock {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 2rem 3rem;
-    padding: 3rem 0;
-    border-top: 2px solid var(--ink);
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
-  .copy p {
-    max-width: 34rem;
+  .skip {
+    position: absolute;
+    left: 1rem;
+    top: -3rem;
+    padding: 0.5rem 0.8rem;
+    background: var(--fg);
+    color: var(--bg);
+    border-radius: 6px;
+    z-index: 10;
   }
-  .route {
-    width: 100%;
-    height: auto;
-    align-self: center;
+  .skip:focus {
+    top: 1rem;
   }
-  .track path {
-    fill: none;
-    stroke: var(--ink);
-    stroke-width: 4;
+  .wrap {
+    width: min(100% - 2.5rem, 76rem);
+    margin-inline: auto;
   }
-  .sleepers path {
-    stroke: var(--rule);
-    stroke-width: 3;
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(1.4) blur(12px);
   }
-  .signal line {
-    stroke: var(--ink);
-    stroke-width: 3;
+  .nav-in {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3.5rem;
   }
-  .signal rect {
-    fill: var(--ink);
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+    color: var(--fg);
   }
-  .go {
-    fill: #36c46a;
+  .brand svg {
+    color: var(--accent);
   }
-  .stop {
-    fill: #ff4b33;
+  .nav nav {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
   }
-  .route text {
-    fill: var(--ink);
-    font: 700 13px var(--mono);
-    letter-spacing: 0.06em;
+  .nav nav a {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.875rem;
+    color: var(--fg-2);
+    text-decoration: none;
+    border-radius: 6px;
   }
-  .route .small {
-    font-size: 10px;
-    font-weight: 400;
-    fill: var(--muted);
+  .nav nav a:hover {
+    color: var(--fg);
   }
-  .lock :global(.terminal) {
-    grid-column: 1 / -1;
+  .nav .gh {
+    border: 1px solid var(--line-2);
+    color: var(--fg);
   }
-  .facts {
-    padding: 3rem 0;
-    border-top: 2px solid var(--ink);
+  .hero {
+    position: relative;
+    padding: clamp(3.5rem, 7vw, 5rem) 0 clamp(2.5rem, 4vw, 3rem);
+    text-align: center;
+    overflow: hidden;
   }
-  .facts ul {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1.5rem;
-    margin: 1rem 0 0;
-    padding: 0;
-    list-style: none;
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 48px 48px;
+    mask-image: radial-gradient(ellipse 60% 70% at 50% 0%, #000 30%, transparent 75%);
+    pointer-events: none;
   }
-  .facts li {
-    padding-top: 0.8rem;
-    border-top: 6px solid var(--ink);
+  .hero-in {
+    position: relative;
   }
-  .facts li:nth-child(1) {
-    border-color: var(--blue);
+  h1 {
+    max-width: 22ch;
+    margin: 0 auto;
+    font-size: clamp(2.375rem, 5.4vw, 4rem);
+    font-weight: 650;
+    line-height: 1.02;
+    letter-spacing: -0.045em;
+    text-wrap: balance;
   }
-  .facts li:nth-child(3) {
-    border-color: var(--red);
-  }
-  h3 {
-    margin: 0 0 0.4rem;
-    font: 700 1.25rem/1.15 var(--display);
-  }
-  .facts p {
-    margin: 0;
-  }
-  .output {
-    padding: 3rem 0 4rem;
-    border-top: 2px solid var(--ink);
-  }
-  .note {
-    max-width: 40rem;
-    margin: 0 0 1.5rem;
-    color: var(--muted);
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 2rem;
-    align-items: start;
-  }
-  details {
-    margin-top: 2rem;
-  }
-  summary {
-    width: max-content;
-    margin-bottom: 1rem;
-    font: 700 0.85rem/1.4 var(--mono);
+  .copy {
+    flex: none;
+    min-width: 4.25rem;
+    min-height: 2.25rem;
+    padding: 0 0.85rem;
+    border: 1px solid var(--line-2);
+    border-radius: 7px;
+    background: var(--bg-2);
+    color: var(--fg);
+    font: 500 0.8125rem/1 var(--sans);
     cursor: pointer;
   }
-  summary:focus-visible {
-    outline: 3px solid var(--focus);
-    outline-offset: 3px;
+  .copy:hover {
+    border-color: var(--accent-line);
   }
-  .foot {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 0.5rem 2rem;
-    max-width: 76rem;
-    margin: 0 auto;
-    padding: 1.5rem 1.25rem 2.5rem;
-    border-top: 2px solid var(--ink);
-    font-size: 0.92rem;
+  .stage-sec {
+    border-block: 1px solid var(--line);
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+      var(--bg);
   }
-  .foot p {
+  .stage-frame {
+    max-width: 120rem;
+    margin-inline: auto;
+    border-inline: 1px solid var(--line);
+    background: color-mix(in oklab, var(--bg) 70%, transparent);
+  }
+  .frames {
+    display: none;
+    list-style: none;
     margin: 0;
+    padding: 1.5rem clamp(1rem, 2.4vw, 2rem);
   }
-  @media (max-width: 860px) {
-    .hero,
-    .lock,
-    .grid,
-    .facts ul {
-      grid-template-columns: minmax(0, 1fr);
+  .fr + .fr {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--line);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
     }
-    .hero {
-      gap: 2.5rem;
-      padding-bottom: 3rem;
-    }
-    .alpha {
+    .stage.live {
       display: none;
     }
+    .frames {
+      display: block;
+    }
+  }
+  .sec {
+    padding: clamp(3.5rem, 7vw, 5.5rem) 0;
+    border-bottom: 1px solid var(--line);
+  }
+  h2 {
+    margin: 0;
+    font-size: clamp(1.75rem, 3.6vw, 2.625rem);
+    font-weight: 640;
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+  .lede {
+    margin: 1rem 0 0;
+    font-size: 1.0625rem;
+    color: var(--fg-2);
+    text-wrap: pretty;
+  }
+  .lede code {
+    font-size: 0.875em;
+    color: var(--fg);
+  }
+  .step {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr);
+    gap: 2.5rem;
+    padding: 2.5rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1.375rem;
+    font-weight: 620;
+    letter-spacing: -0.025em;
+  }
+  .step-note {
+    margin: 1rem 0 0;
+    padding-left: 0.85rem;
+    border-left: 2px solid var(--accent-line);
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .foot {
+    padding: 2rem 0 3rem;
+  }
+  .foot-in {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.5rem;
+  }
+  .brand.sm {
+    font-size: 0.9375rem;
+  }
+  .foot nav {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: auto;
+  }
+  .foot nav a {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.875rem;
+    color: var(--fg-2);
+    text-decoration: none;
+  }
+  .foot nav a:hover {
+    color: var(--fg);
+  }
+  @media (max-width: 960px) {
+    .step {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+  }
+  @media (max-width: 640px) {
+    .nav nav a:not(.gh) {
+      display: none;
+    }
+    .foot nav {
+      margin-left: 0;
+    }
+  }
+  .credits {
+    width: 100%;
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+
+  .narrow {
+    max-width: 52rem;
+  }
+  .sec h2 {
+    margin: 0 0 0.75rem;
+    font-size: clamp(1.5rem, 2.6vw, 2rem);
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    color: var(--fg);
+  }
+  .sec .lede {
+    max-width: 38rem;
+    margin: 0 0 2.25rem;
+  }
+  #install h2 {
+    margin-bottom: 1.5rem;
+  }
+  .ways {
+    display: grid;
+    gap: 1.25rem;
+    margin: 0;
+  }
+  .ways dt {
+    margin-bottom: 0.3rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .ways dd {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--fg);
+  }
+  .way-term {
+    font-family: var(--mono);
+    font-size: 0.9375rem;
+  }
+  .way-term span {
+    color: var(--muted);
+  }
+  .way-ask {
+    font-style: italic;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .platforms {
+    display: inline-flex;
+    gap: 0.25rem;
+    margin: 0 0 0.75rem;
+    padding: 0.2rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .platforms label {
+    position: relative;
+    cursor: pointer;
+  }
+  .platforms input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .platforms span {
+    display: block;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .platforms input:checked + span {
+    background: var(--bg-2);
+    color: var(--fg);
+    box-shadow: inset 0 0 0 1px var(--line-2);
+  }
+  .platforms input:focus-visible + span {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .cmd {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    background: var(--code-bg);
+  }
+  .cmd pre {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0.8rem 1rem;
+    overflow-x: auto;
+    white-space: pre;
+    font: 500 0.875rem/1.5 var(--mono);
+    color: var(--fg);
+  }
+  .cmd pre:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .cmd .copy {
+    flex: none;
+    margin: 0.4rem;
   }
 </style>

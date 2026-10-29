@@ -1,0 +1,152 @@
+---
+import { layers, plane, scopes } from "../content.ts";
+import ChipView from "./Chip.astro";
+---
+
+<div class="scopes">
+  {
+    scopes.map((g) => (
+      <div class="scope">
+        <h3>{g.title}</h3>
+        <p>{g.body}</p>
+      </div>
+    ))
+  }
+</div>
+
+<details class="more">
+  <summary>{plane.more}</summary>
+  <dl class="layers">
+    {
+      layers.map((l) => (
+        <div class="row">
+          <dt>
+            <span class="name">{l.name}</span>
+            {l.gloss && <span class="gloss">{l.gloss}</span>}
+          </dt>
+          <dd>
+            {l.text ? (
+              <span class="text">{l.text}</span>
+            ) : (
+              <ul class="chips" aria-label={`${l.name} options`}>
+                {l.today.map((c) => (
+                  <li>
+                    <ChipView chip={c} />
+                  </li>
+                ))}
+                {l.soon.map((c) => (
+                  <li>
+                    <ChipView chip={c} soon />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </div>
+      ))
+    }
+  </dl>
+</details>
+
+<style>
+  .layers {
+    display: grid;
+    margin: 0;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: baseline;
+    padding: 1rem 0;
+    border-top: 1px solid var(--line-2);
+  }
+  dt {
+    display: grid;
+    gap: 0.15rem;
+  }
+  .name {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+  }
+  .gloss {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  dd {
+    margin: 0;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .text {
+    font-size: 0.9375rem;
+    color: var(--fg-2);
+  }
+  .scopes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+  }
+  .scope {
+    padding-top: 1rem;
+    border-top: 1px solid var(--line-2);
+  }
+  h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+  }
+  .scope p {
+    margin: 0.4rem 0 0;
+    font-size: 0.9375rem;
+    color: var(--fg-2);
+    text-wrap: pretty;
+  }
+  .more {
+    margin-top: 2.5rem;
+  }
+  .more[open] .layers {
+    margin-top: 1.75rem;
+  }
+  summary {
+    width: fit-content;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--fg-2);
+  }
+  summary:hover {
+    color: var(--fg);
+  }
+  summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+  @media (max-width: 640px) {
+    .scopes {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.5rem;
+    }
+    .row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.55rem;
+    }
+    dt {
+      grid-auto-flow: column;
+      justify-content: start;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+  }
+</style>

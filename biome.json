@@ -5,6 +5,7 @@
       "**",
       "!!dist",
       "!!site",
+      "!!site-variants",
       "!!node_modules",
       "!!src/persistence/migrations/meta",
       "!!contracts/claim-record.v*.json"
