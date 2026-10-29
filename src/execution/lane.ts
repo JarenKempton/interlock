@@ -27,6 +27,11 @@ import {
   RetirementRefusal,
   retirementIdentitySchema,
 } from "../domain/retirement.ts";
+import {
+  type SubmissionAuthority,
+  SubmissionRefusal,
+  ticketKeyMatches,
+} from "../domain/submission.ts";
 import type { TrackerRead } from "../domain/tracker.ts";
 import type { StateStore } from "../persistence/state.ts";
 
@@ -42,10 +47,17 @@ export interface ArtifactWorkspace {
   branch: string;
 }
 
+export interface ArtifactTarget extends ArtifactWorkspace {
+  repository: string;
+  remote: string;
+  head: string;
+}
+
 export interface PullRequest {
   url: string;
   branch: string;
   title?: string;
+  state: "OPEN" | "CLOSED" | "MERGED";
 }
 
 export interface ArtifactRequest {
@@ -55,9 +67,10 @@ export interface ArtifactRequest {
 }
 
 export interface ArtifactHost {
-  push(workspace: ArtifactWorkspace, head: string): Promise<void>;
-  pullRequests(workspace: ArtifactWorkspace, key?: string): Promise<PullRequest[]>;
-  open(workspace: ArtifactWorkspace, request: ArtifactRequest): Promise<PullRequest>;
+  prepare(workspace: ArtifactWorkspace, head: string): Promise<ArtifactTarget>;
+  push(target: ArtifactTarget): Promise<void>;
+  pullRequests(target: ArtifactTarget, key?: string): Promise<PullRequest[]>;
+  open(target: ArtifactTarget, request: ArtifactRequest): Promise<PullRequest>;
   merged?(url: string): Promise<MergeProof>;
 }
 
@@ -86,6 +99,7 @@ export interface LaneServiceOptions {
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
   workspaces?: LaneWorkspaces;
+  submissions?: SubmissionAuthority;
   clock?: { now(): Date };
   newId?: () => LaneRef;
 }
@@ -110,6 +124,7 @@ export class LaneService {
   readonly #tracker: LaneTrackerPort | undefined;
   readonly #artifacts: ArtifactHost | undefined;
   readonly #workspaces: LaneWorkspaces | undefined;
+  readonly #submissions: SubmissionAuthority | undefined;
   readonly #clock: { now(): Date };
   readonly #newId: () => LaneRef;
 
@@ -118,6 +133,7 @@ export class LaneService {
     this.#tracker = options.tracker;
     this.#artifacts = options.artifacts;
     this.#workspaces = options.workspaces;
+    this.#submissions = options.submissions;
     this.#clock = options.clock ?? { now: () => new Date() };
     this.#newId = options.newId ?? (() => laneRefSchema.parse(`interlock-lane:${randomUUID()}`));
   }
@@ -198,9 +214,15 @@ export class LaneService {
       }
     }
     const key = lane.ticket ? parseRef(lane.ticket).nativeId : undefined;
-    if (key && !workspace.branch.includes(key))
+    if (key && !ticketKeyMatches(workspace.branch, key))
       return fail("gates_unmet", `Workspace branch ${workspace.branch} does not carry ${key}`);
-    const found = await openPullRequests(artifacts, workspace, key);
+    let target: ArtifactTarget;
+    try {
+      target = await artifacts.prepare(workspace, input.head);
+    } catch {
+      return fail("gates_unmet", "Submission head, branch, or remote cannot be verified");
+    }
+    const found = await openPullRequests(artifacts, target, key);
     if (!found.ok) return found;
     const others = found.value.filter((item) => item.branch !== workspace.branch);
     const own = found.value.filter((item) => item.branch === workspace.branch);
@@ -214,18 +236,61 @@ export class LaneService {
         "duplicate_artifact",
         `Lane pull request ${lane.artifact} is not open on ${workspace.branch}; refusing a second pull request`,
       );
+    const existing = own[0];
+    if (
+      existing &&
+      (existing.state !== "OPEN" || (key && !ticketKeyMatches(existing.title ?? "", key)))
+    )
+      return fail(
+        "artifact_mismatch",
+        "Existing PR must be open and its title must carry the ticket key",
+      );
+    if (!this.#submissions || !lane.run || !lane.claim)
+      return fail(
+        "unsupported_capability",
+        "Submit requires shared submission authority and recorded run/claim identity",
+      );
+    let mayCreate: boolean;
     try {
-      await artifacts.push(workspace, input.head);
+      ({ mayCreate } = await this.#submissions.reserve(
+        {
+          lane: lane.id,
+          run: lane.run,
+          claim: lane.claim,
+          ...(lane.ticket ? { ticket: lane.ticket } : {}),
+          repository: target.repository,
+          branch: target.branch,
+        },
+        target.path,
+      ));
+    } catch (error) {
+      if (error instanceof SubmissionRefusal) return fail(error.code, error.message);
+      return fail("recovery_required", "Submission authority could not be verified");
+    }
+    if (!existing && !mayCreate)
+      return fail(
+        "recovery_required",
+        "PR creation was already reserved; reconcile its outcome instead of issuing another create",
+      );
+    try {
+      await artifacts.push(target);
     } catch {
       return fail("push_failed", `Push of ${workspace.branch} failed; lane remains implementing`);
     }
-    const pullRequest = own[0] ?? (await openPullRequest(artifacts, lane, workspace, key, input));
+    const pullRequest = existing ?? (await openPullRequest(artifacts, lane, target, key, input));
     if (!pullRequest)
       return fail(
         "ambiguous_write",
         "Pull request creation was not verified; resubmit to adopt or open it",
       );
+    if (
+      pullRequest.branch !== target.branch ||
+      pullRequest.state !== "OPEN" ||
+      (key && !ticketKeyMatches(pullRequest.title ?? "", key))
+    )
+      return fail("artifact_mismatch", "Created PR identity could not be verified");
     const artifact = pullRequest.url;
+    this.#store.saveLane({ ...lane, artifact, updatedAt: now });
     if (lane.ticket && this.#tracker?.link_artifact) {
       try {
         await this.#tracker.link_artifact(lane.ticket, artifact, pullRequest.title);
@@ -438,7 +503,7 @@ export class LaneService {
 
 async function openPullRequests(
   artifacts: ArtifactHost,
-  workspace: ArtifactWorkspace,
+  workspace: ArtifactTarget,
   key: string | undefined,
 ): Promise<LaneResult<PullRequest[]>> {
   try {
@@ -451,13 +516,13 @@ async function openPullRequests(
 async function openPullRequest(
   artifacts: ArtifactHost,
   lane: Lane,
-  workspace: ArtifactWorkspace,
+  workspace: ArtifactTarget,
   key: string | undefined,
   input: LaneSubmitInput,
 ): Promise<PullRequest | undefined> {
   const summary = input.title ?? lane.title ?? workspace.branch;
   const request = {
-    title: key && !summary.includes(key) ? `${key}: ${summary}` : summary,
+    title: key && !ticketKeyMatches(summary, key) ? `${key}: ${summary}` : summary,
     body: [
       `Interlock lane ${lane.id}`,
       ...input.evidence.map((item) => `- ${item.gate} at ${item.head}: ${item.url}`),

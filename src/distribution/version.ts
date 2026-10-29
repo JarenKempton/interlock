@@ -1,4 +1,5 @@
 declare const INTERLOCK_BUILD_VERSION: string | undefined;
+export const RELEASE_BUILD = typeof INTERLOCK_BUILD_VERSION === "string";
 export const VERSION =
   typeof INTERLOCK_BUILD_VERSION === "string" ? INTERLOCK_BUILD_VERSION : "0.1.0-dev";
 

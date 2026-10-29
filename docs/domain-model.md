@@ -69,10 +69,28 @@ branch's pull request with the ticket key in its title, records the URL on
 the lane and links it through the tracker's `link_artifact`, which for Jira is
 one issue remote link keyed by the pull request URL and read back after the
 write. A ticket lane with no signed-in tracker is refused as
-`tracker_unavailable` before anything is pushed. A second open
-pull request for the ticket is refused as `duplicate_artifact`; an
-unverified create or link is `ambiguous_write` and a resubmit adopts it. The
-lane agent needs no GitHub write credential. The `lane` actions and
+`tracker_unavailable` before anything is pushed. Submit accepts only the exact
+branch commit OID, binds Git and `gh --repo` to one verified push repository,
+and retains the PR URL before attempting the tracker link. Existing PRs must
+be open with a complete ticket key in their title; closed PRs are not replaced.
+
+[`SubmissionAuthority`](../src/domain/submission.ts) reserves one create attempt
+per ticket across machines in the recorded claim home. Its independent v1
+Git record binds the lane/run/claim, repository and branch; it does not change
+the v2 claim-record protocol. A verified atomic ref creation grants one
+caller permission to create. Reservations are never expired, reassigned or
+deleted, including by retirement. Later calls may adopt an existing PR but
+cannot issue another create when the first outcome is unknown. A crash or
+push/create failure after reservation may require manual reconciliation
+(`recovery_required`); an absent GitHub search result is not proof that a
+previous create failed. Local ledger locks alone are not this authority.
+The [Git adapter](../src/adapters/submissions/git.ts) and
+[isolated tests](../test/submission-authority.test.ts) define the contract.
+
+This serializes core-managed creation, not GitHub itself: external actors can
+still create PRs outside core, and GitHub search is eventually consistent.
+The lane agent needs no GitHub write credential for submission; removing
+ambient credentials from the lane environment remains the host's job. The `lane` actions and
 [`LaneService`](../src/execution/lane.ts) expose the machine as commands.
 
 ## Conformance

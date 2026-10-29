@@ -161,9 +161,16 @@ async function mergedLane(
     commit: repo.merge,
   };
   const artifacts = {
+    prepare: async () => ({
+      path: repo.lane,
+      branch,
+      repository: "github.com/o/r",
+      remote: "https://github.com/o/r.git",
+      head: repo.head,
+    }),
     push: async () => {},
     pullRequests: async () => [],
-    open: async () => ({ url: prUrl, branch }),
+    open: async () => ({ url: prUrl, branch, state: "OPEN" as const }),
     merged: async (url: string) => {
       views.push(url);
       return proof;

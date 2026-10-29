@@ -10,6 +10,7 @@ import type { RuntimeServices } from "../runtime-services.ts";
 import { LaneService } from "./lane.ts";
 import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
+import { RecordedSubmissionAuthority } from "./submission.ts";
 
 function exitCode(output: unknown): number {
   return typeof output === "object" && output !== null && "ok" in output && !output.ok ? 1 : 0;
@@ -29,6 +30,12 @@ export function laneActions(services: RuntimeServices) {
         retire: (record, advance) =>
           GitWorkspaceAdapter.retire(record, advance, services.execution?.git),
       },
+      submissions:
+        services.lane?.submissions ??
+        new RecordedSubmissionAuthority(
+          store,
+          services.execution?.git ?? new BunGitCommandExecutor(),
+        ),
       ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
     });
   const withLane = <T>(

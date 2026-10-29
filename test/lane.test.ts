@@ -12,8 +12,10 @@ import {
 } from "../src/domain/identifiers.ts";
 import { createLane, type Lane, nextLaneAction, transitionLane } from "../src/domain/lane.ts";
 import type { Ticket } from "../src/domain/model.ts";
+import type { ArtifactHost } from "../src/execution/lane.ts";
 import { LaneService, type LaneTrackerPort } from "../src/execution/lane.ts";
 import { StateStore } from "../src/persistence/state.ts";
+import { FakeSubmissionAuthority } from "./fixtures/submission.ts";
 
 const now = "2026-01-01T00:00:00.000Z";
 const ticketRef = ticketRefSchema.parse("jira:x:W:ticket:A-1");
@@ -461,12 +463,18 @@ test("CLI runs a one-off lane and refuses completion without an owned claim", as
     updatedAt: now,
   });
   seed.close();
-  const artifacts = {
+  const artifacts: ArtifactHost = {
+    prepare: async (workspace, head) => ({
+      ...workspace,
+      head,
+      remote: "https://github.com/o/r.git",
+      repository: "github.com/o/r",
+    }),
     push: async () => {},
     pullRequests: async () => [],
-    open: async () => ({ url: "https://example.test/pr/1", branch: "local/cli" }),
+    open: async () => ({ url: "https://example.test/pr/1", branch: "local/cli", state: "OPEN" }),
   };
-  const services = { statePath, lane: { artifacts } };
+  const services = { statePath, lane: { artifacts, submissions: new FakeSubmissionAuthority() } };
   try {
     const call = async (args: string[]) => {
       const output: string[] = [];

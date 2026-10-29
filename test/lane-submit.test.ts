@@ -3,9 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { GitHubArtifactHost } from "../src/adapters/artifacts/github.ts";
 import type { JiraTransport } from "../src/adapters/trackers/jira.ts";
-import type { CommandResult, GitCommandExecutor } from "../src/adapters/workspaces/git.ts";
 import { run as runCli } from "../src/cli.ts";
 import {
   AmbiguousTrackerResultError,
@@ -22,6 +20,7 @@ import type { LaneRef, TicketRef } from "../src/domain/model.ts";
 import {
   type ArtifactHost,
   type ArtifactRequest,
+  type ArtifactTarget,
   type ArtifactWorkspace,
   LaneService,
   type LaneTrackerPort,
@@ -29,6 +28,7 @@ import {
 } from "../src/execution/lane.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import type { RuntimeServices } from "../src/runtime-services.ts";
+import { FakeSubmissionAuthority } from "./fixtures/submission.ts";
 
 const ticket = ticketRefSchema.parse("jira:x:W:ticket:JWB-878");
 const runRef = runRefSchema.parse("interlock-run:submit");
@@ -47,8 +47,16 @@ class FakeArtifacts implements ArtifactHost {
   failList = false;
   openOutcome: "created" | "lost_response" | "failed" = "created";
 
-  async push(workspace: ArtifactWorkspace, head: string) {
-    this.pushes.push({ workspace, head });
+  async prepare(workspace: ArtifactWorkspace, head: string): Promise<ArtifactTarget> {
+    return {
+      ...workspace,
+      head,
+      repository: "github.com/o/r",
+      remote: "https://github.com/o/r.git",
+    };
+  }
+  async push(workspace: ArtifactTarget) {
+    this.pushes.push({ workspace, head: workspace.head });
     if (this.failPush) throw new Error("rejected");
   }
 
@@ -62,7 +70,12 @@ class FakeArtifacts implements ArtifactHost {
   async open(workspace: ArtifactWorkspace, request: ArtifactRequest) {
     this.opens.push(request);
     if (this.openOutcome === "failed") throw new Error("gh pr create failed");
-    const created = { url: prUrl, branch: workspace.branch, title: request.title };
+    const created: PullRequest = {
+      url: prUrl,
+      branch: workspace.branch,
+      title: request.title,
+      state: "OPEN",
+    };
     this.open_.push(created);
     if (this.openOutcome === "lost_response") throw new Error("connection reset");
     return created;
@@ -88,7 +101,13 @@ class LinkingTracker implements LaneTrackerPort {
 }
 
 function setup(
-  options: { branch?: string; tracker?: LaneTrackerPort | null; artifacts?: boolean } = {},
+  options: {
+    branch?: string;
+    tracker?: LaneTrackerPort | null;
+    artifacts?: boolean;
+    submissions?: FakeSubmissionAuthority;
+    host?: FakeArtifacts;
+  } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), "interlock-submit-"));
   const store = new StateStore(join(directory, "interlock.db"));
@@ -102,10 +121,11 @@ function setup(
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
-  const artifacts = new FakeArtifacts();
+  const artifacts = options.host ?? new FakeArtifacts();
   const tracker = options.tracker === undefined ? new LinkingTracker() : options.tracker;
   const service = new LaneService({
     store,
+    submissions: options.submissions ?? new FakeSubmissionAuthority(),
     ...(tracker ? { tracker } : {}),
     ...(options.artifacts === false ? {} : { artifacts }),
     newId: () => laneRefSchema.parse("interlock-lane:submit"),
@@ -173,7 +193,7 @@ test("submit pushes the recorded branch, opens one PR with the key, records and 
 test("an existing PR on the lane branch is adopted instead of opening another", async () => {
   const { service, artifacts, cleanup } = setup();
   try {
-    artifacts.open_.push({ url: prUrl, branch });
+    artifacts.open_.push({ url: prUrl, branch, title: "JWB-878: existing", state: "OPEN" });
     const id = await implementing(service);
     const submitted = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(submitted).toMatchObject({ ok: true, value: { artifact: prUrl } });
@@ -186,7 +206,11 @@ test("an existing PR on the lane branch is adopted instead of opening another", 
 test("a second PR for the ticket is refused with duplicate_artifact before any push", async () => {
   const { service, artifacts, cleanup } = setup();
   try {
-    artifacts.open_.push({ url: "https://github.com/o/r/pull/JWB-878-other", branch: "other" });
+    artifacts.open_.push({
+      url: "https://github.com/o/r/pull/JWB-878-other",
+      branch: "other",
+      state: "OPEN",
+    });
     const id = await implementing(service);
     const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(refused).toMatchObject({ ok: false, refusal: { code: "duplicate_artifact" } });
@@ -240,7 +264,7 @@ test("an ambiguous create adopts the PR it finds on readback", async () => {
   }
 });
 
-test("an unverified create is ambiguous_write and a retry opens it once", async () => {
+test("an unverified create cannot be retried as another create", async () => {
   const { service, artifacts, cleanup } = setup();
   try {
     artifacts.openOutcome = "failed";
@@ -250,8 +274,9 @@ test("an unverified create is ambiguous_write and a retry opens it once", async 
     expect(service.get(id)).toMatchObject({ ok: true, value: { state: "implementing" } });
     artifacts.openOutcome = "created";
     const retried = await service.submit(id, { head: "abc", evidence: evidence("abc") });
-    expect(retried).toMatchObject({ ok: true, value: { artifact: prUrl } });
-    expect(artifacts.open_).toHaveLength(1);
+    expect(retried).toMatchObject({ ok: false, refusal: { code: "recovery_required" } });
+    expect(artifacts.opens).toHaveLength(1);
+    expect(artifacts.open_).toHaveLength(0);
   } finally {
     cleanup();
   }
@@ -318,63 +343,6 @@ test("submit refuses without a host, workspace, key-bearing branch or readable P
   }
 });
 
-class RecordingCommands implements GitCommandExecutor {
-  calls: { argv: readonly string[]; cwd: string }[] = [];
-  constructor(private readonly respond: (argv: readonly string[]) => CommandResult) {}
-  async run(argv: readonly string[], cwd: string) {
-    this.calls.push({ argv, cwd });
-    return this.respond(argv);
-  }
-}
-
-test("GitHub host pushes the head to the recorded branch and drives gh with argument arrays", async () => {
-  const workspace = { path: "/work/lane", branch };
-  const listed = JSON.stringify([
-    { url: prUrl, headRefName: branch, title: "JWB-878: core PR" },
-    { url: "https://github.com/o/r/pull/9", headRefName: "x", title: "JWB-8780 other" },
-  ]);
-  const commands = new RecordingCommands((argv) =>
-    argv[2] === "create"
-      ? { exitCode: 0, stdout: `Creating pull request\n${prUrl}\n`, stderr: "" }
-      : { exitCode: 0, stdout: argv[0] === "gh" ? listed : "", stderr: "" },
-  );
-  const host = new GitHubArtifactHost(commands);
-  await host.push(workspace, "abc");
-  expect(commands.calls[0]).toEqual({
-    argv: ["git", "push", "--porcelain", "origin", `abc:refs/heads/${branch}`],
-    cwd: "/work/lane",
-  });
-  expect(await host.pullRequests(workspace, "JWB-878")).toEqual([
-    { url: prUrl, branch, title: "JWB-878: core PR" },
-    { url: "https://github.com/o/r/pull/9", branch: "x", title: "JWB-8780 other" },
-  ]);
-  expect(await host.open(workspace, { title: "JWB-878: t", body: "b", draft: true })).toEqual({
-    url: prUrl,
-    branch,
-    title: "JWB-878: t",
-  });
-  expect(commands.calls.at(-1)?.argv).toEqual([
-    "gh",
-    "pr",
-    "create",
-    "--head",
-    branch,
-    "--title",
-    "JWB-878: t",
-    "--body",
-    "b",
-    "--draft",
-  ]);
-  const failing = new GitHubArtifactHost(
-    new RecordingCommands(() => ({ exitCode: 1, stdout: "", stderr: "denied" })),
-  );
-  await expect(failing.push(workspace, "abc")).rejects.toThrow("git push exited 1");
-  await expect(failing.pullRequests(workspace)).rejects.toThrow("gh pr list exited 1");
-  await expect(failing.open(workspace, { title: "t", body: "b", draft: false })).rejects.toThrow(
-    "gh pr create exited 1",
-  );
-});
-
 test("CLI lane submit goes through the artifact host and records the PR", async () => {
   const directory = mkdtempSync(join(tmpdir(), "interlock-submit-cli-"));
   const statePath = join(directory, "interlock.db");
@@ -392,7 +360,10 @@ test("CLI lane submit goes through the artifact host and records the PR", async 
   seed.close();
   const artifacts = new FakeArtifacts();
   const tracker = new LinkingTracker();
-  const services = { statePath, lane: { artifacts, tracker } };
+  const services = {
+    statePath,
+    lane: { artifacts, tracker, submissions: new FakeSubmissionAuthority() },
+  };
   const call = async (args: string[]) => {
     const output: string[] = [];
     const code = await runCli([...args, "--json"], (text) => output.push(text), services);
@@ -521,7 +492,7 @@ test("CLI submit reaches the signed-in Jira adapter and writes one verified remo
   try {
     const services = {
       statePath,
-      lane: { artifacts: new FakeArtifacts() },
+      lane: { artifacts: new FakeArtifacts(), submissions: new FakeSubmissionAuthority() },
       execution: { jira },
       signIn: {
         environment: { JIRA_SITE: "https://responsibid.atlassian.net" },
@@ -535,5 +506,123 @@ test("CLI submit reaches the signed-in Jira adapter and writes one verified remo
     expect(posts).toHaveLength(1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("separate ledgers racing the same ticket cannot both create PRs", async () => {
+  const submissions = new FakeSubmissionAuthority();
+  const host = new FakeArtifacts();
+  const first = setup({ submissions, host, branch: "work/JWB-878-first" });
+  const second = setup({ submissions, host, branch: "work/JWB-878-second" });
+  try {
+    const a = await implementing(first.service);
+    const b = await implementing(second.service);
+    const results = await Promise.all([
+      first.service.submit(a, { head: "abc", evidence: evidence("abc") }),
+      second.service.submit(b, { head: "abc", evidence: evidence("abc") }),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.find((result) => !result.ok)).toMatchObject({
+      refusal: { code: "duplicate_artifact" },
+    });
+    expect(host.opens).toHaveLength(1);
+    expect(host.pushes).toHaveLength(1);
+  } finally {
+    first.cleanup();
+    second.cleanup();
+  }
+});
+
+test("tracker failure retains the PR identity before a retry after closure", async () => {
+  const tracker = new LinkingTracker();
+  tracker.failWith = new Error("403");
+  const { service, store, artifacts, cleanup } = setup({ tracker });
+  try {
+    const id = await implementing(service);
+    expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+      ok: false,
+      refusal: { code: "tracker_write_failed" },
+    });
+    expect(store.lane(id)).toMatchObject({ artifact: prUrl, state: "implementing" });
+    artifacts.open_ = [];
+    tracker.failWith = undefined;
+    expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+      ok: false,
+      refusal: { code: "duplicate_artifact" },
+    });
+    expect(artifacts.opens).toHaveLength(1);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a similarly prefixed ticket is not the branch ticket", async () => {
+  const { service, artifacts, cleanup } = setup({ branch: "feature/JWB-8780-core" });
+  try {
+    const id = await implementing(service);
+    expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+      ok: false,
+      refusal: { code: "gates_unmet" },
+    });
+    expect(artifacts.pushes).toEqual([]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("title prefix and existing title checks require the complete ticket key", async () => {
+  const first = setup();
+  try {
+    const id = await implementing(first.service);
+    await first.service.submit(id, {
+      head: "abc",
+      evidence: evidence("abc"),
+      title: "JWB-8780: other",
+    });
+    expect(first.artifacts.opens[0]?.title).toBe("JWB-878: JWB-8780: other");
+  } finally {
+    first.cleanup();
+  }
+  for (const title of ["Unrelated feature", "JWB-8780: other"]) {
+    const { service, artifacts, cleanup } = setup();
+    try {
+      artifacts.open_ = [{ url: prUrl, branch, title, state: "OPEN" }];
+      const id = await implementing(service);
+      expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+        ok: false,
+        refusal: { code: "artifact_mismatch" },
+      });
+      expect(artifacts.pushes).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test("a reserved ambiguous create can only adopt its eventual PR, even after service restart", async () => {
+  const submissions = new FakeSubmissionAuthority();
+  const fixture = setup({ submissions });
+  try {
+    const id = await implementing(fixture.service);
+    fixture.artifacts.openOutcome = "failed";
+    await fixture.service.submit(id, { head: "abc", evidence: evidence("abc") });
+    const restarted = new LaneService({
+      store: fixture.store,
+      submissions,
+      artifacts: fixture.artifacts,
+      ...(fixture.tracker ? { tracker: fixture.tracker } : {}),
+    });
+    expect(await restarted.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+      ok: false,
+      refusal: { code: "recovery_required" },
+    });
+    fixture.artifacts.open_ = [{ url: prUrl, branch, title: "JWB-878: delayed", state: "OPEN" }];
+    expect(await restarted.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+      ok: true,
+      value: { artifact: prUrl },
+    });
+    expect(fixture.artifacts.opens).toHaveLength(1);
+  } finally {
+    fixture.cleanup();
   }
 });
