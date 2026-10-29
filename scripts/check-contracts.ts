@@ -3,10 +3,12 @@ import { join } from "node:path";
 import { contractBreakingChanges } from "../src/conformance/contract-diff.ts";
 import {
   CONTRACTS_DIRECTORY,
+  committedContractFiles,
   committedContractHashes,
   contractFileName,
   contractHash,
   contractSurfaces,
+  contractVersionFailures,
   hashesSchema,
   parseContractFileName,
 } from "../src/conformance/contracts.ts";
@@ -25,7 +27,11 @@ const headHashes = committedContractHashes();
 const surfaces = contractSurfaces();
 const current = new Map(surfaces.map((surface) => [contractFileName(surface), surface]));
 const names = new Set(surfaces.map((surface) => surface.name));
-const failures: string[] = [];
+const failures = contractVersionFailures(surfaces, [
+  ...Object.keys(baseHashes),
+  ...Object.keys(headHashes),
+  ...committedContractFiles(),
+]);
 const additive: string[] = [];
 
 for (const [file, hash] of Object.entries(baseHashes)) {

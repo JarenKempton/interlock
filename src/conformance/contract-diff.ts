@@ -46,7 +46,32 @@ function key(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function breakingChanges(before: unknown, after: unknown, path = "$"): string[] {
+export function breakingChanges(
+  before: unknown,
+  after: unknown,
+  path = "$",
+  output = false,
+): string[] {
+  if (before === after) return [];
+  if (typeof before === "boolean" || typeof after === "boolean") {
+    if (after === false && before !== false) return [`${path}: schema closed`];
+    if (output && before === false) return [`${path}: output schema widened`];
+    if (before === false || after === true) {
+      if (!output) return [];
+    }
+    return breakingChanges(
+      before === true ? {} : before,
+      after === true ? {} : after,
+      path,
+      output,
+    );
+  }
+  if (
+    (before !== undefined &&
+      (before === null || typeof before !== "object" || Array.isArray(before))) ||
+    (after !== undefined && (after === null || typeof after !== "object" || Array.isArray(after)))
+  )
+    return [`${path}: unsupported schema change`];
   const old = schema(before);
   const next = schema(after);
   const changes: string[] = [];
@@ -69,27 +94,59 @@ export function breakingChanges(before: unknown, after: unknown, path = "$"): st
   for (const name of Object.keys(oldProperties)) {
     if (!Object.hasOwn(newProperties, name)) changes.push(`${path}.${name}: removed`);
     else
-      changes.push(...breakingChanges(oldProperties[name], newProperties[name], `${path}.${name}`));
+      changes.push(
+        ...breakingChanges(oldProperties[name], newProperties[name], `${path}.${name}`, output),
+      );
   }
   const required = new Set(list(old.required).map(key));
   for (const name of list(next.required))
     if (!required.has(key(name))) changes.push(`${path}.${String(name)}: newly required`);
+  if (output) {
+    const nextRequired = new Set(list(next.required).map(key));
+    for (const name of list(old.required))
+      if (!nextRequired.has(key(name)))
+        changes.push(`${path}.${String(name)}: output no longer required`);
+    const scalar = (value: Schema) =>
+      Object.fromEntries(
+        ["type", "enum", ...NARROWING]
+          .filter((name) => value[name] !== undefined)
+          .map((name) => [name, value[name]]),
+      );
+    changes.push(...breakingChanges(scalar(next), scalar(old), `${path}: output widened`));
+  }
   if (next.additionalProperties === false && old.additionalProperties !== false)
     changes.push(`${path}: additional properties closed`);
-  else if (old.additionalProperties !== undefined && next.additionalProperties !== undefined)
+  else if (old.additionalProperties !== undefined || next.additionalProperties !== undefined)
     changes.push(
-      ...breakingChanges(old.additionalProperties, next.additionalProperties, `${path}.*`),
+      ...breakingChanges(
+        old.additionalProperties ?? true,
+        next.additionalProperties ?? true,
+        `${path}.*`,
+        output,
+      ),
     );
   if (old.items !== undefined || next.items !== undefined)
-    changes.push(...breakingChanges(old.items, next.items, `${path}[]`));
+    changes.push(...breakingChanges(old.items ?? true, next.items ?? true, `${path}[]`, output));
   for (const union of ["anyOf", "oneOf"]) {
     const options = list(next[union]);
-    for (const [index, option] of list(old[union]).entries())
-      changes.push(
-        ...(index < options.length
-          ? breakingChanges(option, options[index], `${path}|${index}`)
-          : [`${path}: ${union} option ${index} removed`]),
-      );
+    const previous = list(old[union]);
+    if (union === "oneOf" && key(old[union]) !== key(next[union])) {
+      changes.push(`${path}: unclassified change to oneOf`);
+      continue;
+    }
+    for (const [index, option] of previous.entries())
+      if (
+        !options.some((candidate) => breakingChanges(option, candidate, path, output).length === 0)
+      )
+        changes.push(`${path}: ${union} option ${index} removed`);
+    if (output)
+      for (const [index, option] of options.entries())
+        if (
+          !previous.some(
+            (candidate) => breakingChanges(candidate, option, path, output).length === 0,
+          )
+        )
+          changes.push(`${path}: output ${union} option ${index} added`);
     if (old[union] === undefined && next[union] !== undefined)
       changes.push(`${path}: ${union} added`);
   }
@@ -103,6 +160,8 @@ export function contractBreakingChanges(before: unknown, after: unknown): string
   const old = schema(before);
   const next = schema(after);
   return Object.keys(old).flatMap((name) =>
-    Object.hasOwn(next, name) ? breakingChanges(old[name], next[name], name) : [`${name}: removed`],
+    Object.hasOwn(next, name)
+      ? breakingChanges(old[name], next[name], name, name === "output")
+      : [`${name}: removed`],
   );
 }

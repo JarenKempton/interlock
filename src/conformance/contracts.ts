@@ -93,6 +93,26 @@ export function parseContractFileName(file: string): { name: string; version: nu
   return match?.[1] && match[2] ? { name: match[1], version: Number(match[2]) } : undefined;
 }
 
+export function contractVersionFailures(
+  surfaces: Pick<ContractSurface, "name" | "version">[],
+  files: string[],
+): string[] {
+  return surfaces.flatMap(({ name, version }) => {
+    if (!Number.isSafeInteger(version) || version < 1)
+      return [`${name}: major must be a positive integer`];
+    const highest = Math.max(
+      0,
+      ...files
+        .map(parseContractFileName)
+        .filter((entry) => entry?.name === name)
+        .map((entry) => entry?.version ?? 0),
+    );
+    return version < highest
+      ? [`${name}: major ${version} is below committed major ${highest}`]
+      : [];
+  });
+}
+
 export function committedContractFiles(): string[] {
   return readdirSync(CONTRACTS_DIRECTORY)
     .filter((file) => parseContractFileName(file) !== undefined)

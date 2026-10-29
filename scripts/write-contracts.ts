@@ -10,11 +10,17 @@ import {
   contractFileName,
   contractSurfaces,
   contractText,
+  contractVersionFailures,
 } from "../src/conformance/contracts.ts";
 
 const hashes = committedContractHashes();
-const refused: string[] = [];
-for (const surface of contractSurfaces()) {
+const surfaces = contractSurfaces();
+const refused = contractVersionFailures(surfaces, [
+  ...committedContractFiles(),
+  ...Object.keys(hashes),
+]);
+if (refused.length > 0) throw new Error(refused.join("\n"));
+for (const surface of surfaces) {
   const file = contractFileName(surface);
   const path = join(CONTRACTS_DIRECTORY, file);
   const next = contractText(surface);

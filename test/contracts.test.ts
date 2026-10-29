@@ -12,6 +12,7 @@ import {
   contractHash,
   contractSurfaces,
   contractText,
+  contractVersionFailures,
 } from "../src/conformance/contracts.ts";
 import { McpServer } from "../src/mcp/server.ts";
 
@@ -58,7 +59,51 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 const name = { type: "string" };
 const mode = { type: "string", enum: ["a", "b"] };
 
+test("active contract majors are positive integers and cannot roll back", () => {
+  for (const version of [0, -1, 1.5, Number.NaN, 1])
+    expect(
+      contractVersionFailures([{ name: "action.test", version }], ["action.test.v2.json"]).length,
+    ).toBeGreaterThan(0);
+  expect(
+    contractVersionFailures(
+      [{ name: "action.test", version: 2 }],
+      ["action.test.v1.json", "action.test.v2.json"],
+    ),
+  ).toEqual([]);
+  expect(
+    contractVersionFailures([{ name: "action.test", version: 3 }], ["action.test.v2.json"]),
+  ).toEqual([]);
+});
+
 describe("contract classifier", () => {
+  test("output guarantees cannot weaken but optional additions still pass", () => {
+    const check = (before: unknown, after: unknown) =>
+      contractBreakingChanges({ output: before }, { output: after });
+    expect(check(object({ name }, ["name"]), object({ name })).length).toBeGreaterThan(0);
+    expect(check(name, { type: ["string", "null"] }).length).toBeGreaterThan(0);
+    expect(check(mode, { ...mode, enum: ["a", "b", "c"] }).length).toBeGreaterThan(0);
+    expect(check({ anyOf: [name] }, { anyOf: [name, { type: "number" }] }).length).toBeGreaterThan(
+      0,
+    );
+    expect(check(object({ name }, ["name"]), object({ name, note: name }, ["name"]))).toEqual([]);
+  });
+
+  test("new catchall constraints and boolean schemas fail closed", () => {
+    expect(
+      breakingChanges({ type: "object" }, { type: "object", additionalProperties: name }).length,
+    ).toBeGreaterThan(0);
+    expect(breakingChanges({ items: true }, { items: false }).length).toBeGreaterThan(0);
+    expect(breakingChanges({ items: false }, { items: true })).toEqual([]);
+    expect(breakingChanges({ items: name }, { items: [name] }).length).toBeGreaterThan(0);
+  });
+
+  test("input union alternatives can be reordered or prepended", () => {
+    const a = object({ kind: { const: "a" } }, ["kind"]);
+    const b = object({ kind: { const: "b" } }, ["kind"]);
+    const c = object({ kind: { const: "c" } }, ["kind"]);
+    expect(breakingChanges({ anyOf: [a, b] }, { anyOf: [c, b, a] })).toEqual([]);
+    expect(breakingChanges({ oneOf: [a, b] }, { oneOf: [a, b, {}] }).length).toBeGreaterThan(0);
+  });
   test("an added optional field passes", () => {
     expect(breakingChanges(object({ name }), object({ name, note: name }))).toEqual([]);
   });
