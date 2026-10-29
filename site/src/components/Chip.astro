@@ -1,0 +1,64 @@
+---
+import { sections, type Chip } from "../content.ts";
+
+interface Props {
+  chip: Chip;
+  soon?: boolean;
+}
+
+const { chip, soon = false } = Astro.props;
+---
+
+<span class:list={["chip", { soon }]}>
+  <span class="logo" aria-hidden="true" set:html={chip.logo} />
+  <span class="name">{chip.name}</span>
+  {soon && <span class="badge">{sections.soon}</span>}
+</span>
+
+<style>
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 1.875rem;
+    padding: 0 0.6rem 0 0.5rem;
+    border: 1px solid var(--line-2);
+    border-radius: 7px;
+    background: var(--bg-2);
+    color: var(--fg);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .logo {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+  .logo :global(svg) {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+  .soon {
+    border-style: dashed;
+    background: transparent;
+    color: var(--fg-2);
+  }
+  .soon .logo {
+    opacity: 0.85;
+  }
+  .badge {
+    margin-left: 0.1rem;
+    padding: 0.18rem 0.32rem;
+    border: 1px solid var(--accent-line);
+    border-radius: 4px;
+    font: 600 0.625rem/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+</style>
