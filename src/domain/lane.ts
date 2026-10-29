@@ -22,7 +22,8 @@ export type LaneRefusalCode =
   | "tracker_write_failed"
   | "pull_request_unmerged"
   | "workspace_dirty"
-  | "branch_unmerged";
+  | "branch_unmerged"
+  | "cleanup_pending";
 
 export type LaneResult<T> =
   | { ok: true; value: T }

@@ -1,5 +1,6 @@
 import { tmpdir } from "node:os";
 import { z } from "zod";
+import { type MergeProof, mergeProofSchema } from "../../domain/retirement.ts";
 import type {
   ArtifactHost,
   ArtifactRequest,
@@ -64,16 +65,40 @@ export class GitHubArtifactHost implements ArtifactHost {
     return { url, branch: workspace.branch, title: request.title };
   }
 
-  async merged(url: string): Promise<{ merged: boolean; base: string }> {
+  async merged(url: string): Promise<MergeProof> {
+    const parsed = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([1-9][0-9]*)$/.exec(url);
+    if (!parsed) throw new Error("Expected a canonical GitHub pull request URL");
+    const repository = `${parsed[1]}/${parsed[2]}`;
     const result = await this.#commands.run(
-      ["gh", "pr", "view", url, "--json", "state,baseRefName"],
+      ["gh", "api", `repos/${repository}/pulls/${parsed[3]}`],
       tmpdir(),
     );
-    if (result.exitCode !== 0) throw new Error(`gh pr view exited ${result.exitCode}`);
+    if (result.exitCode !== 0) throw new Error(`gh api exited ${result.exitCode}`);
+    const repo = z.object({ full_name: z.string() });
     const view = z
-      .object({ state: z.string(), baseRefName: z.string().min(1) })
+      .object({
+        html_url: z.url(),
+        merged: z.boolean(),
+        merge_commit_sha: z.string().nullable(),
+        head: z.object({ ref: z.string(), sha: z.string(), repo: repo.nullable() }),
+        base: z.object({ ref: z.string(), repo }),
+      })
       .parse(JSON.parse(result.stdout));
-    return { merged: view.state === "MERGED", base: view.baseRefName };
+    if (
+      view.html_url !== url ||
+      view.base.repo.full_name.toLowerCase() !== repository.toLowerCase() ||
+      view.head.repo?.full_name.toLowerCase() !== repository.toLowerCase()
+    )
+      throw new Error("Pull request repository identity mismatch");
+    return mergeProofSchema.parse({
+      merged: view.merged,
+      url,
+      repository: `github.com/${repository}`,
+      branch: view.head.ref,
+      head: view.head.sha,
+      base: view.base.ref,
+      commit: view.merge_commit_sha,
+    });
   }
 
   async #list(workspace: ArtifactWorkspace, filter: readonly string[]) {

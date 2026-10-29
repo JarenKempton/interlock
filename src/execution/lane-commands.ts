@@ -24,20 +24,10 @@ export function laneActions(services: RuntimeServices) {
       tracker: services.lane?.tracker ?? signedInLaneTracker(services),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
       workspaces: services.lane?.workspaces ?? {
-        retire: async (workspace, base) => {
-          const adapter = await GitWorkspaceAdapter.forWorktree(
-            workspace.path,
-            base,
-            services.execution?.git,
-          );
-          return adapter
-            ? adapter.retire(workspace)
-            : {
-                ok: false,
-                code: "workspace_unknown",
-                message: `Worktree ${workspace.path} is gone; branch ${workspace.branch} is left`,
-              };
-        },
+        prepare: (identity, proof) =>
+          GitWorkspaceAdapter.prepareRetirement(identity, proof, services.execution?.git),
+        retire: (record, advance) =>
+          GitWorkspaceAdapter.retire(record, advance, services.execution?.git),
       },
       ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
     });
