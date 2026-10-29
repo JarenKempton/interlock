@@ -65,12 +65,6 @@ const style = `--at:${at}s;--play:${live ? "running" : "paused"}`;
 ---
 
 <div class:list={["stage", live ? "live" : "frame"]} id={live ? "stage" : undefined} style={style}>
-  {live && (
-    <ol class="sr-only">
-      {steps.map((s) => <li>{s.title}: {s.caption}</li>)}
-      {stageCommands.map((c) => <li>{c.label}: {c.text}</li>)}
-    </ol>
-  )}
   <div class="canvas" aria-hidden="true">
     <div class="rail">
       <div class="rail-line"><span class="rail-fill"></span></div>
@@ -475,14 +469,7 @@ const style = `--at:${at}s;--play:${live ? "running" : "paused"}`;
     font-weight: 700;
   }
 
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+
   .code {
     display: grid;
     gap: 0.55rem;

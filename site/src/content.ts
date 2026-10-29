@@ -51,7 +51,7 @@ export const hero = {
   drive: {
     title: "You or your agent.",
     body: "Both start the same lane. You review and merge.",
-    terminal: { label: "Terminal", text: "interlock pickup TEST-492" },
+    terminal: { label: "Terminal", text: 'interlock pickup TEST-492 --t3-catalog "$T3_CATALOG"' },
     agent: { label: "Agent, example request", text: "Pick up TEST-492 and open the pull request when it's ready." },
   },
 };
@@ -211,7 +211,7 @@ export const footer = {
 };
 
 export const stageCommands = [
-  { label: "Claim and prepare", from: 0, to: 5.5, text: "interlock pickup TEST-492" },
-  { label: "Submit", from: 10, to: 16, text: 'interlock lane submit "$LANE" --head "$HEAD" --gate test --evidence-url "$EVIDENCE_URL"' },
+  { label: "Claim and prepare", from: 0, to: 5.5, text: 'interlock pickup TEST-492 --t3-catalog "$T3_CATALOG"' },
+  { label: "Submit", from: 10, to: 16, text: 'interlock lane submit "$LANE" --artifact "$PR_URL" --head "$HEAD" --gate test --evidence-url "$EVIDENCE_URL"' },
   { label: "Complete after merge", from: 16.5, to: 19.5, text: 'interlock lane complete "$LANE"' },
 ];

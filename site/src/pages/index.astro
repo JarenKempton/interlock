@@ -1,7 +1,7 @@
 ---
 import Stage from "../components/Stage.astro";
 import Layers from "../components/Layers.astro";
-import { product, hero, install, steps, principle, plane, footer, sections } from "../content.ts";
+import { product, hero, install, steps, principle, plane, footer, sections, stageCommands } from "../content.ts";
 ---
 
 <!doctype html>
@@ -39,6 +39,10 @@ import { product, hero, install, steps, principle, plane, footer, sections } fro
         </div>
         <div class="stage-sec">
           <div class="stage-frame">
+            <ol class="sr-only">
+              {steps.map((s) => <li>{s.title}: {s.caption}</li>)}
+              {stageCommands.map((c) => <li>{c.label}: {c.text}</li>)}
+            </ol>
             <Stage />
             <ol class="frames">
               {
