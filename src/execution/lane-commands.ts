@@ -10,6 +10,7 @@ import type { RuntimeServices } from "../runtime-services.ts";
 import { LaneService } from "./lane.ts";
 import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
+import { RecordedRetirementAuthority } from "./retirement-authority.ts";
 import { RecordedSubmissionAuthority } from "./submission.ts";
 
 function exitCode(output: unknown): number {
@@ -25,10 +26,35 @@ export function laneActions(services: RuntimeServices) {
       tracker: services.lane?.tracker ?? signedInLaneTracker(services),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
       workspaces: services.lane?.workspaces ?? {
-        prepare: (identity, proof) =>
-          GitWorkspaceAdapter.prepareRetirement(identity, proof, services.execution?.git),
-        retire: (record, advance) =>
-          GitWorkspaceAdapter.retire(record, advance, services.execution?.git),
+        prepare: async (identity, proof) => {
+          await (
+            services.lane?.retirementAuthority ??
+            new RecordedRetirementAuthority(
+              store,
+              services.execution?.git ?? new BunGitCommandExecutor(),
+            )
+          ).verify(identity, proof.repository, identity.path);
+          return GitWorkspaceAdapter.prepareRetirement(identity, proof, services.execution?.git);
+        },
+        verify: async (record) => {
+          await (
+            services.lane?.retirementAuthority ??
+            new RecordedRetirementAuthority(
+              store,
+              services.execution?.git ?? new BunGitCommandExecutor(),
+            )
+          ).verify(record.plan, record.plan.proof.repository, record.plan.repositoryPath);
+        },
+        retire: async (record, advance) => {
+          await (
+            services.lane?.retirementAuthority ??
+            new RecordedRetirementAuthority(
+              store,
+              services.execution?.git ?? new BunGitCommandExecutor(),
+            )
+          ).verify(record.plan, record.plan.proof.repository, record.plan.repositoryPath);
+          return GitWorkspaceAdapter.retire(record, advance, services.execution?.git);
+        },
       },
       submissions:
         services.lane?.submissions ??

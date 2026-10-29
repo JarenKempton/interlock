@@ -380,6 +380,7 @@ export class LaneService {
         this.#retirementIdentity(lane);
         record = this.#store.beginRetirement(plan);
       }
+      await this.#workspaces.verify(record);
       const done = await this.#verifyDone(lane);
       if (!done.ok) return done;
       this.#retirementIdentity(lane);

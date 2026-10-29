@@ -12,6 +12,7 @@ import {
 } from "../../domain/retirement.ts";
 import { lockExecution } from "../../persistence/execution-lock.ts";
 import { type GitCommandExecutor, normalizeGitRemote, parseWorktrees } from "./git.ts";
+import { verifyRemoteDestination } from "./remote.ts";
 
 export class GitRetirement {
   constructor(private readonly git: GitCommandExecutor) {}
@@ -136,6 +137,7 @@ export class GitRetirement {
     if (common !== plan.commonDirectory)
       throw new RetirementRefusal("workspace_unknown", "Repository identity changed");
     const origin = await this.checked(["config", "--get", "remote.origin.url"], path);
+    await verifyRemoteDestination(this.git, path, origin);
     if (normalizeGitRemote(origin).toLowerCase() !== plan.proof.repository.toLowerCase())
       throw new RetirementRefusal(
         "workspace_unknown",

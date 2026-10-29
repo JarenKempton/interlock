@@ -2,8 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
+import { GitClaimLock } from "../src/adapters/claims/git-lock.ts";
+import { GitSubmissionAuthority, submissionRef } from "../src/adapters/submissions/git.ts";
 import { BunGitCommandExecutor, type GitCommandExecutor } from "../src/adapters/workspaces/git.ts";
+import { createApplication } from "../src/application.ts";
 import { run as runCli } from "../src/cli.ts";
+import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { AmbiguousTrackerResultError } from "../src/domain/contracts.ts";
 import {
   actorRefSchema,
@@ -17,6 +22,7 @@ import {
 import type { Ticket, TicketRef } from "../src/domain/model.ts";
 import type { MergeProof } from "../src/domain/retirement.ts";
 import { LaneService, type LaneTrackerPort } from "../src/execution/lane.ts";
+import { McpServer } from "../src/mcp/server.ts";
 import { StateStore } from "../src/persistence/state.ts";
 
 const ticketRef = ticketRefSchema.parse("jira:x:JWB:ticket:JWB-909");
@@ -105,6 +111,8 @@ async function mergedLane(
     tracker?: FakeJira;
     squash?: boolean;
     git?: GitCommandExecutor;
+    authority?: boolean;
+    mcp?: boolean;
   } = {},
 ) {
   const repo = repository({ merged: options.merged ?? true, squash: options.squash ?? false });
@@ -148,6 +156,32 @@ async function mergedLane(
     const result = await service.apply(created.value.id, command);
     if (!result.ok) throw new Error(result.refusal.message);
   }
+  if (options.authority) {
+    const claim = store.claim(claimRefSchema.parse("interlock-claim:complete"));
+    const home = normalizeClaimHome(repo.origin);
+    store.saveClaim({ ...claim, claimHome: home.identity, claimHomeUrl: home.url });
+    const commands = new BunGitCommandExecutor();
+    const lock = new GitClaimLock({ repository: repo.main, home, git: commands });
+    await lock.claim({
+      claim: claim.ref,
+      run: runRef,
+      ticket: ticketRef,
+      owner: claim.humanOwner,
+      leaseExpiresAt: claim.leaseExpiresAt,
+      expectedVersion: (await lock.read(ticketRef)).version,
+    });
+    await new GitSubmissionAuthority(home, commands).reserve(
+      {
+        lane: created.value.id,
+        run: runRef,
+        claim: claim.ref,
+        ticket: ticketRef,
+        repository: "github.com/o/r",
+        branch,
+      },
+      repo.main,
+    );
+  }
   store.close();
   const tracker = options.tracker ?? new FakeJira();
   const views: string[] = [];
@@ -176,16 +210,49 @@ async function mergedLane(
       return proof;
     },
   };
+  const services = {
+    statePath,
+    lane: {
+      tracker,
+      artifacts,
+      ...(options.authority ? {} : { retirementAuthority: { verify: async () => {} } }),
+    },
+    execution: {
+      git: {
+        async run(argv: readonly string[], cwd: string) {
+          if (argv.join(" ") === "git ls-remote --get-url https://github.com/o/r.git")
+            return { exitCode: 0, stdout: "https://github.com/o/r.git", stderr: "" };
+          return (options.git ?? new BunGitCommandExecutor()).run(argv, cwd);
+        },
+      },
+    },
+  };
   const complete = async () => {
+    if (options.mcp) {
+      const server = new McpServer(createApplication(services));
+      const response = await server.handle(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "lane_complete",
+            arguments: { lane: created.value.id, state: statePath },
+          },
+        },
+        server.newSession(),
+      );
+      const content = z
+        .object({ result: z.object({ content: z.array(z.object({ text: z.string() })) }) })
+        .parse(response).result.content;
+      const result = JSON.parse(content.map((item) => item.text).join(""));
+      return { code: result.ok ? 0 : 1, result };
+    }
     const output: string[] = [];
     const code = await runCli(
       ["lane", "complete", created.value.id, "--state", statePath, "--json"],
       (text) => output.push(text),
-      {
-        statePath,
-        lane: { tracker, artifacts },
-        ...(options.git ? { execution: { git: options.git } } : {}),
-      },
+      services,
     );
     return { code, result: JSON.parse(output.join("\n")) };
   };
@@ -553,3 +620,58 @@ test("ambiguous transition that is verified Done by readback can complete", asyn
   const lane = await mergedLane({ tracker });
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
 });
+
+test("MCP completion verifies shared remote ownership and preserves its reservation", async () => {
+  const lane = await mergedLane({ authority: true, mcp: true, squash: true });
+  const identity = {
+    lane: lane.id,
+    run: runRef,
+    claim: claimRefSchema.parse("interlock-claim:complete"),
+    ticket: ticketRef,
+    repository: "github.com/o/r",
+    branch,
+  };
+  const before = git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main);
+  expect(before).not.toBe("");
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main)).toBe(
+    before,
+  );
+}, 60_000);
+
+test("a released remote claim refuses even when the local run and claim still look active", async () => {
+  const lane = await mergedLane({ authority: true });
+  const home = normalizeClaimHome(lane.repo.origin);
+  const lock = new GitClaimLock({
+    repository: lane.repo.main,
+    home,
+    git: new BunGitCommandExecutor(),
+  });
+  await lock.release({
+    claim: claimRefSchema.parse("interlock-claim:complete"),
+    ticket: ticketRef,
+    claimedOwner: actorRefSchema.parse("owner"),
+    authorizedBy: actorRefSchema.parse("owner"),
+    expectedVersion: (await lock.read(ticketRef)).version,
+    originalSnapshot: { version: "1", payload: null },
+  });
+  expect((await lane.complete()).result.ok).toBe(false);
+  expect(lane.tracker.transitions).toEqual([]);
+  lane.intact();
+}, 60_000);
+
+test("missing shared submission reservation refuses without creating one", async () => {
+  const lane = await mergedLane({ authority: true });
+  const identity = {
+    lane: lane.id,
+    run: runRef,
+    claim: claimRefSchema.parse("interlock-claim:complete"),
+    ticket: ticketRef,
+    repository: "github.com/o/r",
+    branch,
+  };
+  git(["update-ref", "-d", submissionRef(identity)], lane.repo.origin);
+  expect((await lane.complete()).result.ok).toBe(false);
+  expect(git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main)).toBe("");
+  lane.intact();
+}, 60_000);

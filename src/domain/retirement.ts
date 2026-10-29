@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { claimRefSchema, laneRefSchema, runRefSchema, ticketRefSchema } from "./identifiers.ts";
 
-const oid = z.string().regex(/^[a-f0-9]{40,64}$/);
+const oid = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
 export const mergeProofSchema = z.object({
   merged: z.boolean(),
   url: z.url(),
@@ -44,6 +44,7 @@ export interface RetirementRecord {
 }
 export interface LaneWorkspaces {
   prepare(identity: RetirementIdentity, proof: MergeProof): Promise<RetirementPlan>;
+  verify(record: RetirementRecord): Promise<void>;
   retire(record: RetirementRecord, advance: (phase: RetirementPhase) => void): Promise<void>;
 }
 
