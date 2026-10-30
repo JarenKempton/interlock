@@ -1,28 +1,120 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 import { createApplication } from "../src/application.ts";
 import { registeredActions } from "../src/cli/catalog.ts";
 import { breakingChanges, contractBreakingChanges } from "../src/conformance/contract-diff.ts";
 import {
+  CONTRACT_DEFINITIONS_PATH,
   CONTRACTS_DIRECTORY,
+  type ContractSurface,
+  committedContract,
+  committedContractDefinitions,
   committedContractFiles,
   committedContractHashes,
+  committedDefinitions,
   contractFileName,
   contractHash,
+  contractSet,
   contractSurfaces,
-  contractText,
   contractVersionFailures,
+  definitionFailures,
+  definitionsText,
+  resolveContract,
 } from "../src/conformance/contracts.ts";
 import { McpServer } from "../src/mcp/server.ts";
 
 test("every committed current snapshot matches its zod schema", () => {
-  for (const surface of contractSurfaces()) {
+  const surfaces = contractSurfaces();
+  const { texts, definitions } = contractSet(surfaces);
+  for (const surface of surfaces) {
     const file = contractFileName(surface);
-    expect(`${file}\n${contractText(surface)}`).toBe(
+    expect(`${file}\n${texts.get(file)}`).toBe(
       `${file}\n${readFileSync(join(CONTRACTS_DIRECTORY, file), "utf8")}`,
     );
+    expect(resolveContract(JSON.parse(texts.get(file) ?? ""), definitions)).toEqual(
+      surface.document(),
+    );
   }
+  expect(readFileSync(CONTRACT_DEFINITIONS_PATH, "utf8")).toBe(
+    definitionsText(committedContractDefinitions({ ...committedDefinitions(), ...definitions })),
+  );
+});
+
+test("every committed shared definition matches its key and every snapshot resolves", () => {
+  const definitions = committedDefinitions();
+  expect(definitionFailures(definitions)).toEqual([]);
+  for (const file of committedContractFiles())
+    expect(() => resolveContract(committedContract(file), definitions)).not.toThrow();
+});
+
+test("a removed Lane field in its shared definition fails every lane action using it", () => {
+  const surfaces = contractSurfaces();
+  const before = contractSet(surfaces);
+  const laneKeys = Object.entries(before.definitions)
+    .filter(([, value]) => JSON.stringify(value).startsWith('{"type":"object","properties":{"id"'))
+    .filter(([, value]) => JSON.stringify(value).includes('"attentionReason"'))
+    .map(([key]) => key);
+  expect(laneKeys).toHaveLength(1);
+  const lane = JSON.stringify(
+    resolveContract({ $ref: `definitions.json#/${laneKeys[0]}` }, before.definitions),
+  );
+  const withoutField = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(withoutField);
+    if (typeof node !== "object" || node === null) return node;
+    const value = JSON.stringify(node) === lane ? structuredClone(node) : node;
+    if (value !== node && "properties" in value && typeof value.properties === "object")
+      Reflect.deleteProperty(value.properties ?? {}, "attentionReason");
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        value === node ? withoutField(child) : child,
+      ]),
+    );
+  };
+  const after = contractSet(
+    surfaces.map(
+      (surface): ContractSurface => ({
+        ...surface,
+        document: () => z.record(z.string(), z.unknown()).parse(withoutField(surface.document())),
+      }),
+    ),
+  );
+  const failing = surfaces.filter((surface) => {
+    const file = contractFileName(surface);
+    return (
+      contractBreakingChanges(
+        resolveContract(JSON.parse(before.texts.get(file) ?? ""), before.definitions),
+        resolveContract(JSON.parse(after.texts.get(file) ?? ""), after.definitions),
+      ).length > 0
+    );
+  });
+  const lanes = surfaces.filter((surface) => surface.name.startsWith("action.lane-"));
+  const usingLane = lanes.filter((surface) =>
+    JSON.stringify(surface.document()).includes(lane.slice(1, -1)),
+  );
+  expect(usingLane.map((surface) => surface.name)).toEqual(
+    lanes.map((surface) => surface.name).filter((name) => name !== "action.lane-next"),
+  );
+  expect(failing.map((surface) => surface.name)).toEqual(usingLane.map((surface) => surface.name));
+  for (const surface of usingLane)
+    expect(before.texts.get(contractFileName(surface))).not.toContain("attentionReason");
+});
+
+test("unresolved, cyclic and tampered shared definitions fail closed", () => {
+  const ref = (key: string) => ({ $ref: `definitions.json#/${key}` });
+  expect(() => resolveContract(ref("missing"), {})).toThrow("definition missing is missing");
+  expect(() => resolveContract(ref("a"), { a: ref("b"), b: ref("a") })).toThrow("refers to itself");
+  const { definitions } = contractSet(contractSurfaces());
+  const [key] = Object.keys(definitions);
+  if (!key) throw new Error("no shared definitions");
+  expect(definitionFailures({ ...definitions, [key]: { type: "string" } })).toEqual([
+    `definitions.json#/${key}: content does not match its key`,
+  ]);
+  expect(breakingChanges(name, { $ref: "other.json#/x" })).toEqual([
+    "$: unclassified change to $ref",
+  ]);
 });
 
 test("every registered action and MCP tool has a snapshot", () => {
@@ -38,8 +130,8 @@ test("every registered action and MCP tool has a snapshot", () => {
       name: `action.${tool.command.join("-")}`,
       version: versions.get(tool.command.join(" ")) ?? 0,
     });
-    const snapshot = JSON.parse(readFileSync(join(CONTRACTS_DIRECTORY, file), "utf8"));
-    expect(snapshot.input).toEqual(tool.inputSchema);
+    const snapshot = resolveContract(committedContract(file), committedDefinitions());
+    expect(z.object({ input: z.unknown() }).parse(snapshot).input).toEqual(tool.inputSchema);
   }
 });
 

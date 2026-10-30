@@ -1,16 +1,19 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { contractBreakingChanges } from "../src/conformance/contract-diff.ts";
 import {
-  CONTRACTS_DIRECTORY,
+  committedContract,
   committedContractFiles,
   committedContractHashes,
+  committedDefinitions,
   contractFileName,
   contractHash,
   contractSurfaces,
   contractVersionFailures,
+  type Definitions,
+  definitionFailures,
+  definitionsSchema,
   hashesSchema,
   parseContractFileName,
+  resolveContract,
 } from "../src/conformance/contracts.ts";
 
 const base = process.argv[2];
@@ -23,7 +26,12 @@ function show(path: string): string | undefined {
 
 const baseText = show("hashes.json");
 const baseHashes = baseText ? hashesSchema.parse(JSON.parse(baseText)) : {};
+const baseDefinitionsText = show("definitions.json");
+const baseDefinitions = baseDefinitionsText
+  ? definitionsSchema.parse(JSON.parse(baseDefinitionsText))
+  : {};
 const headHashes = committedContractHashes();
+const headDefinitions = committedDefinitions();
 const surfaces = contractSurfaces();
 const current = new Map(surfaces.map((surface) => [contractFileName(surface), surface]));
 const names = new Set(surfaces.map((surface) => surface.name));
@@ -32,7 +40,20 @@ const failures = contractVersionFailures(surfaces, [
   ...Object.keys(headHashes),
   ...committedContractFiles(),
 ]);
+failures.push(...definitionFailures(headDefinitions));
 const additive: string[] = [];
+
+function resolved(file: string, document: unknown, definitions: Definitions): unknown {
+  try {
+    return resolveContract(document, definitions);
+  } catch (error) {
+    failures.push(`${file}: ${error instanceof Error ? error.message : error}`);
+    return undefined;
+  }
+}
+
+for (const file of committedContractFiles())
+  resolved(file, committedContract(file), headDefinitions);
 
 for (const [file, hash] of Object.entries(baseHashes)) {
   const name = parseContractFileName(file)?.name;
@@ -55,8 +76,9 @@ for (const [file, hash] of Object.entries(baseHashes)) {
     failures.push(`${file}: hash-locked snapshot changed`);
     continue;
   }
-  const before = JSON.parse(show(file) ?? "{}");
-  const after = JSON.parse(readFileSync(join(CONTRACTS_DIRECTORY, file), "utf8"));
+  const before = resolved(`${base}:${file}`, JSON.parse(show(file) ?? "{}"), baseDefinitions);
+  const after = resolved(file, committedContract(file), headDefinitions);
+  if (before === undefined || after === undefined) continue;
   const breaking = contractBreakingChanges(before, after);
   if (breaking.length > 0)
     failures.push(`${file}: breaking change without a major bump\n  ${breaking.join("\n  ")}`);

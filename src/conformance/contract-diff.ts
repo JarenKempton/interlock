@@ -52,6 +52,7 @@ export function breakingChanges(
   path = "$",
   output = false,
 ): string[] {
+  if (key(before) === key(after)) return [];
   if (
     [before, after].some(
       (value) =>
@@ -61,7 +62,6 @@ export function breakingChanges(
     )
   )
     return [`${path}: unsupported schema change`];
-  if (before === after) return [];
   if (typeof before === "boolean" || typeof after === "boolean") {
     if (after === false && before !== false) return [`${path}: schema closed`];
     if (output && before === false) return [`${path}: output schema widened`];

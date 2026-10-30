@@ -202,48 +202,7 @@
         "additionalProperties": false
       },
       {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": false
-          },
-          "refusal": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "claim_collision",
-                  "stale_version",
-                  "unsupported_capability",
-                  "ambiguous_write",
-                  "invalid_transition",
-                  "stale_evidence",
-                  "recovery_required",
-                  "gates_unmet",
-                  "artifact_required",
-                  "artifact_mismatch",
-                  "tracker_not_done",
-                  "lane_not_found"
-                ]
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "code",
-              "message"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "ok",
-          "refusal"
-        ],
-        "additionalProperties": false
+        "$ref": "definitions.json#/cecfaf3303b376cfaebb33e793b1ba39bf60ad79625eb12ac8049167a6e5de09"
       }
     ]
   }

@@ -6,7 +6,8 @@
       "!!dist",
       "!!node_modules",
       "!!src/persistence/migrations/meta",
-      "!!contracts/*.v*.json"
+      "!!contracts/*.v*.json",
+      "!!contracts/definitions.json"
     ]
   },
   "formatter": {

@@ -16,7 +16,12 @@ import { actionInputSchema } from "../mcp/server.ts";
 
 export const CONTRACTS_DIRECTORY = join(import.meta.dirname, "../../contracts");
 export const CONTRACT_HASHES_PATH = join(CONTRACTS_DIRECTORY, "hashes.json");
+export const CONTRACT_DEFINITIONS_PATH = join(CONTRACTS_DIRECTORY, "definitions.json");
 export const hashesSchema = z.record(z.string(), z.string());
+export const definitionsSchema = z.record(z.string(), z.unknown());
+export type Definitions = z.infer<typeof definitionsSchema>;
+const DEFINITION_REF = "definitions.json#/";
+const SHARED_MINIMUM = 400;
 
 export interface ContractSurface {
   name: string;
@@ -85,7 +90,137 @@ export function contractFileName(surface: Pick<ContractSurface, "name" | "versio
 }
 
 export function contractText(surface: ContractSurface): string {
-  return `${JSON.stringify(surface.document(), null, 2)}\n`;
+  return jsonText(surface.document());
+}
+
+function jsonText(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function definitionKey(value: unknown): string | undefined {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || typeof value.$ref !== "string")
+    return undefined;
+  return value.$ref.startsWith(DEFINITION_REF)
+    ? value.$ref.slice(DEFINITION_REF.length)
+    : undefined;
+}
+
+function mapTree(value: unknown, visit: (node: unknown) => unknown): unknown {
+  if (Array.isArray(value)) return value.map(visit);
+  if (isRecord(value))
+    return Object.fromEntries(Object.entries(value).map(([name, child]) => [name, visit(child)]));
+  return value;
+}
+
+export function resolveContract(
+  document: unknown,
+  definitions: Definitions,
+  active: string[] = [],
+): unknown {
+  const key = definitionKey(document);
+  if (key === undefined)
+    return mapTree(document, (child) => resolveContract(child, definitions, active));
+  if (active.includes(key)) throw new Error(`definition ${key} refers to itself`);
+  if (!Object.hasOwn(definitions, key)) throw new Error(`definition ${key} is missing`);
+  return resolveContract(definitions[key], definitions, [...active, key]);
+}
+
+export function definitionFailures(definitions: Definitions): string[] {
+  return Object.keys(definitions).flatMap((key) => {
+    try {
+      const resolved = resolveContract({ $ref: `${DEFINITION_REF}${key}` }, definitions);
+      return contentHash(JSON.stringify(resolved)) === key
+        ? []
+        : [`definitions.json#/${key}: content does not match its key`];
+    } catch (error) {
+      return [`definitions.json#/${key}: ${error instanceof Error ? error.message : error}`];
+    }
+  });
+}
+
+export function referencedDefinitions(documents: unknown[], definitions: Definitions): Definitions {
+  const used: Definitions = {};
+  const collect = (node: unknown): unknown => {
+    const key = definitionKey(node);
+    if (key === undefined) return mapTree(node, collect);
+    if (!Object.hasOwn(used, key) && Object.hasOwn(definitions, key)) {
+      used[key] = definitions[key];
+      collect(definitions[key]);
+    }
+    return node;
+  };
+  for (const document of documents) collect(document);
+  return Object.fromEntries(Object.entries(used).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+export function contractSet(surfaces: ContractSurface[]): {
+  texts: Map<string, string>;
+  definitions: Definitions;
+} {
+  const documents = surfaces.map((surface) => surface.document());
+  const counts = new Map<string, number>();
+  const count = (node: unknown): unknown => {
+    if (isRecord(node)) {
+      const text = JSON.stringify(node);
+      counts.set(text, (counts.get(text) ?? 0) + 1);
+    }
+    return mapTree(node, count);
+  };
+  surfaces.forEach((surface, index) => {
+    if (!surface.frozen) mapTree(documents[index], count);
+  });
+  const definitions: Definitions = {};
+  const share = (node: unknown): unknown => {
+    const text = isRecord(node) ? JSON.stringify(node) : "";
+    if (text.length < SHARED_MINIMUM || (counts.get(text) ?? 0) < 2) return mapTree(node, share);
+    const key = contentHash(text);
+    definitions[key] ??= mapTree(node, share);
+    return { $ref: `${DEFINITION_REF}${key}` };
+  };
+  const shared = surfaces.map((surface, index) =>
+    surface.frozen ? documents[index] : mapTree(documents[index], share),
+  );
+  const uses = new Map<string, number>();
+  const tally = (node: unknown): unknown => {
+    const key = definitionKey(node);
+    if (key !== undefined) uses.set(key, (uses.get(key) ?? 0) + 1);
+    return mapTree(node, tally);
+  };
+  for (const node of [...shared, ...Object.values(definitions)]) tally(node);
+  const inline = (node: unknown): unknown => {
+    const key = definitionKey(node);
+    if (key !== undefined && uses.get(key) === 1) return inline(definitions[key]);
+    return mapTree(node, inline);
+  };
+  const documentsWithReferences = shared.map(inline);
+  const kept = Object.fromEntries(
+    Object.entries(definitions)
+      .filter(([key]) => uses.get(key) !== 1)
+      .map(([key, value]) => [key, mapTree(value, inline)]),
+  );
+  return {
+    texts: new Map(
+      surfaces.map((surface, index) => [
+        contractFileName(surface),
+        jsonText(documentsWithReferences[index]),
+      ]),
+    ),
+    definitions: referencedDefinitions(documentsWithReferences, kept),
+  };
+}
+
+export function definitionsText(definitions: Definitions): string {
+  return jsonText(definitions);
+}
+
+export function committedDefinitions(): Definitions {
+  return existsSync(CONTRACT_DEFINITIONS_PATH)
+    ? definitionsSchema.parse(JSON.parse(readFileSync(CONTRACT_DEFINITIONS_PATH, "utf8")))
+    : {};
 }
 
 export function parseContractFileName(file: string): { name: string; version: number } | undefined {
@@ -121,6 +256,14 @@ export function committedContractFiles(): string[] {
 
 export function contentHash(content: string | Buffer): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+export function committedContract(file: string): unknown {
+  return JSON.parse(readFileSync(join(CONTRACTS_DIRECTORY, file), "utf8"));
+}
+
+export function committedContractDefinitions(available: Definitions): Definitions {
+  return referencedDefinitions(committedContractFiles().map(committedContract), available);
 }
 
 export function contractHash(file: string): string {
