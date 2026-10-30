@@ -741,6 +741,7 @@ test("ignored data arriving after final cleanliness check is preserved with the 
   });
   const info = git(["rev-parse", "--git-path", "info/exclude"], lane.repo.main);
   writeFileSync(join(lane.repo.main, info), "private-local\n");
+  const readmeBytes = readFileSync(join(lane.repo.lane, "README"));
   expect((await lane.complete()).result.ok).toBe(true);
   expect(written).toBe(true);
   changeStore(lane, (store) => {
@@ -753,7 +754,7 @@ test("ignored data arriving after final cleanliness check is preserved with the 
       "files",
     );
     expect(readFileSync(join(archive, "private-local"), "utf8")).toBe("irreplaceable late content");
-    expect(readFileSync(join(archive, "README"), "utf8")).toBe("base\n");
+    expect(readFileSync(join(archive, "README")).equals(readmeBytes)).toBe(true);
   });
 }, 60_000);
 
