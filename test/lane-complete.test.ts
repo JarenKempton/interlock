@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -37,6 +37,7 @@ import type { MergeProof } from "../src/domain/retirement.ts";
 import { LaneService, type LaneTrackerPort } from "../src/execution/lane.ts";
 import { McpServer } from "../src/mcp/server.ts";
 import { StateStore } from "../src/persistence/state.ts";
+import { GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
 
 const ticketRef = ticketRefSchema.parse("jira:x:JWB:ticket:JWB-909");
 const runRef = runRefSchema.parse("interlock-run:complete");
@@ -44,6 +45,8 @@ const branch = "task/JWB-909";
 const prUrl = "https://github.com/o/r/pull/9";
 const now = "2026-01-01T00:00:00.000Z";
 const directories: string[] = [];
+
+setDefaultTimeout(GIT_TEST_TIMEOUT_MS);
 
 afterEach(() => {
   for (const directory of directories.splice(0))
@@ -652,7 +655,7 @@ test("MCP completion verifies shared remote ownership and preserves its reservat
   expect(git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main)).toBe(
     before,
   );
-}, 60_000);
+});
 
 test("a released remote claim refuses even when the local run and claim still look active", async () => {
   const lane = await mergedLane({ authority: true });
@@ -673,7 +676,7 @@ test("a released remote claim refuses even when the local run and claim still lo
   expect((await lane.complete()).result.ok).toBe(false);
   expect(lane.tracker.transitions).toEqual([]);
   lane.intact();
-}, 60_000);
+});
 
 test("missing shared submission reservation refuses without creating one", async () => {
   const lane = await mergedLane({ authority: true });
@@ -689,7 +692,7 @@ test("missing shared submission reservation refuses without creating one", async
   expect((await lane.complete()).result.ok).toBe(false);
   expect(git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main)).toBe("");
   lane.intact();
-}, 60_000);
+});
 
 for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
   test(`hidden tracked content under ${flag} is refused and preserved`, async () => {
@@ -702,7 +705,7 @@ for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
     });
     expect(readFileSync(join(lane.repo.lane, "README"), "utf8")).toBe("irreplaceable content");
     expect(lane.tracker.transitions).toEqual([]);
-  }, 60_000);
+  });
 }
 
 test("symlink aliases of another lane's workspace refuse cleanup", async () => {
@@ -722,7 +725,7 @@ test("symlink aliases of another lane's workspace refuse cleanup", async () => {
   expect((await lane.complete()).result.ok).toBe(false);
   expect(existsSync(alias)).toBe(true);
   lane.intact();
-}, 60_000);
+});
 
 test("ignored data arriving after final cleanliness check is preserved with the entire directory", async () => {
   const executor = new BunGitCommandExecutor();
@@ -756,7 +759,7 @@ test("ignored data arriving after final cleanliness check is preserved with the 
     expect(readFileSync(join(archive, "private-local"), "utf8")).toBe("irreplaceable late content");
     expect(readFileSync(join(archive, "README")).equals(readmeBytes)).toBe(true);
   });
-}, 60_000);
+});
 
 test("release and replacement claim during proof fetch prevent cleanup", async () => {
   const executor = new BunGitCommandExecutor();
@@ -813,7 +816,7 @@ test("release and replacement claim during proof fetch prevent cleanup", async (
   expect((await lane.complete()).result.ok).toBe(false);
   expect(released).toBe(true);
   lane.intact();
-}, 60_000);
+});
 
 test("retirement fence rejects a delayed original-owner release at the removal boundary", async () => {
   const executor = new BunGitCommandExecutor();
@@ -848,7 +851,7 @@ test("retirement fence rejects a delayed original-owner release at the removal b
   repo = lane.repo;
   expect((await lane.complete()).result.ok).toBe(true);
   expect(denied).toBe(true);
-}, 60_000);
+});
 
 test("lost response after archival move resumes without deleting the preserved contents", async () => {
   const executor = new BunGitCommandExecutor();
@@ -871,4 +874,4 @@ test("lost response after archival move resumes without deleting the preserved c
     refusal: { code: "cleanup_pending" },
   });
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
-}, 60_000);
+});
