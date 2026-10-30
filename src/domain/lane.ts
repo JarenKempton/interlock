@@ -26,7 +26,7 @@ export type LaneRefusalCode =
   | "cleanup_pending";
 
 export type LaneResult<T> =
-  | { ok: true; value: T }
+  | { ok: true; value: T; retirement?: { preservedFiles: string; retainedRef: string } }
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
 
 export interface LaneIdentity {

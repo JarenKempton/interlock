@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { realpath } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import {
   AmbiguousTrackerResultError,
   ArtifactLinkConflictError,
@@ -331,7 +332,7 @@ export class LaneService {
     }
     let identity: RetirementIdentity;
     try {
-      identity = this.#retirementIdentity(lane);
+      identity = await this.#retirementIdentity(lane);
     } catch (error) {
       return fail("workspace_unknown", errorMessage(error, "Lane ownership is not verified"));
     }
@@ -377,13 +378,13 @@ export class LaneService {
         const plan = await this.#workspaces.prepare(identity, proof);
         const done = await this.#verifyDone(lane);
         if (!done.ok) return done;
-        this.#retirementIdentity(lane);
+        await this.#retirementIdentity(lane);
         record = this.#store.beginRetirement(plan);
       }
       await this.#workspaces.verify(record);
       const done = await this.#verifyDone(lane);
       if (!done.ok) return done;
-      this.#retirementIdentity(lane);
+      await this.#retirementIdentity(lane);
       await this.#workspaces.retire(record, (phase) =>
         this.#store.advanceRetirement(lane.id, phase),
       );
@@ -403,10 +404,24 @@ export class LaneService {
       this.#clock.now().toISOString(),
     );
     this.#store.saveLane(transition.lane);
-    return transition.refusal ? { ok: false, refusal: transition.refusal } : ok(transition.lane);
+    return transition.refusal
+      ? { ok: false, refusal: transition.refusal }
+      : {
+          ok: true,
+          value: transition.lane,
+          retirement: {
+            preservedFiles: join(
+              record.plan.commonDirectory,
+              "interlock-retired",
+              record.plan.retainedRef.split("/").at(-1) ?? "",
+              "files",
+            ),
+            retainedRef: record.plan.retainedRef,
+          },
+        };
   }
 
-  #retirementIdentity(lane: Lane): RetirementIdentity {
+  async #retirementIdentity(lane: Lane): Promise<RetirementIdentity> {
     const current = this.#store.findLane(lane.id);
     if (
       current?.state !== "merged" ||
@@ -436,7 +451,13 @@ export class LaneService {
         throw new Error(`Run or claim is shared with lane ${other.id}`);
       if (other.run) {
         const workspace = this.#store.run(other.run).workspace;
-        if (resolve(workspace.path) === resolve(run.workspace.path))
+        const canonical = async (path: string) =>
+          realpath(path).catch((error: unknown) => {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT")
+              return resolve(path);
+            throw error;
+          });
+        if ((await canonical(workspace.path)) === (await canonical(run.workspace.path)))
           throw new Error(`Workspace is owned by lane ${other.id}`);
       }
     }

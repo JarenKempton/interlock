@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
+import { mkdir, realpath, rename, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   type MergeProof,
@@ -48,13 +48,18 @@ export class GitRetirement {
     return plan;
   }
 
-  async retire(record: RetirementRecord, advance: (phase: RetirementPhase) => void): Promise<void> {
+  async retire(
+    record: RetirementRecord,
+    advance: (phase: RetirementPhase) => void,
+    fence: () => Promise<void>,
+  ): Promise<void> {
     const plan = retirementPlanSchema.parse(record.plan);
     const unlock = lockExecution(join(plan.commonDirectory, "config"));
     try {
       await this.repository(plan);
       if ((await this.integration(plan)) !== plan.integration)
         throw new RetirementRefusal("branch_unmerged", "Recorded integration proof changed");
+      await fence();
       await this.retain(plan);
       const branchHead = await this.ref(`refs/heads/${plan.branch}`, plan);
       if (branchHead !== undefined && branchHead !== plan.head)
@@ -64,22 +69,7 @@ export class GitRetirement {
         );
       let phase = record.phase;
       if (phase === "prepared") {
-        if (await exists(plan.worktreePath)) {
-          await this.workspace(plan);
-          await this.checked(["worktree", "remove", plan.worktreePath], plan.repositoryPath);
-        } else {
-          const records = parseWorktrees(
-            await this.checked(["worktree", "list", "--porcelain"], plan.repositoryPath),
-          );
-          if (
-            records.some((item) => item.path === plan.worktreePath) ||
-            (await exists(plan.worktreeDirectory))
-          )
-            throw new RetirementRefusal(
-              "workspace_unknown",
-              "Worktree vanished without verified Git removal; manual recovery required",
-            );
-        }
+        await this.preserveAndRemove(plan);
         advance("worktree_removed");
         phase = "worktree_removed";
       }
@@ -126,6 +116,52 @@ export class GitRetirement {
       }
     } finally {
       unlock();
+    }
+  }
+
+  private async preserveAndRemove(plan: RetirementPlan): Promise<void> {
+    const archive = join(
+      plan.commonDirectory,
+      "interlock-retired",
+      plan.retainedRef.split("/").at(-1) ?? "",
+    );
+    const staging = join(archive, "worktree");
+    const files = join(archive, "files");
+    if (await exists(files)) {
+      if ((await this.worktreeIdentity(files)) !== plan.worktreeIdentity)
+        throw new RetirementRefusal("cleanup_pending", "Preserved directory identity changed");
+    } else {
+      if (!(await exists(staging))) {
+        await this.workspace(plan);
+        await mkdir(archive, { recursive: true, mode: 0o700 });
+        await this.checked(["worktree", "move", plan.worktreePath, staging], plan.repositoryPath);
+      }
+      if (
+        (await this.worktreeIdentity(staging)) !== plan.worktreeIdentity ||
+        (await realpath(await this.checked(["rev-parse", "--absolute-git-dir"], staging))) !==
+          plan.worktreeDirectory
+      )
+        throw new RetirementRefusal("cleanup_pending", "Staged worktree identity changed");
+      await rename(staging, files);
+    }
+    if (await exists(staging))
+      throw new RetirementRefusal(
+        "cleanup_pending",
+        "Private staging path was recreated; refusing removal",
+      );
+    const records = parseWorktrees(
+      await this.checked(["worktree", "list", "--porcelain"], plan.repositoryPath),
+    );
+    const record = records.find((item) => item.path === staging);
+    if (record) {
+      if (record.branch !== plan.branch)
+        throw new RetirementRefusal("cleanup_pending", "Staged worktree branch changed");
+      await this.checked(["worktree", "remove", staging], plan.repositoryPath);
+    } else if (await exists(plan.worktreeDirectory)) {
+      throw new RetirementRefusal(
+        "cleanup_pending",
+        "Worktree registration changed; recovery copy preserved",
+      );
     }
   }
 
@@ -183,6 +219,14 @@ export class GitRetirement {
       throw new RetirementRefusal(
         "branch_unmerged",
         `Worktree ${path} has unsubmitted commits; branch ${plan.branch} is left`,
+      );
+    const flags = await this.checked(["ls-files", "-v", "-z"], path);
+    if (
+      flags.split("\0").some((entry) => entry && (/^[a-z]/.test(entry) || entry.startsWith("S ")))
+    )
+      throw new RetirementRefusal(
+        "workspace_dirty",
+        `Worktree ${path} hides tracked files with index flags; refusing cleanup`,
       );
     if (await this.checked(["status", "--porcelain", "--untracked-files=all", "--ignored"], path))
       throw new RetirementRefusal(
@@ -254,8 +298,8 @@ export class GitRetirement {
   }
 
   private async worktreeIdentity(path: string): Promise<string> {
-    const file = await stat(join(path, ".git"));
-    return `${file.dev}:${file.ino}:${file.birthtimeMs}:${file.mtimeMs}`;
+    const file = await stat(path);
+    return `${file.dev}:${file.ino}:${file.birthtimeMs}`;
   }
 
   private async checked(args: string[], cwd: string): Promise<string> {

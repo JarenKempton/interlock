@@ -53,7 +53,19 @@ export function laneActions(services: RuntimeServices) {
               services.execution?.git ?? new BunGitCommandExecutor(),
             )
           ).verify(record.plan, record.plan.proof.repository, record.plan.repositoryPath);
-          return GitWorkspaceAdapter.retire(record, advance, services.execution?.git);
+          return GitWorkspaceAdapter.retire(
+            record,
+            advance,
+            () =>
+              (
+                services.lane?.retirementAuthority ??
+                new RecordedRetirementAuthority(
+                  store,
+                  services.execution?.git ?? new BunGitCommandExecutor(),
+                )
+              ).fence(record.plan, record.plan.proof.repository, record.plan.repositoryPath),
+            services.execution?.git,
+          );
         },
       },
       submissions:

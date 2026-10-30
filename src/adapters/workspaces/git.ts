@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { WorkspaceAdapter, WorkspacePlan } from "../../domain/contracts.ts";
 import type { PreparedWorkspace, RepositorySpec, Ticket, TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
@@ -9,6 +9,7 @@ import type {
   RetirementPhase,
   RetirementRecord,
 } from "../../domain/retirement.ts";
+import { lockExecution } from "../../persistence/execution-lock.ts";
 import { GitRetirement } from "./retirement.ts";
 
 export interface CommandResult {
@@ -23,6 +24,7 @@ export interface GitCommandExecutor {
 
 export interface WorkspaceFileSystem {
   exists(path: string): Promise<boolean>;
+  lock(repository: string, git: GitCommandExecutor): Promise<() => void>;
 }
 
 export interface PreparedGitWorkspace extends PreparedWorkspace {
@@ -59,6 +61,15 @@ interface WorktreeRecord {
 
 const nativeFileSystem: WorkspaceFileSystem = {
   exists: pathExists,
+  async lock(repository, git) {
+    const result = await git.run(
+      ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      repository,
+    );
+    if (result.exitCode !== 0)
+      throw new WorkspaceConflictError("Cannot determine workspace lifecycle lock");
+    return lockExecution(join(result.stdout.trim(), "config"));
+  },
 };
 
 /** Git-backed workspaces with deterministic paths and fail-closed resumption. */
@@ -88,9 +99,10 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   static retire(
     record: RetirementRecord,
     advance: (phase: RetirementPhase) => void,
+    fence: () => Promise<void>,
     git: GitCommandExecutor = new BunGitCommandExecutor(),
   ) {
-    return new GitRetirement(git).retire(record, advance);
+    return new GitRetirement(git).retire(record, advance, fence);
   }
 
   async preflight(ticket: Ticket): Promise<void> {
@@ -119,6 +131,15 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   }
 
   async prepare(plan: WorkspacePlan): Promise<PreparedGitWorkspace> {
+    const unlock = await this.#fileSystem.lock(this.#repository.path, this.#git);
+    try {
+      return await this.#prepare(plan);
+    } finally {
+      unlock();
+    }
+  }
+
+  async #prepare(plan: WorkspacePlan): Promise<PreparedGitWorkspace> {
     const canonical = canonicalPlan(this.#repository, plan.ticket);
     requireCanonicalPlan(plan, canonical);
     const records = await this.#worktrees();

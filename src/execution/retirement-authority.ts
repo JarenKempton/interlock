@@ -1,12 +1,15 @@
+import { createHash } from "node:crypto";
 import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
 import { GitSubmissionAuthority } from "../adapters/submissions/git.ts";
 import type { GitCommandExecutor } from "../adapters/workspaces/git.ts";
 import { normalizeClaimHome } from "../domain/claim-home.ts";
-import type { RetirementIdentity } from "../domain/retirement.ts";
+import { claimRefSchema } from "../domain/identifiers.ts";
+import { type RetirementIdentity, retirementIdentitySchema } from "../domain/retirement.ts";
 import type { StateStore } from "../persistence/state.ts";
 
 export interface RetirementAuthority {
   verify(identity: RetirementIdentity, repository: string, cwd: string): Promise<void>;
+  fence(identity: RetirementIdentity, repository: string, cwd: string): Promise<void>;
 }
 
 export class RecordedRetirementAuthority implements RetirementAuthority {
@@ -14,6 +17,29 @@ export class RecordedRetirementAuthority implements RetirementAuthority {
     private readonly store: Pick<StateStore, "claim" | "findLane">,
     private readonly git: GitCommandExecutor,
   ) {}
+
+  async fence(identity: RetirementIdentity, repository: string, cwd: string): Promise<void> {
+    await this.verify(identity, repository, cwd);
+    const claim = this.store.claim(identity.claim);
+    if (!claim.claimHomeUrl) throw new Error("Missing claim home");
+    const lock = new GitClaimLock({
+      repository: cwd,
+      home: normalizeClaimHome(claim.claimHomeUrl),
+      git: this.git,
+    });
+    const state = await lock.read(identity.ticket);
+    await lock.fenceRetirement(
+      {
+        claim: identity.claim,
+        ticket: identity.ticket,
+        run: identity.run,
+        owner: claim.humanOwner,
+        leaseExpiresAt: claim.leaseExpiresAt,
+        expectedVersion: state.version,
+      },
+      retirementClaim(identity),
+    );
+  }
 
   async verify(identity: RetirementIdentity, repository: string, cwd: string): Promise<void> {
     const claim = this.store.claim(identity.claim);
@@ -38,7 +64,7 @@ export class RecordedRetirementAuthority implements RetirementAuthority {
     );
     if (
       !held ||
-      held.claim !== identity.claim ||
+      (held.claim !== identity.claim && held.claim !== retirementClaim(identity)) ||
       held.run !== identity.run ||
       held.owner !== claim.humanOwner
     )
@@ -57,4 +83,12 @@ export class RecordedRetirementAuthority implements RetirementAuthority {
     if (!reservation)
       throw new Error("No verified shared submission reservation authorizes retirement");
   }
+}
+
+function retirementClaim(identity: RetirementIdentity) {
+  return claimRefSchema.parse(
+    `interlock-claim:retirement-${createHash("sha256")
+      .update(JSON.stringify(retirementIdentitySchema.parse(identity)))
+      .digest("hex")}`,
+  );
 }

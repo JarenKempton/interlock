@@ -1,11 +1,24 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { GitClaimLock } from "../src/adapters/claims/git-lock.ts";
 import { GitSubmissionAuthority, submissionRef } from "../src/adapters/submissions/git.ts";
-import { BunGitCommandExecutor, type GitCommandExecutor } from "../src/adapters/workspaces/git.ts";
+import {
+  BunGitCommandExecutor,
+  type GitCommandExecutor,
+  GitWorkspaceAdapter,
+} from "../src/adapters/workspaces/git.ts";
 import { createApplication } from "../src/application.ts";
 import { run as runCli } from "../src/cli.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
@@ -215,7 +228,9 @@ async function mergedLane(
     lane: {
       tracker,
       artifacts,
-      ...(options.authority ? {} : { retirementAuthority: { verify: async () => {} } }),
+      ...(options.authority
+        ? {}
+        : { retirementAuthority: { verify: async () => {}, fence: async () => {} } }),
     },
     execution: {
       git: {
@@ -674,4 +689,185 @@ test("missing shared submission reservation refuses without creating one", async
   expect((await lane.complete()).result.ok).toBe(false);
   expect(git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main)).toBe("");
   lane.intact();
+}, 60_000);
+
+for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
+  test(`hidden tracked content under ${flag} is refused and preserved`, async () => {
+    const lane = await mergedLane({ authority: true });
+    git(["update-index", flag, "README"], lane.repo.lane);
+    writeFileSync(join(lane.repo.lane, "README"), "irreplaceable content");
+    expect((await lane.complete()).result).toMatchObject({
+      ok: false,
+      refusal: { code: "workspace_dirty" },
+    });
+    expect(readFileSync(join(lane.repo.lane, "README"), "utf8")).toBe("irreplaceable content");
+    expect(lane.tracker.transitions).toEqual([]);
+  }, 60_000);
+}
+
+test("symlink aliases of another lane's workspace refuse cleanup", async () => {
+  const lane = await mergedLane({ authority: true });
+  const alias = join(lane.repo.root, "alias");
+  symlinkSync(lane.repo.lane, alias, "junction");
+  changeStore(lane, (store) => {
+    const otherRun = runRefSchema.parse("interlock-run:other");
+    store.saveRun({ ...store.run(runRef), ref: otherRun, workspace: { path: alias, branch } });
+    store.saveLane({
+      ...store.lane(lane.id),
+      id: laneRefSchema.parse("interlock-lane:other"),
+      run: otherRun,
+      claim: claimRefSchema.parse("interlock-claim:other"),
+    });
+  });
+  expect((await lane.complete()).result.ok).toBe(false);
+  expect(existsSync(alias)).toBe(true);
+  lane.intact();
+}, 60_000);
+
+test("ignored data arriving after final cleanliness check is preserved with the entire directory", async () => {
+  const executor = new BunGitCommandExecutor();
+  let written = false;
+  const lane = await mergedLane({
+    authority: true,
+    git: {
+      async run(argv, cwd) {
+        if (argv[1] === "worktree" && argv[2] === "move") {
+          writeFileSync(join(String(argv[3]), "private-local"), "irreplaceable late content");
+          written = true;
+        }
+        return executor.run(argv, cwd);
+      },
+    },
+  });
+  const info = git(["rev-parse", "--git-path", "info/exclude"], lane.repo.main);
+  writeFileSync(join(lane.repo.main, info), "private-local\n");
+  expect((await lane.complete()).result.ok).toBe(true);
+  expect(written).toBe(true);
+  changeStore(lane, (store) => {
+    const plan = store.retirement(lane.id)?.plan;
+    if (!plan) throw new Error("missing intent");
+    const archive = join(
+      plan.commonDirectory,
+      "interlock-retired",
+      plan.retainedRef.split("/").at(-1) ?? "",
+      "files",
+    );
+    expect(readFileSync(join(archive, "private-local"), "utf8")).toBe("irreplaceable late content");
+    expect(readFileSync(join(archive, "README"), "utf8")).toBe("base\n");
+  });
+}, 60_000);
+
+test("release and replacement claim during proof fetch prevent cleanup", async () => {
+  const executor = new BunGitCommandExecutor();
+  let repo: Awaited<ReturnType<typeof mergedLane>>["repo"] | undefined;
+  let fetches = 0;
+  let released = false;
+  const lane = await mergedLane({
+    authority: true,
+    git: {
+      async run(argv, cwd) {
+        if (
+          argv.join(" ") === "git fetch --no-tags origin refs/heads/main" &&
+          ++fetches === 2 &&
+          repo
+        ) {
+          const lock = new GitClaimLock({
+            repository: repo.main,
+            home: normalizeClaimHome(repo.origin),
+            git: executor,
+          });
+          await lock.release({
+            claim: claimRefSchema.parse("interlock-claim:complete"),
+            ticket: ticketRef,
+            claimedOwner: actorRefSchema.parse("owner"),
+            authorizedBy: actorRefSchema.parse("owner"),
+            expectedVersion: (await lock.read(ticketRef)).version,
+            originalSnapshot: { version: "1", payload: null },
+          });
+          await lock.claim({
+            claim: claimRefSchema.parse("interlock-claim:new"),
+            ticket: ticketRef,
+            run: runRefSchema.parse("interlock-run:new"),
+            owner: actorRefSchema.parse("new"),
+            leaseExpiresAt: "2099-01-01T00:00:00Z",
+            expectedVersion: (await lock.read(ticketRef)).version,
+          });
+          released = true;
+          const workspace = new GitWorkspaceAdapter({
+            name: "test",
+            path: repo.main,
+            worktreeRoot: join(repo.root, "worktrees"),
+            baseBranch: "main",
+            remote: "https://github.com/o/r.git",
+          });
+          await expect(
+            workspace.prepare({ ticket: ticketRef, path: repo.lane, branch }),
+          ).rejects.toThrow("using this ledger");
+        }
+        return executor.run(argv, cwd);
+      },
+    },
+  });
+  repo = lane.repo;
+  expect((await lane.complete()).result.ok).toBe(false);
+  expect(released).toBe(true);
+  lane.intact();
+}, 60_000);
+
+test("retirement fence rejects a delayed original-owner release at the removal boundary", async () => {
+  const executor = new BunGitCommandExecutor();
+  let repo: Awaited<ReturnType<typeof mergedLane>>["repo"] | undefined;
+  let denied = false;
+  const lane = await mergedLane({
+    authority: true,
+    git: {
+      async run(argv, cwd) {
+        if (argv[1] === "worktree" && argv[2] === "move" && repo) {
+          const lock = new GitClaimLock({
+            repository: repo.main,
+            home: normalizeClaimHome(repo.origin),
+            git: executor,
+          });
+          await expect(
+            lock.release({
+              claim: claimRefSchema.parse("interlock-claim:complete"),
+              ticket: ticketRef,
+              claimedOwner: actorRefSchema.parse("owner"),
+              authorizedBy: actorRefSchema.parse("owner"),
+              expectedVersion: (await lock.read(ticketRef)).version,
+              originalSnapshot: { version: "1", payload: null },
+            }),
+          ).rejects.toThrow();
+          denied = true;
+        }
+        return executor.run(argv, cwd);
+      },
+    },
+  });
+  repo = lane.repo;
+  expect((await lane.complete()).result.ok).toBe(true);
+  expect(denied).toBe(true);
+}, 60_000);
+
+test("lost response after archival move resumes without deleting the preserved contents", async () => {
+  const executor = new BunGitCommandExecutor();
+  let interrupted = false;
+  const lane = await mergedLane({
+    authority: true,
+    git: {
+      async run(argv, cwd) {
+        const result = await executor.run(argv, cwd);
+        if (!interrupted && result.exitCode === 0 && argv[1] === "worktree" && argv[2] === "move") {
+          interrupted = true;
+          throw new Error("crash after move");
+        }
+        return result;
+      },
+    },
+  });
+  expect((await lane.complete()).result).toMatchObject({
+    ok: false,
+    refusal: { code: "cleanup_pending" },
+  });
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
 }, 60_000);
