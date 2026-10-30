@@ -14,6 +14,7 @@ import { trackerConformance } from "../src/conformance/tracker.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import {
   AmbiguousTrackerResultError,
+  ArtifactLinkConflictError,
   ClaimCollisionError,
   type ClaimRequest,
   type ReleaseClaimRequest,
@@ -763,7 +764,7 @@ test("Jira mirror without read configuration cannot advertise or perform normali
     transport: api,
     claimHome: "github.com/jarenkempton/interlock",
   });
-  expect(await subject.describe()).toEqual(capabilities());
+  expect(await subject.describe()).toEqual({ link_artifact: true });
   await expect(subject.read(ticket)).rejects.toThrow("normalized reads require");
   await expect(subject.list_work(map)).rejects.toThrow("normalized reads require");
   expect(api.requests).toEqual([]);
@@ -819,4 +820,109 @@ test("a claim property from another claim home names that home and is never over
   ).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
   expect(api.claimProperty).toEqual(property);
   expect(api.mutationCount()).toBe(0);
+});
+
+class FakeRemoteLinks implements JiraTransport {
+  links = new Map<string, { url: string; title: string }>();
+  posts = 0;
+  postOutcome: "ok" | "lost_response" | "server_error" | "forbidden" | "not_applied" = "ok";
+  readback: "ok" | "fail" | "other_url" = "ok";
+
+  async request(method: string, path: string, body?: unknown): Promise<JiraResponse> {
+    if (!path.startsWith("/rest/api/3/issue/JWB-1/remotelink")) return { status: 404 };
+    if (method === "GET") {
+      const globalId = decodeURIComponent(path.split("globalId=")[1] ?? "");
+      if (this.posts > 0 && this.readback === "fail") throw new Error("network");
+      const link = this.links.get(globalId);
+      if (!link) return { status: 404 };
+      const url = this.posts > 0 && this.readback === "other_url" ? "https://other.test" : link.url;
+      return { status: 200, body: { id: 10, globalId, object: { ...link, url } } };
+    }
+    this.posts += 1;
+    if (this.postOutcome === "forbidden") return { status: 403 };
+    const request = z
+      .object({ globalId: z.string(), object: z.object({ url: z.string(), title: z.string() }) })
+      .parse(body);
+    if (this.postOutcome !== "not_applied") this.links.set(request.globalId, request.object);
+    if (this.postOutcome === "lost_response") throw new Error("connection reset");
+    if (this.postOutcome === "server_error") return { status: 503 };
+    return { status: 201, body: { id: 10 } };
+  }
+}
+
+describe("Jira link_artifact", () => {
+  const pr = "https://github.com/o/r/pull/7";
+  const linkTicket = ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-1");
+  const linker = (api: FakeRemoteLinks) =>
+    new JiraTrackerAdapter({ instance: "responsibid", workspace: "JWB", transport: api });
+
+  test("writes one remote link keyed by the PR URL and reads it back", async () => {
+    const api = new FakeRemoteLinks();
+    await linker(api).link_artifact(linkTicket, pr, "JWB-1: title");
+    expect(api.links.get(pr)).toEqual({ url: pr, title: "JWB-1: title" });
+    expect(api.posts).toBe(1);
+  });
+
+  test("an already-linked PR is adopted without a duplicate write", async () => {
+    const api = new FakeRemoteLinks();
+    api.links.set(pr, { url: pr, title: "existing" });
+    await linker(api).link_artifact(linkTicket, pr);
+    expect(api.posts).toBe(0);
+    expect(api.links.size).toBe(1);
+  });
+
+  test("a different link under the same globalId is refused, not overwritten", async () => {
+    const api = new FakeRemoteLinks();
+    api.links.set(pr, { url: "https://elsewhere.test", title: "other" });
+    await expect(linker(api).link_artifact(linkTicket, pr)).rejects.toBeInstanceOf(
+      ArtifactLinkConflictError,
+    );
+    expect(api.posts).toBe(0);
+  });
+
+  test("a readback mismatch or missing link after a write is ambiguous", async () => {
+    for (const setup of [
+      (api: FakeRemoteLinks) => {
+        api.readback = "other_url";
+      },
+      (api: FakeRemoteLinks) => {
+        api.postOutcome = "not_applied";
+      },
+    ]) {
+      const api = new FakeRemoteLinks();
+      setup(api);
+      await expect(linker(api).link_artifact(linkTicket, pr)).rejects.toBeInstanceOf(
+        AmbiguousTrackerResultError,
+      );
+    }
+  });
+
+  test("an ambiguous write is resolved by readback, and a retry adopts the link", async () => {
+    const lost = new FakeRemoteLinks();
+    lost.postOutcome = "lost_response";
+    await linker(lost).link_artifact(linkTicket, pr);
+    expect(lost.links.size).toBe(1);
+
+    const unreadable = new FakeRemoteLinks();
+    unreadable.postOutcome = "server_error";
+    unreadable.readback = "fail";
+    await expect(linker(unreadable).link_artifact(linkTicket, pr)).rejects.toBeInstanceOf(
+      AmbiguousTrackerResultError,
+    );
+    unreadable.readback = "ok";
+    unreadable.posts = 0;
+    await linker(unreadable).link_artifact(linkTicket, pr);
+    expect(unreadable.posts).toBe(0);
+    expect(unreadable.links.size).toBe(1);
+  });
+
+  test("a definite rejection is a plain failure, not ambiguous", async () => {
+    const api = new FakeRemoteLinks();
+    api.postOutcome = "forbidden";
+    const failure = linker(api).link_artifact(linkTicket, pr);
+    await expect(failure).rejects.toThrow("Jira link artifact failed (403)");
+    await expect(linker(api).link_artifact(linkTicket, pr)).rejects.not.toBeInstanceOf(
+      AmbiguousTrackerResultError,
+    );
+  });
 });

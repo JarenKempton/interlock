@@ -68,5 +68,5 @@ export interface TrackerSignIn<
 export interface Tracker extends TrackerReader, TrackerMirror {
   describe(): Promise<TrackerCapabilities>;
   transition?(ticket: TicketRef, status: string): Promise<void>;
-  link_artifact?(ticket: TicketRef, url: string): Promise<void>;
+  link_artifact?(ticket: TicketRef, url: string, title?: string): Promise<void>;
 }

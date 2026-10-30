@@ -13,7 +13,13 @@ export type LaneRefusalCode =
   | "artifact_required"
   | "artifact_mismatch"
   | "tracker_not_done"
-  | "lane_not_found";
+  | "lane_not_found"
+  | "workspace_unknown"
+  | "push_failed"
+  | "artifact_host_unavailable"
+  | "duplicate_artifact"
+  | "tracker_unavailable"
+  | "tracker_write_failed";
 
 export type LaneResult<T> =
   | { ok: true; value: T }

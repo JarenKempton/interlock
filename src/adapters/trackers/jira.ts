@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { CLAIM_RECORD_VERSION } from "../../domain/claim-lock.ts";
-import { AmbiguousTrackerResultError, ClaimCollisionError } from "../../domain/contracts.ts";
+import {
+  AmbiguousTrackerResultError,
+  ArtifactLinkConflictError,
+  ClaimCollisionError,
+} from "../../domain/contracts.ts";
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "../../domain/identifiers.ts";
 import type {
   ActorRef,
@@ -148,6 +152,8 @@ const transitionsSchema = z.object({
   transitions: z.array(z.object({ id: z.string(), to: z.object({ name: z.string() }) })),
 });
 const CLAIMED_STATUS = "In Progress";
+const remoteLinkSchema = z.object({ object: z.object({ url: z.string() }) });
+const DEFINITE_FAILURES = [400, 401, 403, 404, 405, 409, 415, 422, 429];
 const searchPageSchema = z.object({
   issues: z.array(issueSchema).optional(),
   nextPageToken: z.string().optional(),
@@ -198,7 +204,54 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   async describe() {
-    return {};
+    return { link_artifact: true } as const;
+  }
+
+  async link_artifact(ticket: TicketRef, url: string, title = url): Promise<void> {
+    const existing = await this.#remoteLink(ticket, url);
+    if (existing) return sameRemoteLink(existing, url);
+    let status: number | undefined;
+    try {
+      status = (
+        await this.#transport.request("POST", this.#remoteLinkPath(ticket), {
+          globalId: url,
+          object: { url, title },
+        })
+      ).status;
+    } catch {}
+    if (status !== undefined && DEFINITE_FAILURES.includes(status))
+      throw new Error(`Jira link artifact failed (${status})`);
+    let installed: z.infer<typeof remoteLinkSchema> | undefined;
+    try {
+      installed = await this.#remoteLink(ticket, url);
+    } catch {
+      throw new AmbiguousTrackerResultError("Jira remote link readback failed");
+    }
+    if (!installed) throw new AmbiguousTrackerResultError("Jira remote link was not verified");
+    if (installed.object.url !== url)
+      throw new AmbiguousTrackerResultError(
+        "Jira remote link readback does not match the artifact",
+      );
+  }
+
+  async #remoteLink(
+    ticket: TicketRef,
+    globalId: string,
+  ): Promise<z.infer<typeof remoteLinkSchema> | undefined> {
+    const response = await this.#transport.request(
+      "GET",
+      `${this.#remoteLinkPath(ticket)}?globalId=${encodeURIComponent(globalId)}`,
+    );
+    if (response.status === 404) return undefined;
+    if (response.status !== 200)
+      throw new Error(`Jira remote link read failed (${response.status})`);
+    const parsed = remoteLinkSchema.safeParse(response.body);
+    if (!parsed.success) throw new Error("Invalid Jira remote link response");
+    return parsed.data;
+  }
+
+  #remoteLinkPath(ticket: TicketRef): string {
+    return `/rest/api/3/issue/${this.#ticketKey(ticket)}/remotelink`;
   }
 
   async read(ticket: TicketRef): Promise<TrackerRead> {
@@ -519,7 +572,7 @@ export class JiraTrackerAdapter implements Tracker {
       this.#completeWrite(pending.ticket);
       return;
     }
-    if ([400, 401, 403, 404, 405, 409, 415, 422, 429].includes(response.status)) {
+    if (DEFINITE_FAILURES.includes(response.status)) {
       this.#completeWrite(pending.ticket);
       throw new Error(`Jira ${pending.operation} failed (${response.status})`);
     }
@@ -625,6 +678,13 @@ export class JiraTrackerAdapter implements Tracker {
     const value = name.toLowerCase();
     return value === "research" || value === "prototype" || value === "decision" ? value : "task";
   }
+}
+
+function sameRemoteLink(link: z.infer<typeof remoteLinkSchema>, url: string): void {
+  if (link.object.url !== url)
+    throw new ArtifactLinkConflictError(
+      "Jira holds a different remote link under this artifact id",
+    );
 }
 
 function sameClaimIdentity(left: JiraClaimProperty, right: JiraClaimProperty): boolean {

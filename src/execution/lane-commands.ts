@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
+import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
 import { defineAction } from "../cli/definition.ts";
-import { choice, optional, positional, text } from "../cli/schema.ts";
+import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { ticketRefSchema } from "../domain/identifiers.ts";
 import type { LaneResult } from "../domain/lane.ts";
 import { claimRef, laneRef, runRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { LaneService } from "./lane.ts";
+import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
+import { RecordedSubmissionAuthority } from "./submission.ts";
 
 function exitCode(output: unknown): number {
   return typeof output === "object" && output !== null && "ok" in output && !output.ok ? 1 : 0;
@@ -18,7 +22,14 @@ export function laneActions(services: RuntimeServices) {
   const service = (store: Parameters<Parameters<typeof withExecutionStore>[2]>[0]) =>
     new LaneService({
       store,
-      ...(services.lane?.tracker ? { tracker: services.lane.tracker } : {}),
+      tracker: services.lane?.tracker ?? signedInLaneTracker(services),
+      artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
+      submissions:
+        services.lane?.submissions ??
+        new RecordedSubmissionAuthority(
+          store,
+          services.execution?.git ?? new BunGitCommandExecutor(),
+        ),
       ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
     });
   const withLane = <T>(
@@ -96,22 +107,26 @@ export function laneActions(services: RuntimeServices) {
       exitCode,
     }),
     submit: defineAction({
-      description: "Submit one artifact at a head commit with gate evidence for that head.",
+      description:
+        "Push the lane's recorded branch at a head commit and open or update its one pull request.",
       input: {
         lane,
-        artifact: text("Artifact URL, for example the pull request.", "ARTIFACT"),
         head: text("Head commit the evidence covers.", "HEAD"),
         gate: text("Evidence gate name.", "GATE"),
         "evidence-url": text("Evidence URL for the gate at the head commit.", "URL"),
+        title: optional(text("Pull request title; the ticket key is prefixed.", "TITLE")),
+        draft: flag("Open the pull request as a draft."),
         state,
       },
       handler: (input) =>
-        apply(input.lane, input.state, {
-          type: "submit",
-          artifact: input.artifact,
-          head: input.head,
-          evidence: [{ gate: input.gate, head: input.head, url: input["evidence-url"] }],
-        }),
+        withLane(input.state, (laneService) =>
+          laneService.submit(laneRef(input.lane), {
+            head: input.head,
+            evidence: [{ gate: input.gate, head: input.head, url: input["evidence-url"] }],
+            ...(input.title ? { title: input.title } : {}),
+            draft: input.draft === true,
+          }),
+        ),
       exitCode,
     }),
     review: defineAction({

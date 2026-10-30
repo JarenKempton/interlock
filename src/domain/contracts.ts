@@ -46,6 +46,24 @@ export class ClaimCollisionError extends Error {
   }
 }
 
+export class TrackerUnavailableError extends Error {
+  readonly code = "tracker_unavailable";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TrackerUnavailableError";
+  }
+}
+
+export class ArtifactLinkConflictError extends Error {
+  readonly code = "artifact_mismatch";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ArtifactLinkConflictError";
+  }
+}
+
 export class AmbiguousTrackerResultError extends Error {
   readonly code = "ambiguous_tracker_result";
 
