@@ -437,14 +437,21 @@ export class JiraTrackerAdapter implements Tracker {
     if (typeof rank !== "string" || rank.length === 0)
       throw new Error(`Jira Rank field is missing or invalid: ${rankField}`);
     const dependencies: Dependency[] = [];
+    const dependents: Dependency[] = [];
     for (const link of issue.fields.issuelinks ?? []) {
-      if (link.inwardIssue && link.type.inward.toLowerCase().includes("blocked by")) {
+      if (!link.type.inward.toLowerCase().includes("blocked by")) continue;
+      if (link.inwardIssue)
         dependencies.push({
           blocking: this.#ticketRef(link.inwardIssue.key),
           blocked: ref,
           kind: "blocks",
         });
-      }
+      if (link.outwardIssue)
+        dependents.push({
+          blocking: ref,
+          blocked: this.#ticketRef(link.outwardIssue.key),
+          kind: "blocks",
+        });
     }
     const description = jiraDescription(issue.fields.description);
     return {
@@ -459,6 +466,7 @@ export class JiraTrackerAdapter implements Tracker {
         ? { assignee: actorRefSchema.parse(issue.fields.assignee.accountId) }
         : {}),
       dependencies,
+      dependents,
       order,
       metadata: {
         nativeKey: issue.key,

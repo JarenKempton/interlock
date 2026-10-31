@@ -163,7 +163,7 @@ describe("Jira tracker read adapter", () => {
     expect(search?.body).toMatchObject({ jql: 'parent = "JWB-274" ORDER BY Rank ASC' });
   });
 
-  test("emits only inward blockers owned by the containing ticket", async () => {
+  test("emits inward blockers as dependencies and outward blocks as dependents", async () => {
     const api = new FakeJira();
     api.issues = [
       issue("JWB-279", { status: "Done", rank: "0|aaaaa:" }),
@@ -178,6 +178,14 @@ describe("Jira tracker read adapter", () => {
             type: { inward: "is blocked by", outward: "blocks" },
             outwardIssue: { key: "JWB-295", fields: { status: { name: "To Do" } } },
           },
+          {
+            type: { inward: "relates to", outward: "relates to" },
+            inwardIssue: { key: "JWB-296", fields: { status: { name: "To Do" } } },
+          },
+          {
+            type: { inward: "relates to", outward: "relates to" },
+            outwardIssue: { key: "JWB-297", fields: { status: { name: "To Do" } } },
+          },
         ],
       }),
     ];
@@ -190,9 +198,18 @@ describe("Jira tracker read adapter", () => {
         kind: "blocks",
       },
     ]);
+    expect(current.dependents).toEqual([
+      {
+        blocking: current.ref,
+        blocked: ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-295"),
+        kind: "blocks",
+      },
+    ]);
     expect(
-      tickets.every((item) =>
-        (item.dependencies ?? []).every((dependency) => dependency.blocked === item.ref),
+      tickets.every(
+        (item) =>
+          (item.dependencies ?? []).every((dependency) => dependency.blocked === item.ref) &&
+          (item.dependents ?? []).every((dependent) => dependent.blocking === item.ref),
       ),
     ).toBe(true);
   });

@@ -222,7 +222,7 @@ export function laneActions(services: RuntimeServices) {
     }),
     complete: defineAction({
       description:
-        "Move a merged lane's ticket to Done, verify it by readback, remove its clean merged worktree and branch, and close the lane.",
+        "Move a merged lane's ticket to Done, verify it by readback, remove its clean merged worktree and branch, close the lane, and report the tickets it unblocked.",
       input: { lane, state },
       result: laneResult,
       handler: (input) =>

@@ -40,6 +40,7 @@ import type { RuntimeServices } from "../runtime-services.ts";
 import { requireCredentials, trackerSignIns } from "../sign-in/credentials.ts";
 import { CHANGE_CLAIM_HOME, resolveClaimHome } from "./claim-home.ts";
 import { ClaimCoordinator } from "./claims.ts";
+import { pickupEligibility } from "./eligibility.ts";
 import { journalJiraWrite } from "./jira-write-journal.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
 import { PickupCoordinator } from "./pickup.ts";
@@ -311,20 +312,17 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   const ticket = (await jira.tracker.read(ref)).ticket;
   const pickable = settings.pickable_statuses;
   const eligible = async (current: Ticket) => {
-    if (
-      current.state !== "open" ||
-      current.assignee !== undefined ||
-      !pickable.includes(current.status)
-    )
+    const eligibility = await pickupEligibility(jira.tracker, current, pickable);
+    if (eligibility === "unavailable")
       throw new Error(
         `Ticket is not available; pickup needs an open, unassigned ticket in ${pickable.join(", ")}`,
       );
-    if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
+    const planned = (value: Ticket) =>
+      JSON.stringify({ ...value, order: 0, dependents: undefined });
+    if (planned(current) !== planned(ticket))
       throw new Error("Ticket changed during planning; retry pickup");
-    for (const dependency of current.dependencies ?? []) {
-      if ((await jira.tracker.read(dependency.blocking)).ticket.state !== "closed")
-        throw new Error("Ticket is not available; unfinished dependencies block pickup");
-    }
+    if (eligibility === "blocked")
+      throw new Error("Ticket is not available; unfinished dependencies block pickup");
   };
   await eligible(ticket);
   const claimHome = await resolveClaimHome(repositoryPath, git, user.claim_home);

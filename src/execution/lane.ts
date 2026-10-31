@@ -17,8 +17,9 @@ import {
   type LaneResult,
   nextLaneAction,
   transitionLane,
+  type Unblocked,
 } from "../domain/lane.ts";
-import type { LaneRef, Ticket, TicketRef } from "../domain/model.ts";
+import type { LaneRef, RunRef, Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
 import {
   type LaneWorkspaces,
@@ -35,6 +36,7 @@ import {
 } from "../domain/submission.ts";
 import type { TrackerRead } from "../domain/tracker.ts";
 import type { StateStore } from "../persistence/state.ts";
+import { configuredPickable, unblockedBy } from "./eligibility.ts";
 
 export interface LaneTrackerPort {
   read(ticket: TicketRef): Promise<TrackerRead>;
@@ -96,6 +98,7 @@ export interface LaneServiceOptions {
     | "retirement"
     | "beginRetirement"
     | "advanceRetirement"
+    | "getExecutionConfiguration"
   >;
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
@@ -404,21 +407,38 @@ export class LaneService {
       this.#clock.now().toISOString(),
     );
     this.#store.saveLane(transition.lane);
-    return transition.refusal
-      ? { ok: false, refusal: transition.refusal }
-      : {
-          ok: true,
-          value: transition.lane,
-          retirement: {
-            preservedFiles: join(
-              record.plan.commonDirectory,
-              "interlock-retired",
-              record.plan.retainedRef.split("/").at(-1) ?? "",
-              "files",
-            ),
-            retainedRef: record.plan.retainedRef,
-          },
-        };
+    if (transition.refusal) return { ok: false, refusal: transition.refusal };
+    const unblocked = lane.ticket ? await this.#unblocked(lane.ticket, lane.run) : undefined;
+    return {
+      ok: true,
+      value: transition.lane,
+      retirement: {
+        preservedFiles: join(
+          record.plan.commonDirectory,
+          "interlock-retired",
+          record.plan.retainedRef.split("/").at(-1) ?? "",
+          "files",
+        ),
+        retainedRef: record.plan.retainedRef,
+      },
+      ...(unblocked ? { unblocked } : {}),
+    };
+  }
+
+  async #unblocked(ticket: TicketRef, run: RunRef | undefined): Promise<Unblocked> {
+    try {
+      const configuration = run ? this.#store.getExecutionConfiguration(run) : undefined;
+      if (!configuration)
+        return { state: "unknown", reason: "Run has no recorded pickup configuration" };
+      if (!this.#tracker) return { state: "unknown", reason: "No tracker reads dependents" };
+      const done = (await this.#tracker.read(ticket)).ticket;
+      return {
+        state: "known",
+        tickets: await unblockedBy(this.#tracker, done, configuredPickable(configuration)),
+      };
+    } catch (error) {
+      return { state: "unknown", reason: errorMessage(error, "Tracker read failed") };
+    }
   }
 
   async #retirementIdentity(lane: Lane): Promise<RetirementIdentity> {

@@ -1,4 +1,85 @@
 {
+  "01c8f99928eadcd0b5fb32cba0a43002c621c31f898773f50ec66cd7724b7e14": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "value": {
+            "$ref": "definitions.json#/c778cd108d2d5c437976da93ed47d251b1be51fc371acd210d1ba1f349c33f7e"
+          },
+          "retirement": {
+            "type": "object",
+            "properties": {
+              "preservedFiles": {
+                "type": "string"
+              },
+              "retainedRef": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "preservedFiles",
+              "retainedRef"
+            ],
+            "additionalProperties": false
+          },
+          "unblocked": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "known"
+                  },
+                  "tickets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "state",
+                  "tickets"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "unknown"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "$ref": "definitions.json#/5dfdb1a8d17a817f464152783bc2c6e577bc2970bec61a40274e2e657bcc6a89"
+      }
+    ]
+  },
   "1a4b036ba28bd2384635bb2e7fe173c218d6c3438c14ce13ac95521e82a1f69c": {
     "type": "object",
     "properties": {
@@ -539,46 +620,6 @@
       },
       "additionalProperties": false
     }
-  },
-  "861048456ad2d99c384627b2c103188fd4ba61fd845cb7bc548ce36d5a956f65": {
-    "oneOf": [
-      {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          },
-          "value": {
-            "$ref": "definitions.json#/c778cd108d2d5c437976da93ed47d251b1be51fc371acd210d1ba1f349c33f7e"
-          },
-          "retirement": {
-            "type": "object",
-            "properties": {
-              "preservedFiles": {
-                "type": "string"
-              },
-              "retainedRef": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "preservedFiles",
-              "retainedRef"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "ok",
-          "value"
-        ],
-        "additionalProperties": false
-      },
-      {
-        "$ref": "definitions.json#/5dfdb1a8d17a817f464152783bc2c6e577bc2970bec61a40274e2e657bcc6a89"
-      }
-    ]
   },
   "9c6d6311a58f714eab4a4f1a1e1882ae5e02ca193006b87e7fbcf255fdaf2a4b": {
     "type": "object",

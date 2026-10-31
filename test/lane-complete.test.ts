@@ -21,6 +21,11 @@ import {
 } from "../src/adapters/workspaces/git.ts";
 import { createApplication } from "../src/application.ts";
 import { run as runCli } from "../src/cli.ts";
+import {
+  type ExecutionConfiguration,
+  resolveConfiguration,
+  validateExecutionConfiguration,
+} from "../src/configuration/schema.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { AmbiguousTrackerResultError } from "../src/domain/contracts.ts";
 import {
@@ -45,6 +50,25 @@ const branch = "task/JWB-909";
 const prUrl = "https://github.com/o/r/pull/9";
 const now = "2026-01-01T00:00:00.000Z";
 const directories: string[] = [];
+const legacyPickupConfiguration = validateExecutionConfiguration({
+  version: 1,
+  source: { path: "/project/interlock.toml", version: "sha256:fixture" },
+  project: {
+    version: 1,
+    repositories: {
+      r: { github: "o/r", path: "main", worktree_root: "worktrees", base_branch: "main" },
+    },
+    maps: {
+      "JWB-556": { repository: "r", claim_status: "In Progress", available_statuses: ["To Do"] },
+    },
+    tracker: { jira: { site: "https://x.atlassian.net" } },
+    t3: { provider: "codex", model: "test-model" },
+    defaults: {},
+    required: {},
+  },
+  settings: { host: "t3", agent: "codex", model: "test-model" },
+  sources: { host: "default", agent: "default", model: "default" },
+});
 
 setDefaultTimeout(GIT_TEST_TIMEOUT_MS);
 
@@ -104,6 +128,9 @@ class FakeJira implements LaneTrackerPort {
     status: "In Progress",
     order: 0,
   };
+  others: Ticket[] = [];
+  failing = new Set<TicketRef>();
+  reads: TicketRef[] = [];
   transitions: string[] = [];
   onTransition: (fake: FakeJira) => void = (fake) => fake.set("Done");
 
@@ -111,8 +138,12 @@ class FakeJira implements LaneTrackerPort {
     this.ticket = { ...this.ticket, status, state: status === "Done" ? "closed" : "open" };
   }
 
-  async read() {
-    return { ticket: this.ticket, snapshot: { version: "1", payload: null } };
+  async read(ref: TicketRef) {
+    this.reads.push(ref);
+    if (this.failing.has(ref)) throw new Error(`Jira read issue failed (503): ${ref}`);
+    const ticket = ref === this.ticket.ref ? this.ticket : this.others.find((t) => t.ref === ref);
+    if (!ticket) throw new Error(`Jira read issue failed (404): ${ref}`);
+    return { ticket, snapshot: { version: "1", payload: null } };
   }
 
   async transition(_ticket: TicketRef, status: string) {
@@ -131,6 +162,8 @@ async function mergedLane(
     authority?: boolean;
     mcp?: boolean;
     leaseExpiresAt?: string;
+    pickedUp?: boolean;
+    configuration?: ExecutionConfiguration;
   } = {},
 ) {
   const repo = repository({ merged: options.merged ?? true, squash: options.squash ?? false });
@@ -156,6 +189,8 @@ async function mergedLane(
     leaseExpiresAt: options.leaseExpiresAt ?? "2099-01-01T00:00:00Z",
     status: "active",
   });
+  if (options.pickedUp)
+    store.saveExecutionConfiguration(runRef, options.configuration ?? legacyPickupConfiguration);
   const service = new LaneService({
     store,
     newId: () => laneRefSchema.parse("interlock-lane:complete"),
@@ -976,4 +1011,121 @@ test("a done lane that once used the same path does not block completion", async
     });
   });
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+});
+
+const jwb = (key: string) => ticketRefSchema.parse(`jira:x:JWB:ticket:${key}`);
+const blocks = (blocking: TicketRef, blocked: TicketRef) => ({
+  blocking,
+  blocked,
+  kind: "blocks" as const,
+});
+
+function dependent(key: string, blockers: TicketRef[], options: Partial<Ticket> = {}): Ticket {
+  return {
+    ref: jwb(key),
+    map: mapRefSchema.parse("jira:x:JWB:map:JWB-556"),
+    kind: "task",
+    state: "open",
+    status: "To Do",
+    order: 0,
+    dependencies: blockers.map((blocker) => blocks(blocker, jwb(key))),
+    ...options,
+  };
+}
+
+function blockingTracker(otherBlockerClosed: boolean) {
+  const tracker = new FakeJira();
+  tracker.ticket = {
+    ...tracker.ticket,
+    dependents: ["JWB-911", "JWB-912", "JWB-913", "JWB-914", "JWB-915"].map((key) =>
+      blocks(ticketRef, jwb(key)),
+    ),
+  };
+  tracker.others = [
+    dependent("JWB-900", [], otherBlockerClosed ? { state: "closed", status: "Done" } : {}),
+    dependent("JWB-911", [ticketRef]),
+    dependent("JWB-912", [ticketRef, jwb("JWB-900")]),
+    dependent("JWB-913", [ticketRef], { map: mapRefSchema.parse("jira:x:JWB:map:JWB-470") }),
+    dependent("JWB-914", [ticketRef], { assignee: actorRefSchema.parse("someone") }),
+    dependent("JWB-915", [ticketRef], { status: "In Review" }),
+  ];
+  return tracker;
+}
+
+test("CLI complete reports dependents with every blocker closed that pickup would accept", async () => {
+  const tracker = blockingTracker(false);
+  const lane = await mergedLane({ tracker, pickedUp: true });
+  const { code, result } = await lane.complete();
+  expect(code).toBe(0);
+  expect(result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(result.unblocked).toEqual({ state: "known", tickets: [jwb("JWB-911")] });
+  expect(tracker.transitions).toEqual(["Done"]);
+});
+
+test("a run picked up without maps reports dependents in any epic, or none, by pickable status", async () => {
+  const tracker = blockingTracker(true);
+  const unparented = tracker.others.find((other) => other.ref === jwb("JWB-911"));
+  if (unparented) delete unparented.map;
+  const lane = await mergedLane({
+    tracker,
+    pickedUp: true,
+    configuration: {
+      ...resolveConfiguration(undefined, { jira_site: "https://x.atlassian.net" }),
+      repository: {
+        name: "r",
+        remote: "https://github.com/o/r.git",
+        path: "/r",
+        worktreeRoot: "/worktrees/r",
+        baseBranch: "main",
+      },
+    },
+  });
+  expect((await lane.complete()).result.unblocked).toEqual({
+    state: "known",
+    tickets: [jwb("JWB-911"), jwb("JWB-912"), jwb("JWB-913")],
+  });
+});
+
+test("CLI complete reports every dependent once all of its blockers are closed", async () => {
+  const lane = await mergedLane({ tracker: blockingTracker(true), pickedUp: true });
+  expect((await lane.complete()).result.unblocked).toEqual({
+    state: "known",
+    tickets: [jwb("JWB-911"), jwb("JWB-912")],
+  });
+});
+
+test("CLI complete reports an empty list for a ticket that blocks nothing", async () => {
+  const lane = await mergedLane({ pickedUp: true });
+  expect((await lane.complete()).result.unblocked).toEqual({ state: "known", tickets: [] });
+});
+
+test("a failed dependent read reports unblocked as unknown and complete still succeeds", async () => {
+  const tracker = blockingTracker(true);
+  tracker.failing.add(jwb("JWB-900"));
+  const lane = await mergedLane({ tracker, pickedUp: true });
+  const { code, result } = await lane.complete();
+  expect(code).toBe(0);
+  expect(result).toMatchObject({
+    ok: true,
+    value: { state: "done" },
+    unblocked: { state: "unknown", reason: expect.stringContaining("503") },
+  });
+  expect(result.unblocked.tickets).toBeUndefined();
+  expect(existsSync(lane.repo.lane)).toBe(false);
+});
+
+test("a run without recorded pickup configuration reports unblocked as unknown", async () => {
+  const lane = await mergedLane({ tracker: blockingTracker(true) });
+  expect((await lane.complete()).result).toMatchObject({
+    ok: true,
+    unblocked: { state: "unknown", reason: "Run has no recorded pickup configuration" },
+  });
+});
+
+test("MCP complete returns the same unblocked report", async () => {
+  const lane = await mergedLane({ tracker: blockingTracker(false), pickedUp: true, mcp: true });
+  expect((await lane.complete()).result.unblocked).toEqual({
+    state: "known",
+    tickets: [jwb("JWB-911")],
+  });
 });
