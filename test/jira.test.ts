@@ -950,7 +950,7 @@ test("jiraOrigin keeps dotted hosts, ports and a trailing slash, and refuses bar
     ["example.atlassian.net", "https://example.atlassian.net"],
     ["https://Example.Atlassian.net/", "https://example.atlassian.net"],
     ["https://jira.example.com:8443", "https://jira.example.com:8443"],
-  ])
+  ] as const)
     expect(jiraOrigin(site)).toBe(origin);
   for (const site of ["h", "https://jira", "jira:8443", "https://example.net."])
     expect(() => jiraOrigin(site)).toThrow("https site origin");
