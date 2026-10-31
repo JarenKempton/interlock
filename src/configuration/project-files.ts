@@ -20,16 +20,18 @@ import type {
   InitConfigurationInput,
   ShowConfigurationInput,
 } from "./inputs.ts";
-import { readPersonalSettings } from "./local-settings.ts";
+import { readUserSettings } from "./local-settings.ts";
 import {
-  type PersonalSettings,
+  CHOICE_KEYS,
+  type ResolvedConfiguration,
+  resolveConfiguration,
   resolvedConfigurationSchema,
-  resolveProjectConfiguration,
+  type UserSettings,
 } from "./schema.ts";
 
 export { INITIAL_CONFIGURATION };
 export const configurationOutputSchema = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   action: z.enum(["initialized", "configuration", "edited"]),
   path: z.string(),
   configuration: resolvedConfigurationSchema,
@@ -41,24 +43,36 @@ export interface ConfigurationPlatformOptions {
   editor?: string;
   editFile?: (argv: string[]) => Promise<number>;
 }
+export function sharedConfiguration(path: string, explicit: boolean): string | undefined {
+  if (!explicit && !existsSync(path)) return undefined;
+  return readFileSync(path, "utf8");
+}
+export function resolveSharedConfiguration(
+  path: string,
+  content: string | undefined,
+  user: UserSettings,
+): ResolvedConfiguration {
+  return content === undefined
+    ? resolveConfiguration(undefined, user)
+    : resolveConfiguration(parseProjectToml(content), user, {
+        path,
+        version: configurationVersion(content),
+      });
+}
 export function configurationOperations(options: ConfigurationPlatformOptions) {
   const pathFor = (input: { path?: string | undefined }) =>
     projectConfigPath(options.cwd, input.path);
   const storePath = () => options.statePath ?? databasePath();
   const resolved = (
     path: string,
-    content: string,
-    personal = readPersonalSettings(storePath(), path),
-  ) =>
-    resolveProjectConfiguration(parseProjectToml(content), personal, {
-      path,
-      version: configurationVersion(content),
-    });
+    content: string | undefined,
+    user = readUserSettings(storePath()),
+  ) => resolveSharedConfiguration(path, content, user);
   const output = (
     action: ConfigurationOutput["action"],
     path: string,
     configuration: ConfigurationOutput["configuration"],
-  ): ConfigurationOutput => ({ version: 1, action, path, configuration });
+  ): ConfigurationOutput => ({ version: 2, action, path, configuration });
   return {
     async init(input: InitConfigurationInput) {
       const path = pathFor(input);
@@ -75,46 +89,43 @@ export function configurationOperations(options: ConfigurationPlatformOptions) {
     },
     async show(input: ShowConfigurationInput) {
       const path = pathFor(input);
-      return output("configuration", path, resolved(path, readFileSync(path, "utf8")));
+      return output(
+        "configuration",
+        path,
+        resolved(path, sharedConfiguration(path, input.path !== undefined)),
+      );
     },
     async edit(input: EditConfigurationInput) {
       const path = pathFor(input);
-      const original = readFileSync(path, "utf8");
-      if (input.set?.[0] === "claim-home") {
-        const home = normalizeClaimHome(input.set[1]);
-        mkdirSync(dirname(storePath()), { recursive: true });
-        const store = new StateStore(storePath());
-        try {
-          store.saveUserSetting("claim_home", home.url);
-        } finally {
-          store.close();
-        }
-        return output("edited", path, resolved(path, original));
-      }
-      const set = input.set;
-      if (set || input.follow) {
-        // Only explicit choices are persisted; defaults are always read from the project.
-        const update = (settings: PersonalSettings) => {
-          if (input.follow === "all") return {};
-          if (set && set[0] !== "claim-home") settings[set[0]] = set[1];
-          if (input.follow) delete settings[input.follow];
+      if (input.set || input.follow) {
+        const content = sharedConfiguration(path, input.path !== undefined);
+        const [name, value] = input.set ?? [];
+        const update = (settings: UserSettings): UserSettings => {
+          if (name === "claim-home") settings.claim_home = normalizeClaimHome(value ?? "").url;
+          else if (name) settings[name] = value;
+          for (const key of input.follow === "all"
+            ? CHOICE_KEYS
+            : input.follow
+              ? [input.follow]
+              : [])
+            delete settings[key];
           return settings;
         };
-        const candidate = update(readPersonalSettings(storePath(), path));
-        resolved(path, original, candidate);
+        resolved(path, content, update(readUserSettings(storePath())));
         mkdirSync(dirname(storePath()), { recursive: true });
         const store = new StateStore(storePath());
         try {
-          const personal = store.updateConfigurationOverrides(path, (settings) => {
+          const user = store.updateUserSettings((settings) => {
             const next = update(settings);
-            resolved(path, original, next);
+            resolved(path, content, next);
             return next;
           });
-          return output("edited", path, resolved(path, original, personal));
+          return output("edited", path, resolved(path, content, user));
         } finally {
           store.close();
         }
       }
+      const original = readFileSync(path, "utf8");
       const editor = input.editor ?? options.editor ?? process.env.VISUAL ?? process.env.EDITOR;
       if (!editor)
         throw new Error(

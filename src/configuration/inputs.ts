@@ -1,16 +1,16 @@
 import { z } from "zod";
-import { configText, personalSettingsSchema } from "./schema.ts";
+import { CHOICE_KEYS, configText } from "./schema.ts";
 
 const path = configText
-  .describe("Project configuration file; defaults to interlock.toml in the current directory.")
+  .describe("Shared configuration file; defaults to interlock.toml in the current directory.")
   .meta({ metavar: "FILE" });
 const setting = z
-  .enum([...personalSettingsSchema.keyof().options, "claim-home"])
-  .describe("Personal setting, or the user-level claim-home")
+  .enum([...CHOICE_KEYS, "jira_site", "claim-home"])
+  .describe("User setting")
   .meta({ metavar: "SETTING" });
 export const initInput = {
   path: path.optional(),
-  from: path.describe("Copy an explicitly selected project configuration file.").optional(),
+  from: path.describe("Copy an explicitly selected shared configuration file.").optional(),
 };
 export const showInput = { path: path.optional() };
 export const editInput = {
@@ -21,13 +21,13 @@ export const editInput = {
     .optional(),
   set: z
     .tuple([setting, configText.meta({ metavar: "VALUE" })])
-    .describe(
-      "Save one explicit personal choice in local SQLite, or set the user-level claim-home; never supply secrets.",
-    )
+    .describe("Save one user setting in local SQLite; never supply secrets.")
     .optional(),
   follow: z
-    .enum([...personalSettingsSchema.keyof().options, "all"])
-    .describe("Follow a project setting, or use all to clear every personal choice.")
+    .enum([...CHOICE_KEYS, "jira_site", "all"])
+    .describe(
+      "Clear a user setting so shared config or the default applies; all clears every choice except jira_site.",
+    )
     .meta({ metavar: "SETTING" })
     .optional(),
 };

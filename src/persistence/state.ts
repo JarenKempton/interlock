@@ -1,11 +1,11 @@
 import { Database } from "bun:sqlite";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import type {
-  PersonalSettings,
-  ResolvedConfiguration,
-  UserSettingKey,
-  UserSettings,
+import {
+  type ExecutionConfiguration,
+  type UserSettingKey,
+  type UserSettings,
+  userSettingsSchema,
 } from "../configuration/schema.ts";
 import {
   actorRefSchema,
@@ -68,13 +68,16 @@ export class StateStore {
     this.#database.close();
   }
 
-  updateConfigurationOverrides(
-    projectPath: string,
-    update: (settings: PersonalSettings) => PersonalSettings,
-  ): PersonalSettings {
+  updateUserSettings(update: (settings: UserSettings) => UserSettings): UserSettings {
     const config = configurationStore(this.#database);
     return this.#database
-      .transaction(() => config.savePersonal(projectPath, update(config.readPersonal(projectPath))))
+      .transaction(() => {
+        const current = config.readUser();
+        const next = update({ ...current });
+        for (const key of userSettingsSchema.keyof().options)
+          if (current[key] !== next[key]) config.saveUser(key, next[key]);
+        return config.readUser();
+      })
       .immediate();
   }
 
@@ -100,11 +103,11 @@ export class StateStore {
       .immediate();
   }
 
-  saveExecutionConfiguration(run: RunRef, configuration: ResolvedConfiguration): void {
+  saveExecutionConfiguration(run: RunRef, configuration: ExecutionConfiguration): void {
     configurationStore(this.#database).saveSnapshot(run, configuration);
   }
 
-  getExecutionConfiguration(run: RunRef): ResolvedConfiguration | undefined {
+  getExecutionConfiguration(run: RunRef): ExecutionConfiguration | undefined {
     return configurationStore(this.#database).readSnapshot(run);
   }
 

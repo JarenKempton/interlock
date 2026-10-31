@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import type { JiraTransport } from "../../src/adapters/trackers/jira.ts";
 import {
@@ -70,12 +70,14 @@ export class PickupJira implements JiraTransport {
             transitions: [
               { id: "todo", to: { name: "To Do" } },
               { id: "progress", to: { name: "In Progress" } },
+              { id: "doing", to: { name: "Doing" } },
             ],
           },
         };
       else {
         const { transition } = z.object({ transition: z.object({ id: z.string() }) }).parse(body);
-        this.issue.fields.status.name = transition.id === "progress" ? "In Progress" : "To Do";
+        this.issue.fields.status.name =
+          { progress: "In Progress", doing: "Doing" }[transition.id] ?? "To Do";
         response = { status: 204 };
       }
     } else if (method === "GET" && path.startsWith("/rest/api/3/issue/")) {
@@ -156,30 +158,10 @@ export async function pickupFixture() {
   await checkedGit(remote.git, ["push", "--quiet", "origin", "main"], remote.alice);
   await checkedGit(remote.git, ["symbolic-ref", "HEAD", "refs/heads/main"], remote.remote);
   const config = join(root, "interlock.toml");
+  const worktreeRoot = join(root, "worktrees", basename(remote.alice));
   const state = join(root, "state", "runs.db");
   const t3Catalog = join(root, "catalog.json");
-  await writeFile(
-    config,
-    `version = 1
-[repositories.test]
-github = "test/pickup"
-path = "alice"
-worktree_root = "worktrees"
-base_branch = "main"
-[maps.TEST-470]
-repository = "test"
-claim_status = "In Progress"
-available_statuses = ["To Do"]
-[tracker.jira]
-site = "https://example.atlassian.net"
-[t3]
-provider = "codex"
-model = "test-model"
-[roles.reviewers.correctness]
-provider = "codex"
-model = "test-model"
-`,
-  );
+  await writeFile(config, 'version = 2\n[tracker.jira]\nsite = "https://example.atlassian.net"\n');
   await writeFile(t3Catalog, JSON.stringify(catalogEnvelope()));
   const jira = new PickupJira();
   const git = localOriginGit(remote.git);
@@ -197,8 +179,9 @@ model = "test-model"
     jira,
     git,
     services,
-    input: { key: "TEST-492", config, state, "t3-catalog": t3Catalog },
-    worktree: join(root, "worktrees", "TEST-492"),
+    input: { key: "TEST-492", config, repo: remote.alice, state, "t3-catalog": t3Catalog },
+    worktreeRoot,
+    worktree: join(worktreeRoot, "TEST-492"),
     async saveJira() {
       await writeFile(
         join(root, "jira.json"),
@@ -209,13 +192,13 @@ model = "test-model"
       return JSON.parse(await readFile(join(root, "jira.json"), "utf8"));
     },
     async existingWorkspace() {
-      await mkdir(join(root, "worktrees"), { recursive: true });
+      await mkdir(worktreeRoot, { recursive: true });
       await checkedGit(
         remote.git,
-        ["worktree", "add", "-b", "task/TEST-492", join(root, "worktrees", "TEST-492"), "main"],
+        ["worktree", "add", "-b", "task/TEST-492", join(worktreeRoot, "TEST-492"), "main"],
         remote.alice,
       );
-      await writeFile(join(root, "worktrees", "TEST-492", "user-work.txt"), "preserve me");
+      await writeFile(join(worktreeRoot, "TEST-492", "user-work.txt"), "preserve me");
     },
     dispose: remote.dispose,
   };

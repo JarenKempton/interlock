@@ -32,11 +32,6 @@ const catalogSchema = z.object({
 });
 
 export type T3Catalog = z.infer<typeof catalogSchema>;
-export interface RoleSelection {
-  provider: string;
-  model: string;
-  options?: Record<string, string | boolean> | undefined;
-}
 
 export function validateT3Catalog(value: unknown, now = new Date()): T3Catalog {
   const parsed = catalogSchema.safeParse(value);
@@ -48,7 +43,7 @@ export function validateT3Catalog(value: unknown, now = new Date()): T3Catalog {
 }
 
 export function planT3Models(configuration: ResolvedConfiguration, input: T3Catalog) {
-  const { settings, project } = configuration;
+  const { settings } = configuration;
   if (settings.host !== "t3") throw new Error("Requested host is unavailable; pickup supports T3");
   const catalog = input.catalog;
   const runtimeMode = settings.runtime_mode ?? catalog.runtimeMode;
@@ -59,74 +54,46 @@ export function planT3Models(configuration: ResolvedConfiguration, input: T3Cata
     (catalog.interactionMode === "plan" && interactionMode !== "plan")
   )
     throw new Error("Requested T3 modes exceed the calling thread's modes");
-  const select = (selection: RoleSelection, role: string) => {
-    const providers = catalog.providers.filter((p) => p.providerInstanceId === selection.provider);
-    const provider = providers[0];
-    if (providers.length !== 1 || !provider?.canRunChildTask || provider.constraints.length)
-      throw new Error(`T3 provider is missing, ambiguous, or unavailable for ${role}`);
-    const models = provider.models.filter((m) => m.id === selection.model);
-    const model = models[0];
-    if (models.length !== 1 || !model)
-      throw new Error(
-        `T3 model is missing or ambiguous for ${role}; query the live catalog with search`,
-      );
-    if (provider.runtimeModes && !provider.runtimeModes.includes(runtimeMode))
-      throw new Error(`T3 runtime mode is unsupported for ${role}`);
-    const options: Record<string, string | boolean> =
-      selection.options === undefined &&
-      selection.provider === catalog.inheritedProviderInstanceId &&
-      selection.model === catalog.inheritedModel
-        ? Object.fromEntries((catalog.inheritedOptions ?? []).map((o) => [o.id, o.value]))
-        : { ...selection.options };
-    for (const [setting, names] of [
-      ["effort", ["reasoningEffort", "effort", "thinking"]],
-      ["context_window", ["contextWindow", "context_window"]],
-    ] as const) {
-      const value = role === "implementer" ? settings[setting] : project.required[setting];
-      if (value === undefined) continue;
-      const descriptors = (model.options ?? []).filter((o) => names.some((name) => name === o.id));
-      const descriptor = descriptors[0];
-      if (descriptors.length !== 1 || !descriptor)
-        throw new Error(`T3 cannot verify ${setting} for ${role}`);
-      if (
-        project.required[setting] &&
-        selection.options?.[descriptor.id] !== undefined &&
-        selection.options[descriptor.id] !== value
-      )
-        throw new Error(`Role ${role} conflicts with required ${setting}`);
-      if (project.required[setting] || selection.options?.[descriptor.id] === undefined)
-        options[descriptor.id] = value;
-    }
-    for (const [key, value] of Object.entries(options)) {
-      const descriptors = (model.options ?? []).filter((o) => o.id === key);
-      if (descriptors.length !== 1 || !descriptors[0]?.values.includes(value))
-        throw new Error(`T3 model option is unavailable for ${role}`);
-    }
-    for (const [key, value] of [
-      ["agent", selection.provider],
-      ["model", selection.model],
-    ] as const)
-      if (project.required[key] && project.required[key] !== value)
-        throw new Error(`Role ${role} conflicts with required ${key}`);
-    return {
-      provider: provider.driverKind,
-      instanceId: provider.providerInstanceId,
-      model: model.id,
-      options,
-    };
+  const agent = settings.agent ?? catalog.inheritedProviderInstanceId;
+  const requested = settings.model ?? catalog.inheritedModel;
+  const providers = catalog.providers.filter((p) => p.providerInstanceId === agent);
+  const provider = providers[0];
+  if (providers.length !== 1 || !provider?.canRunChildTask || provider.constraints.length)
+    throw new Error("T3 provider is missing, ambiguous, or unavailable for implementer");
+  const models = provider.models.filter((m) => m.id === requested);
+  const model = models[0];
+  if (models.length !== 1 || !model)
+    throw new Error(
+      "T3 model is missing or ambiguous for implementer; query the live catalog with search",
+    );
+  if (provider.runtimeModes && !provider.runtimeModes.includes(runtimeMode))
+    throw new Error("T3 runtime mode is unsupported for implementer");
+  const options: Record<string, string | boolean> =
+    agent === catalog.inheritedProviderInstanceId && model.id === catalog.inheritedModel
+      ? Object.fromEntries((catalog.inheritedOptions ?? []).map((o) => [o.id, o.value]))
+      : {};
+  for (const [setting, names] of [
+    ["effort", ["reasoningEffort", "effort", "thinking"]],
+    ["context_window", ["contextWindow", "context_window"]],
+  ] as const) {
+    const value = settings[setting];
+    if (value === undefined) continue;
+    const descriptors = (model.options ?? []).filter((o) => names.some((name) => name === o.id));
+    const descriptor = descriptors[0];
+    if (descriptors.length !== 1 || !descriptor)
+      throw new Error(`T3 cannot verify ${setting} for implementer`);
+    options[descriptor.id] = value;
+  }
+  for (const [key, value] of Object.entries(options)) {
+    const descriptors = (model.options ?? []).filter((o) => o.id === key);
+    if (descriptors.length !== 1 || !descriptors[0]?.values.includes(value))
+      throw new Error("T3 model option is unavailable for implementer");
+  }
+  const implementer = {
+    provider: provider.driverKind,
+    instanceId: provider.providerInstanceId,
+    model: model.id,
+    options,
   };
-  const implementer = select(
-    project.roles?.implementer ?? {
-      provider: settings.agent ?? "",
-      model: settings.model ?? "",
-    },
-    "implementer",
-  );
-  const reviewers = Object.fromEntries(
-    Object.entries(project.roles?.reviewers ?? {}).map(([lens, selection]) => [
-      lens,
-      select(selection, `reviewer ${lens}`),
-    ]),
-  );
-  return { implementer, reviewers, runtimeMode, interactionMode };
+  return { implementer, reviewers: {}, runtimeMode, interactionMode };
 }

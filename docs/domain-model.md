@@ -16,8 +16,9 @@ and the contracts below define the portable contract. Adapters translate vendor 
 | claim | `interlock-claim:<id>` | Ownership held by the claim lock, mirrored by the tracker |
 
 Qualification prevents collisions across tracker installations. A ticket
-belongs to one map; its blockers can sit in other maps. A ticket lists its
-blockers as `dependencies` and the tickets it blocks as `dependents`.
+belongs to at most one map (its parent); its blockers can sit anywhere, and
+dependency links are the only graph pickup reads. A ticket lists its blockers
+as `dependencies` and the tickets it blocks as `dependents`.
 
 A claim names a human owner and a run, and retains the original tracker snapshot.
 A run never substitutes for its human assignee. See [claim semantics](claim-semantics.md).

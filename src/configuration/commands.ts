@@ -11,22 +11,23 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
   return {
     init: defineAction({
       description:
-        "Create project configuration without overwriting a file; show resolved defaults and requirements.",
+        "Create a shared interlock.toml without overwriting a file; show the resolved settings.",
       input: initInput,
+      version: 2,
       result: configurationOutputSchema,
       handler: operations.init,
     }),
     config: {
       show: defineAction({
-        description:
-          "Read project configuration and explicit personal choices without changing durable state.",
+        description: "Show resolved settings and their sources without changing durable state.",
         input: showInput,
+        version: 2,
         result: configurationOutputSchema,
         handler: operations.show,
       }),
       edit: defineAction({
         description:
-          "Edit a staged project file, set a personal choice, or follow the current project default.",
+          "Set or clear a user setting, or edit the shared interlock.toml through a staged file.",
         input: editInput,
         validate(input) {
           if (
@@ -35,6 +36,7 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
           )
             throw new Error("Choose one of --editor, --set, or --follow");
         },
+        version: 2,
         result: configurationOutputSchema,
         handler: operations.edit,
       }),

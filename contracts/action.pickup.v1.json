@@ -10,8 +10,18 @@
       },
       "config": {
         "type": "string",
-        "description": "Project TOML path.",
+        "description": "Shared interlock.toml path; defaults to the work repo's.",
         "metavar": "PATH"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Work repo; defaults to the current directory.",
+        "metavar": "PATH"
+      },
+      "branch": {
+        "type": "string",
+        "description": "Branch name; defaults to the branch user setting.",
+        "metavar": "NAME"
       },
       "state": {
         "type": "string",

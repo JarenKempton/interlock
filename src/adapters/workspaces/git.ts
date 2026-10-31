@@ -77,15 +77,18 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   readonly #repository: RepositorySpec;
   readonly #git: GitCommandExecutor;
   readonly #fileSystem: WorkspaceFileSystem;
+  readonly #branch: (key: string) => string;
 
   constructor(
     repository: RepositorySpec,
     git: GitCommandExecutor = new BunGitCommandExecutor(),
     fileSystem: WorkspaceFileSystem = nativeFileSystem,
+    branch: (key: string) => string = (key) => `task/${key}`,
   ) {
     this.#repository = canonicalRepository(repository);
     this.#git = git;
     this.#fileSystem = fileSystem;
+    this.#branch = branch;
   }
 
   static prepareRetirement(
@@ -127,7 +130,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   }
 
   async plan(ticket: Ticket): Promise<WorkspacePlan> {
-    return canonicalPlan(this.#repository, ticket.ref);
+    return canonicalPlan(this.#repository, ticket.ref, this.#branch);
   }
 
   async prepare(plan: WorkspacePlan): Promise<PreparedGitWorkspace> {
@@ -140,7 +143,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   }
 
   async #prepare(plan: WorkspacePlan): Promise<PreparedGitWorkspace> {
-    const canonical = canonicalPlan(this.#repository, plan.ticket);
+    const canonical = canonicalPlan(this.#repository, plan.ticket, this.#branch);
     requireCanonicalPlan(plan, canonical);
     const records = await this.#worktrees();
     const atPath = records.filter((item) => item.path === canonical.path);
@@ -224,12 +227,16 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   }
 }
 
-function canonicalPlan(repository: RepositorySpec, ticket: TicketRef): WorkspacePlan {
+function canonicalPlan(
+  repository: RepositorySpec,
+  ticket: TicketRef,
+  branch: (key: string) => string,
+): WorkspacePlan {
   const identity = workspaceIdentity(ticket);
   return {
     ticket,
     path: resolve(repository.worktreeRoot, identity),
-    branch: `task/${identity}`,
+    branch: branch(identity),
   };
 }
 

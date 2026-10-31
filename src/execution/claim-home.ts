@@ -9,6 +9,7 @@ export interface ResolvedClaimHome {
   home: ClaimHome;
   source: string;
   configCommit: string;
+  defaultBranch: string;
 }
 
 export async function resolveClaimHome(
@@ -29,6 +30,7 @@ export async function resolveClaimHome(
   const configCommit = /^([0-9a-f]{40,64})\tHEAD$/m.exec(head)?.[1];
   if (!branch || !configCommit)
     throw new Error("Claim home: the work repo's origin reports no default branch");
+  const defaultBranch = branch.slice("refs/heads/".length);
   await checked(
     ["git", "fetch", "--no-tags", "origin", branch],
     `Claim home: cannot fetch ${branch}`,
@@ -48,6 +50,7 @@ export async function resolveClaimHome(
         home: normalizeClaimHome(project),
         source: `claim_home in interlock.toml on ${branch} at ${configCommit}`,
         configCommit,
+        defaultBranch,
       };
   }
   if (userSetting !== undefined)
@@ -55,10 +58,16 @@ export async function resolveClaimHome(
       home: normalizeClaimHome(userSetting),
       source: "user setting claim-home",
       configCommit,
+      defaultBranch,
     };
   const origin = await checked(
     ["git", "remote", "get-url", "origin"],
     "Claim home: cannot read the work repo's origin",
   );
-  return { home: normalizeClaimHome(origin), source: "work repo origin", configCommit };
+  return {
+    home: normalizeClaimHome(origin),
+    source: "work repo origin",
+    configCommit,
+    defaultBranch,
+  };
 }

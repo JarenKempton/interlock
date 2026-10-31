@@ -153,6 +153,36 @@
     ],
     "additionalProperties": false
   },
+  "38c8f4acb6d22af0c5c188bd26c7d63fa8241d2151446bfc8dd7d5f5fa3ea81e": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "number",
+        "const": 2
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "initialized",
+          "configuration",
+          "edited"
+        ]
+      },
+      "path": {
+        "type": "string"
+      },
+      "configuration": {
+        "$ref": "definitions.json#/c133df2bc17c22d578e7d607f77037b60c560864d3a490b6484e383c10c2a3c4"
+      }
+    },
+    "required": [
+      "version",
+      "action",
+      "path",
+      "configuration"
+    ],
+    "additionalProperties": false
+  },
   "43052e5eb8df1bca2c212d76fc3f227dd6dfcc87509323124675d89aec6f57ab": {
     "type": "object",
     "properties": {
@@ -766,6 +796,144 @@
     ],
     "additionalProperties": false
   },
+  "c133df2bc17c22d578e7d607f77037b60c560864d3a490b6484e383c10c2a3c4": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "number",
+        "const": 2
+      },
+      "source": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "project": {
+        "$ref": "definitions.json#/d6d7fcf2b13945fe8fcaf60bd8aebd8afaab331c14a2fef327142a04c88e64d3"
+      },
+      "settings": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "context_window": {
+            "type": "string"
+          },
+          "runtime_mode": {
+            "type": "string"
+          },
+          "interaction_mode": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "pickable_statuses": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "claimed_status": {
+            "type": "string"
+          },
+          "jira_site": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "branch",
+          "pickable_statuses",
+          "claimed_status"
+        ],
+        "additionalProperties": false
+      },
+      "sources": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string",
+          "enum": [
+            "host",
+            "agent",
+            "model",
+            "effort",
+            "context_window",
+            "runtime_mode",
+            "interaction_mode",
+            "branch",
+            "pickable_statuses",
+            "claimed_status",
+            "jira_site"
+          ]
+        },
+        "additionalProperties": {
+          "type": "string",
+          "enum": [
+            "default",
+            "user",
+            "shared"
+          ]
+        }
+      },
+      "repository": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "remote": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "worktreeRoot": {
+            "type": "string"
+          },
+          "baseBranch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "remote",
+          "path",
+          "worktreeRoot",
+          "baseBranch"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "version",
+      "settings",
+      "sources"
+    ],
+    "additionalProperties": false
+  },
   "c778cd108d2d5c437976da93ed47d251b1be51fc371acd210d1ba1f349c33f7e": {
     "type": "object",
     "properties": {
@@ -899,6 +1067,83 @@
       "createdAt",
       "updatedAt"
     ],
+    "additionalProperties": false
+  },
+  "d6d7fcf2b13945fe8fcaf60bd8aebd8afaab331c14a2fef327142a04c88e64d3": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "number",
+        "const": 2
+      },
+      "claim_home": {
+        "type": "string"
+      },
+      "tracker": {
+        "type": "object",
+        "properties": {
+          "jira": {
+            "type": "object",
+            "properties": {
+              "site": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "site"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "jira"
+        ],
+        "additionalProperties": false
+      },
+      "statuses": {
+        "type": "object",
+        "properties": {
+          "pickable": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "claimed": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "instructions": {
+        "type": "object",
+        "properties": {
+          "runtime_contract": {
+            "type": "string"
+          },
+          "role_templates": {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string"
+              },
+              "research": {
+                "type": "string"
+              },
+              "prototype": {
+                "type": "string"
+              },
+              "decision": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "additionalProperties": false
   }
 }

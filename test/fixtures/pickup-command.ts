@@ -10,7 +10,7 @@ const jira = new PickupJira();
 Object.assign(jira, JSON.parse(readFileSync(path, "utf8")));
 try {
   await run(Bun.argv.slice(2), console.log, {
-    configuration: { cwd: root },
+    configuration: { cwd: process.env.INTERLOCK_TEST_CWD ?? root },
     execution: { jira, git: localOriginGit() },
   });
 } catch (error) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineAction } from "../cli/definition.ts";
 import { flag, optional, positional, text } from "../cli/schema.ts";
-import { resolvedConfigurationSchema } from "../configuration/schema.ts";
+import { executionConfigurationSchema } from "../configuration/schema.ts";
 import { type Claim, claimSchema, runSchema } from "../domain/model.ts";
 import { claimRef, runRef, withStore } from "../persistence/command-store.ts";
 import { recoveryEvidenceRowSchema } from "../persistence/schema/recovery-evidence.ts";
@@ -24,7 +24,7 @@ const runExportSchema = z.strictObject({
       .pick({ outcome: true, evidence_json: true, occurred_at: true })
       .strict(),
   ),
-  configuration: resolvedConfigurationSchema.optional(),
+  configuration: executionConfigurationSchema.optional(),
 });
 
 export function runActions(services: RuntimeServices) {
@@ -37,7 +37,9 @@ export function runActions(services: RuntimeServices) {
       description: "Claim a ticket, prepare its worktree, and return T3 launch arguments.",
       input: {
         key: positional(text("Jira ticket key.", "KEY")),
-        config: optional(text("Project TOML path.", "PATH")),
+        config: optional(text("Shared interlock.toml path; defaults to the work repo's.", "PATH")),
+        repo: optional(text("Work repo; defaults to the current directory.", "PATH")),
+        branch: optional(text("Branch name; defaults to the branch user setting.", "NAME")),
         state,
         "t3-catalog": text("Fresh in-thread T3 catalog envelope; use - for stdin.", "PATH"),
         "dry-run": flag("Print the launch plan without mutations."),
@@ -47,6 +49,8 @@ export function runActions(services: RuntimeServices) {
         pickup(services, {
           key: input.key,
           config: input.config,
+          repo: input.repo,
+          branch: input.branch,
           state: input.state,
           t3Catalog: input["t3-catalog"],
           dryRun: input["dry-run"],
@@ -68,6 +72,7 @@ export function runActions(services: RuntimeServices) {
       export: defineAction({
         description: "Export a run, claim, steps, and recovery evidence.",
         input: { run, state },
+        version: 2,
         result: runExportSchema,
         handler: (input) =>
           withStore(local(input.state), (store) => {

@@ -17,32 +17,34 @@ bun install
 bun run src/cli.ts --help
 bun run src/cli.ts login jira
 bun run src/cli.ts doctor
-bun run src/cli.ts init
 bun run src/cli.ts config show
 ```
 
 `login jira` keeps your Jira credentials in the OS credential store; `doctor`
 names any missing sign-in, Jira permission or claim-lock push access.
-`init` creates a commented `interlock.toml` without replacing an existing file.
-Edit its placeholder tracker and add your repository and map. Keep credentials
-out of this file.
+Pickup works in the current Git repo (or `--repo PATH`) with no project file.
 
 For commands and options, use `--help`, including `config edit --help`.
 Help and shell completion derive from the registered actions.
 
 ## Configuration
 
-Project defaults and requirements live in `interlock.toml`. Explicit personal
-choices live in local SQLite. Requirements reject conflicting personal choices.
+User settings live in local SQLite: the Jira site from `login jira`, host,
+agent, model and modes, the `branch` template (default `task/{key}`), and
+pickable and claimed statuses (default `To Do` and `In Progress`). Unset agent
+and model follow the calling T3 thread.
 
 ```sh
 bun run src/cli.ts config edit --set model your-model
+bun run src/cli.ts config edit --set pickable_statuses "To Do, Ready"
 bun run src/cli.ts config edit --follow model
 ```
 
-`--follow` removes that personal choice so future executions use the project
-setting. Use `--follow all` to clear every personal choice. `config show` displays resolved values and their sources without writing
-configuration or initializing the database.
+`--follow` clears that setting; `--follow all` clears every personal choice.
+An optional shared `interlock.toml` (`init` writes a commented one) holds team
+tracker facts only: the Jira site, statuses, `claim_home` and instruction paths.
+They override user settings. `config show` displays resolved values and their
+sources without writing configuration or initializing the database.
 
 ## Work on the code
 

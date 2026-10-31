@@ -21,8 +21,11 @@ import {
 } from "../src/adapters/workspaces/git.ts";
 import { createApplication } from "../src/application.ts";
 import { run as runCli } from "../src/cli.ts";
-import { configurationVersion, parseProjectToml } from "../src/configuration/files.ts";
-import { resolveProjectConfiguration } from "../src/configuration/schema.ts";
+import {
+  type ExecutionConfiguration,
+  resolveConfiguration,
+  validateExecutionConfiguration,
+} from "../src/configuration/schema.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { AmbiguousTrackerResultError } from "../src/domain/contracts.ts";
 import {
@@ -47,30 +50,25 @@ const branch = "task/JWB-909";
 const prUrl = "https://github.com/o/r/pull/9";
 const now = "2026-01-01T00:00:00.000Z";
 const directories: string[] = [];
-const pickupToml = `version = 1
-[repositories.r]
-github = "o/r"
-path = "main"
-worktree_root = "worktrees"
-base_branch = "main"
-[maps.JWB-556]
-repository = "r"
-claim_status = "In Progress"
-available_statuses = ["To Do"]
-[tracker.jira]
-site = "https://x.atlassian.net"
-[t3]
-provider = "codex"
-model = "test-model"
-`;
-const pickupConfiguration = resolveProjectConfiguration(
-  parseProjectToml(pickupToml),
-  {},
-  {
-    path: "/project/interlock.toml",
-    version: configurationVersion(pickupToml),
+const legacyPickupConfiguration = validateExecutionConfiguration({
+  version: 1,
+  source: { path: "/project/interlock.toml", version: "sha256:fixture" },
+  project: {
+    version: 1,
+    repositories: {
+      r: { github: "o/r", path: "main", worktree_root: "worktrees", base_branch: "main" },
+    },
+    maps: {
+      "JWB-556": { repository: "r", claim_status: "In Progress", available_statuses: ["To Do"] },
+    },
+    tracker: { jira: { site: "https://x.atlassian.net" } },
+    t3: { provider: "codex", model: "test-model" },
+    defaults: {},
+    required: {},
   },
-);
+  settings: { host: "t3", agent: "codex", model: "test-model" },
+  sources: { host: "default", agent: "default", model: "default" },
+});
 
 setDefaultTimeout(GIT_TEST_TIMEOUT_MS);
 
@@ -165,6 +163,7 @@ async function mergedLane(
     mcp?: boolean;
     leaseExpiresAt?: string;
     pickedUp?: boolean;
+    configuration?: ExecutionConfiguration;
   } = {},
 ) {
   const repo = repository({ merged: options.merged ?? true, squash: options.squash ?? false });
@@ -190,7 +189,8 @@ async function mergedLane(
     leaseExpiresAt: options.leaseExpiresAt ?? "2099-01-01T00:00:00Z",
     status: "active",
   });
-  if (options.pickedUp) store.saveExecutionConfiguration(runRef, pickupConfiguration);
+  if (options.pickedUp)
+    store.saveExecutionConfiguration(runRef, options.configuration ?? legacyPickupConfiguration);
   const service = new LaneService({
     store,
     newId: () => laneRefSchema.parse("interlock-lane:complete"),
@@ -1060,6 +1060,30 @@ test("CLI complete reports dependents with every blocker closed that pickup woul
   expect(result).toMatchObject({ ok: true, value: { state: "done" } });
   expect(result.unblocked).toEqual({ state: "known", tickets: [jwb("JWB-911")] });
   expect(tracker.transitions).toEqual(["Done"]);
+});
+
+test("a run picked up without maps reports dependents in any epic, or none, by pickable status", async () => {
+  const tracker = blockingTracker(true);
+  const unparented = tracker.others.find((other) => other.ref === jwb("JWB-911"));
+  if (unparented) delete unparented.map;
+  const lane = await mergedLane({
+    tracker,
+    pickedUp: true,
+    configuration: {
+      ...resolveConfiguration(undefined, { jira_site: "https://x.atlassian.net" }),
+      repository: {
+        name: "r",
+        remote: "https://github.com/o/r.git",
+        path: "/r",
+        worktreeRoot: "/worktrees/r",
+        baseBranch: "main",
+      },
+    },
+  });
+  expect((await lane.complete()).result.unblocked).toEqual({
+    state: "known",
+    tickets: [jwb("JWB-911"), jwb("JWB-912"), jwb("JWB-913")],
+  });
 });
 
 test("CLI complete reports every dependent once all of its blockers are closed", async () => {

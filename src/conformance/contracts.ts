@@ -65,7 +65,7 @@ export function contractSurfaces(): ContractSurface[] {
     },
     {
       name: "interlock-toml",
-      version: projectConfigurationSchema.shape.version.value,
+      version: projectConfigurationSchema.shape.version.unwrap().value,
       frozen: false,
       document: () => ({ file: jsonSchema(projectConfigurationSchema, "input") }),
     },

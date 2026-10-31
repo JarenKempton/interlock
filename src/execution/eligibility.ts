@@ -1,4 +1,4 @@
-import type { ResolvedConfiguration } from "../configuration/schema.ts";
+import type { ExecutionConfiguration } from "../configuration/schema.ts";
 import type { Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
 import type { TrackerReader } from "../domain/tracker.ts";
@@ -37,7 +37,9 @@ export async function unblockedBy(
   return unblocked;
 }
 
-export function configuredPickable(configuration: ResolvedConfiguration): PickableStatuses {
+export function configuredPickable(configuration: ExecutionConfiguration): PickableStatuses {
+  if (configuration.version === 2) return () => configuration.settings.pickable_statuses;
+  const { maps } = configuration.project;
   return (ticket) =>
-    configuration.project.maps[parseRef(ticket.map).nativeId ?? ""]?.available_statuses;
+    ticket.map ? maps[parseRef(ticket.map).nativeId ?? ""]?.available_statuses : undefined;
 }

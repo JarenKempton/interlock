@@ -75,6 +75,7 @@ test(
       home: normalizeClaimHome("team/locks"),
       source: `claim_home in interlock.toml on refs/heads/main at ${commit}`,
       configCommit: commit,
+      defaultBranch: "main",
     });
   },
   GIT_TEST_TIMEOUT_MS,
@@ -91,11 +92,13 @@ test.each([
       home: normalizeClaimHome("team/locks"),
       source: "user setting claim-home",
       configCommit: commit,
+      defaultBranch: "main",
     });
     expect(await resolve()).toEqual({
       home: normalizeClaimHome(fixture.remote),
       source: "work repo origin",
       configCommit: commit,
+      defaultBranch: "main",
     });
   },
   GIT_TEST_TIMEOUT_MS,

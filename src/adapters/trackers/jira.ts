@@ -151,7 +151,6 @@ export class PendingJiraWriteError extends AmbiguousTrackerResultError {
 const transitionsSchema = z.object({
   transitions: z.array(z.object({ id: z.string(), to: z.object({ name: z.string() }) })),
 });
-const CLAIMED_STATUS = "In Progress";
 const remoteLinkSchema = z.object({ object: z.object({ url: z.string() }) });
 const DEFINITE_FAILURES = [400, 401, 403, 404, 405, 409, 415, 422, 429];
 const searchPageSchema = z.object({
@@ -168,6 +167,7 @@ export interface JiraTrackerOptions {
   rankField?: string;
   claimProperty?: string;
   claimHome?: string;
+  claimedStatus?: string;
   pageSize?: number;
   validateClaim?: (ticket: Ticket) => void | Promise<void>;
   journalWrite?: (pending: PendingJiraWrite) => () => void;
@@ -178,6 +178,7 @@ export class JiraTrackerAdapter implements Tracker {
   readonly #prefix: string;
   readonly #claimProperty: string;
   readonly #claimHome: string | undefined;
+  readonly #claimedStatus: string;
   readonly #rankField: string | undefined;
   readonly #pageSize: number;
   readonly #validateClaim: JiraTrackerOptions["validateClaim"];
@@ -197,6 +198,7 @@ export class JiraTrackerAdapter implements Tracker {
     this.#prefix = `jira:${options.instance}:${options.workspace}`;
     this.#claimProperty = options.claimProperty ?? "interlock.claim";
     this.#claimHome = options.claimHome;
+    this.#claimedStatus = options.claimedStatus ?? "In Progress";
     this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
     this.#validateClaim = options.validateClaim;
@@ -261,17 +263,18 @@ export class JiraTrackerAdapter implements Tracker {
   async read(ticket: TicketRef): Promise<TrackerRead> {
     this.#readConfiguration();
     const issue = await this.#issue(ticket);
-    const parent = issue.fields.parent?.key;
-    if (!parent) throw new Error("Jira ticket has no parent map");
-    const map = mapRefSchema.parse(`${this.#prefix}:map:${parent}`);
-    const tickets = await this.list_work(map);
-    const found = tickets.find((item) => item.ref === ticket);
-    if (!found) throw new Error(`Jira ticket is not a child of its reported map: ${ticket}`);
+    const map = this.#mapOf(issue);
+    let order = 0;
+    if (map) {
+      const found = (await this.list_work(map)).find((item) => item.ref === ticket);
+      if (!found) throw new Error(`Jira ticket is not a child of its reported map: ${ticket}`);
+      order = found.order;
+    }
     const latest = await this.#issue(ticket);
-    if (latest.fields.parent?.key !== parent)
+    if (latest.fields.parent?.key !== issue.fields.parent?.key)
       throw new Error("Jira ticket changed maps during read; retry pickup");
     return {
-      ticket: this.#normalize(latest, ticket, map, found.order),
+      ticket: this.#normalize(latest, ticket, map, order),
       snapshot: { version: latest.fields.updated, payload: await this.#claimState(ticket, latest) },
     };
   }
@@ -320,18 +323,8 @@ export class JiraTrackerAdapter implements Tracker {
     };
     const issue = await this.#issue(request.ticket);
     const current = await this.#claimState(request.ticket, issue);
-    if (this.#validateClaim && current.claim?.claim !== request.claim) {
-      const parent = issue.fields.parent?.key;
-      if (!parent) throw new ClaimCollisionError("Jira ticket no longer has a parent map");
-      await this.#validateClaim(
-        this.#normalize(
-          issue,
-          request.ticket,
-          mapRefSchema.parse(`${this.#prefix}:map:${parent}`),
-          0,
-        ),
-      );
-    }
+    if (this.#validateClaim && current.claim?.claim !== request.claim)
+      await this.#validateClaim(this.#normalize(issue, request.ticket, this.#mapOf(issue), 0));
     if (current.claim !== null && !sameClaimIdentity(current.claim, property))
       throw new ClaimCollisionError(
         `Jira ticket is marked by another claim in claim home ${current.claim.home}`,
@@ -359,7 +352,7 @@ export class JiraTrackerAdapter implements Tracker {
     const current = await this.#verifiedClaimState(request.ticket);
     if (
       current.assignee !== request.owner ||
-      current.status !== CLAIMED_STATUS ||
+      current.status !== this.#claimedStatus ||
       !current.claim ||
       !sameClaimIdentity(current.claim, {
         claim: request.claim,
@@ -386,7 +379,7 @@ export class JiraTrackerAdapter implements Tracker {
     if (
       current.claim.owner !== owner ||
       (current.assignee !== owner && current.assignee !== original.assignee) ||
-      (current.status !== CLAIMED_STATUS && current.status !== original.status)
+      (current.status !== this.#claimedStatus && current.status !== original.status)
     )
       throw new ClaimCollisionError("Jira claim mirror was changed outside Interlock");
     try {
@@ -418,7 +411,7 @@ export class JiraTrackerAdapter implements Tracker {
     if (
       current.claim?.claim === request.claim ||
       (current.assignee === owner && current.assignee !== original.assignee) ||
-      (current.status === CLAIMED_STATUS && current.status !== original.status)
+      (current.status === this.#claimedStatus && current.status !== original.status)
     )
       throw new AmbiguousTrackerResultError("Jira restored state could not be verified");
   }
@@ -433,7 +426,12 @@ export class JiraTrackerAdapter implements Tracker {
     return this.#rankField;
   }
 
-  #normalize(issue: JiraIssue, ref: TicketRef, map: MapRef, order: number): Ticket {
+  #mapOf(issue: JiraIssue): MapRef | undefined {
+    const parent = issue.fields.parent?.key;
+    return parent ? mapRefSchema.parse(`${this.#prefix}:map:${parent}`) : undefined;
+  }
+
+  #normalize(issue: JiraIssue, ref: TicketRef, map: MapRef | undefined, order: number): Ticket {
     const rankField = this.#readConfiguration();
     const rank = issue.fields[rankField];
     if (typeof rank !== "string" || rank.length === 0)
@@ -458,7 +456,7 @@ export class JiraTrackerAdapter implements Tracker {
     const description = jiraDescription(issue.fields.description);
     return {
       ref,
-      map,
+      ...(map ? { map } : {}),
       ...(typeof issue.fields.summary === "string" ? { title: issue.fields.summary } : {}),
       ...(description === undefined ? {} : { description }),
       kind: this.#kind(issue.fields.issuetype.name),
@@ -514,7 +512,7 @@ export class JiraTrackerAdapter implements Tracker {
     if (!current.claim || !sameClaimIdentity(current.claim, property))
       await this.#writeClaimProperty(ticket, property);
     if (current.assignee !== property.owner) await this.#assign(ticket, property.owner);
-    if (current.status !== CLAIMED_STATUS) await this.#transition(ticket, CLAIMED_STATUS);
+    if (current.status !== this.#claimedStatus) await this.#transition(ticket, this.#claimedStatus);
   }
 
   async #writeClaimProperty(ticket: TicketRef, property: JiraClaimProperty): Promise<void> {

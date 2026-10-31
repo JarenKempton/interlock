@@ -25,9 +25,9 @@ export function manPage(version: string, tree: ActionTree): string {
     },
     FILES: {
       "interlock.toml":
-        "Project defaults, requirements and instruction references. Secrets must not be placed in ordinary configuration, command arguments, logs, or receipts.",
+        "Optional shared tracker facts: Jira site, statuses, claim_home and instruction references. Secrets must not be placed in ordinary configuration, command arguments, logs, or receipts.",
       "interlock.db":
-        "Local state and personal choices: $XDG_STATE_HOME/interlock (or $HOME/.local/state/interlock) on Linux; $HOME/Library/Application Support/interlock on macOS; %LOCALAPPDATA%/Interlock on Windows. Builds without a release version use interlock-dev (Interlock-dev on Windows) instead, so they never open the installed ledger.",
+        "Local state and user settings: $XDG_STATE_HOME/interlock (or $HOME/.local/state/interlock) on Linux; $HOME/Library/Application Support/interlock on macOS; %LOCALAPPDATA%/Interlock on Windows. Builds without a release version use interlock-dev (Interlock-dev on Windows) instead, so they never open the installed ledger.",
       "update-check.json": "Update-check timestamp, stored beside interlock.db.",
     },
     "EXIT STATUS": {

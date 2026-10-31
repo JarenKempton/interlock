@@ -55,7 +55,7 @@ export function buildLaunchPrompt(ticket: Ticket, options: LaunchPromptOptions =
   return [
     ...(options.runtimeContract ? [`Read the runtime contract:\n${options.runtimeContract}`] : []),
     ...(options.tracker ? [`Tracker:\n${options.tracker}`] : []),
-    `Map:\n${ticket.map}`,
+    ...(ticket.map ? [`Map:\n${ticket.map}`] : []),
     `Ticket:\n${ticket.ref}${ticket.title ? ` — ${ticket.title}` : ""}`,
     `Role:\n${ticket.kind}`,
     `Role guidance:\n${options.roleTemplate ?? ROLE_TEMPLATES[ticket.kind]}`,
