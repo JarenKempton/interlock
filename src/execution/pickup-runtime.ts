@@ -20,7 +20,8 @@ import {
 } from "../configuration/files.ts";
 import { readUserSettings } from "../configuration/local-settings.ts";
 import { resolveSharedConfiguration, sharedConfiguration } from "../configuration/project-files.ts";
-import type { ExecutionConfiguration } from "../configuration/schema.ts";
+import { type ExecutionConfiguration, reviewChoicesFrom } from "../configuration/schema.ts";
+import { RELEASE_BUILD } from "../distribution/version.ts";
 import type { ClaimHome } from "../domain/claim-home.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
@@ -300,7 +301,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   );
   const clock = services.execution?.clock ?? { now: () => new Date() };
   const catalog = validateT3Catalog(rawCatalog, clock.now());
-  const models = planT3Models(configuration, catalog);
+  const models = planT3Models(configuration, catalog, reviewChoicesFrom(user));
   const jira = await executionTracker(
     settings.jira_site,
     input.key.slice(0, input.key.lastIndexOf("-")),
@@ -355,6 +356,11 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       ? { runtimeContract: instructions.runtimeContract.resolvedPath }
       : {}),
     ...(instructions.roleTemplate ? { roleTemplate: instructions.roleTemplate.content } : {}),
+    lane: {
+      command: RELEASE_BUILD ? ["interlock"] : ["bun", resolve(import.meta.dir, "../cli.ts")],
+      ...(input.state ? { state: resolve(statePath) } : {}),
+      reviewers: models.reviewers,
+    },
   });
   const plan: PickupPlan = {
     version: 1,

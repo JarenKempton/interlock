@@ -8,6 +8,7 @@ import {
   type JiraTrackerOptions,
   type JiraTransport,
   jiraBasicAuthTransport,
+  jiraOrigin,
 } from "../src/adapters/trackers/jira.ts";
 import { runConformance } from "../src/conformance/runner.ts";
 import { trackerConformance } from "../src/conformance/tracker.ts";
@@ -942,4 +943,15 @@ describe("Jira link_artifact", () => {
       AmbiguousTrackerResultError,
     );
   });
+});
+
+test("jiraOrigin keeps dotted hosts, ports and a trailing slash, and refuses bare host names", () => {
+  for (const [site, origin] of [
+    ["example.atlassian.net", "https://example.atlassian.net"],
+    ["https://Example.Atlassian.net/", "https://example.atlassian.net"],
+    ["https://jira.example.com:8443", "https://jira.example.com:8443"],
+  ] as const)
+    expect(jiraOrigin(site)).toBe(origin);
+  for (const site of ["h", "https://jira", "jira:8443", "https://example.net."])
+    expect(() => jiraOrigin(site)).toThrow("https site origin");
 });

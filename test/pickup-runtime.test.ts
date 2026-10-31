@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../src/adapters/claims/git-lock.ts";
 import type { CommandResult } from "../src/adapters/workspaces/git.ts";
@@ -11,6 +11,7 @@ import { configurationOperations } from "../src/configuration/project-files.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import type { Claim } from "../src/domain/model.ts";
+import { shellWord } from "../src/execution/launch-prompt.ts";
 import { PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS, ScriptedGit } from "./fixtures/git-remote.ts";
@@ -1245,6 +1246,58 @@ test(
     const picked = await createApplication(f.services).pickup.execute(f.input);
     expect(reads).toBeGreaterThan(3);
     expect(picked).toMatchObject({ state: "claimed" });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "the launch message's attach command, run from the new worktree, binds the lane to the pickup",
+  async () => {
+    const f = await fixture();
+    await configurationOperations({ cwd: f.root, statePath: f.state }).edit({
+      set: ["reviewers", "correctness, security"],
+    });
+    const result = await createApplication(f.services).pickup.execute(f.input);
+    if (!("run" in result)) throw new Error("Expected a claimed plan");
+    expect(Object.keys(result.reviewers)).toEqual(["correctness", "security"]);
+    const target = JSON.stringify({
+      providerInstanceId: "codex",
+      model: "test-model",
+      options: { reasoningEffort: "high" },
+    });
+    expect(result.launch.message).toContain(`   - correctness: target ${target}`);
+    expect(result.launch.message).toContain("watch_pull_request");
+    const attach = /`([^`]* lane attach [^`]*)`/.exec(result.launch.message)?.[1];
+    if (!attach) throw new Error("Launch message has no attach command");
+    expect(attach).toContain(`--ticket ${ref}`);
+    expect(attach).toContain(`--state ${shellWord(f.state)}`);
+    const argv = [...attach.matchAll(/'((?:[^']|'\\'')*)'|(\S+)/g)].map(
+      (word) => word[2] ?? (word[1] ?? "").replaceAll("'\\''", "'"),
+    );
+    const child = Bun.spawnSync(argv, { cwd: f.worktree });
+    expect(child.exitCode).toBe(0);
+    expect(JSON.parse(child.stdout.toString())).toMatchObject({
+      ok: true,
+      value: { ticket: ref, run: result.run, claim: result.claim, state: "implementing" },
+    });
+    const elsewhere = Bun.spawnSync(argv, { cwd: f.remote.alice });
+    expect(elsewhere.exitCode).toBe(1);
+    expect(JSON.parse(elsewhere.stdout.toString()).refusal.code).toBe("workspace_unknown");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a relative --state is embedded in the launch commands as the absolute ledger pickup used",
+  async () => {
+    const f = await fixture();
+    const result = await createApplication(f.services).pickup.execute({
+      ...f.input,
+      state: "relative/ledger.db",
+      "dry-run": true,
+    });
+    expect(result.launch.message).toContain(`--state ${shellWord(resolve("relative/ledger.db"))}`);
+    expect(result.launch.message).not.toContain("--state relative/");
   },
   GIT_TEST_TIMEOUT_MS,
 );

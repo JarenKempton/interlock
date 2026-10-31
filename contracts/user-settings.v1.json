@@ -29,6 +29,18 @@
       "interaction_mode": {
         "type": "string"
       },
+      "reviewers": {
+        "type": "string"
+      },
+      "reviewer_agent": {
+        "type": "string"
+      },
+      "reviewer_model": {
+        "type": "string"
+      },
+      "reviewer_effort": {
+        "type": "string"
+      },
       "branch": {
         "type": "string"
       },

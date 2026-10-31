@@ -26,6 +26,7 @@ const HANDLED = new Set([
   "required",
   "additionalProperties",
   "items",
+  "prefixItems",
   "anyOf",
   "oneOf",
   "default",
@@ -154,6 +155,14 @@ export function breakingChanges(
         output,
       ),
     );
+  if (old.prefixItems !== undefined || next.prefixItems !== undefined) {
+    const previous = list(old.prefixItems);
+    const current = list(next.prefixItems);
+    if (previous.length !== current.length) changes.push(`${path}: prefixItems length changed`);
+    else
+      for (const [index, item] of previous.entries())
+        changes.push(...breakingChanges(item, current[index], `${path}[${index}]`, output));
+  }
   for (const union of ["anyOf", "oneOf"]) {
     const options = list(next[union]);
     const previous = list(old[union]);

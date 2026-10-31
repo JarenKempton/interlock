@@ -210,6 +210,23 @@ describe("contract classifier", () => {
     ).toEqual(["$.*: unsupported schema change"]);
   });
 
+  test("tuple items compare by position: input enums may widen, never narrow or reshape", () => {
+    const tuple = (values: string[]) => ({
+      type: "array",
+      prefixItems: [{ type: "string", enum: values }, name],
+    });
+    expect(breakingChanges(tuple(["a"]), tuple(["a", "b"]))).toEqual([]);
+    expect(breakingChanges(tuple(["a", "b"]), tuple(["a"]))).toEqual([
+      '$[0]: enum value "b" removed',
+    ]);
+    expect(
+      breakingChanges(tuple(["a"]), { type: "array", prefixItems: [name] }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      contractBreakingChanges({ output: tuple(["a"]) }, { output: tuple(["a", "b"]) }).length,
+    ).toBeGreaterThan(0);
+  });
+
   test("input union alternatives can be reordered or prepended", () => {
     const a = object({ kind: { const: "a" } }, ["kind"]);
     const b = object({ kind: { const: "b" } }, ["kind"]);

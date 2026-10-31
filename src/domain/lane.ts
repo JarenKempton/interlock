@@ -1,7 +1,6 @@
 import { z } from "zod";
-import type { HostSession } from "./host.ts";
 import { claimRefSchema, laneRefSchema, runRefSchema, ticketRefSchema } from "./identifiers.ts";
-import type { ClaimRef, LaneRef, MapRef, RunRef, Ticket, TicketRef } from "./model.ts";
+import type { ClaimRef, LaneRef, RunRef, TicketRef } from "./model.ts";
 
 export const laneRefusalCodeSchema = z.enum([
   "claim_collision",
@@ -59,32 +58,6 @@ export type LaneResult<T> =
       unblocked?: Unblocked;
     }
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
-
-export interface LaneIdentity {
-  run: RunRef;
-  claim: ClaimRef;
-  ticket: TicketRef;
-}
-
-export interface LaneSubmission extends LaneIdentity {
-  artifact: string;
-  head: string;
-  evidence: readonly { gate: string; head: string; url: string }[];
-}
-
-export interface LaneVerdict extends LaneIdentity {
-  head: string;
-  decision: "approved" | "changes_requested";
-  findings: readonly string[];
-}
-
-export interface LaneProtocol {
-  next(request: { map: MapRef; selection: "first_eligible" }): Promise<LaneResult<Ticket | null>>;
-  attach(request: LaneIdentity & { session: HostSession }): Promise<LaneResult<LaneIdentity>>;
-  submit(request: LaneSubmission): Promise<LaneResult<LaneSubmission>>;
-  verdict(request: LaneVerdict): Promise<LaneResult<LaneVerdict>>;
-  done(request: LaneIdentity & { head: string }): Promise<LaneResult<LaneIdentity>>;
-}
 
 export const laneStateSchema = z.enum([
   "queued",

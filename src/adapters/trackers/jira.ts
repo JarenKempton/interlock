@@ -74,7 +74,7 @@ export function jiraOrigin(site: string): string {
   try {
     url = new URL(site.includes("://") ? site : `https://${site}`);
   } catch {
-    throw new Error("Jira site must be an https site origin");
+    throw new Error("Jira site must be an https site origin such as https://example.atlassian.net");
   }
   if (
     url.protocol !== "https:" ||
@@ -82,9 +82,10 @@ export function jiraOrigin(site: string): string {
     url.password ||
     url.search ||
     url.hash ||
-    url.pathname !== "/"
+    url.pathname !== "/" ||
+    !/^[^.]+(\.[^.]+)+$/.test(url.hostname)
   )
-    throw new Error("Jira site must be an https site origin");
+    throw new Error("Jira site must be an https site origin such as https://example.atlassian.net");
   return url.origin;
 }
 

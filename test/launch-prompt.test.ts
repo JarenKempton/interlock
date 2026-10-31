@@ -199,3 +199,16 @@ test("Jira mentions, smart links and unsupported nodes remain visible in launch 
   const prompt = buildLaunchPrompt({ ...fakePlanningTicket, description });
   expect(prompt).toContain("Acceptance criteria:\nAsk @Owner to approve https://example.com/spec");
 });
+
+test("a lane procedure without review lenses routes review to a person and quotes paths", () => {
+  const prompt = buildLaunchPrompt(fakePlanningTicket, {
+    lane: { command: ["interlock"], state: "/tmp/my ledger/x.db", reviewers: {} },
+  });
+  expect(prompt).toContain(
+    `\`interlock lane attach --ticket ${fakePlanningTicket.ref} --json --state '/tmp/my ledger/x.db'\``,
+  );
+  expect(prompt).toContain("lane attention LANE --reason review_required");
+  expect(prompt).not.toContain("delegate_task");
+  expect(prompt).toContain("do not use GitHub write tools or credentials");
+  expect(prompt).toContain("Apart from the Interlock lane commands above, this prompt does not");
+});

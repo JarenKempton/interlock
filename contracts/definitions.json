@@ -153,36 +153,6 @@
     ],
     "additionalProperties": false
   },
-  "38c8f4acb6d22af0c5c188bd26c7d63fa8241d2151446bfc8dd7d5f5fa3ea81e": {
-    "type": "object",
-    "properties": {
-      "version": {
-        "type": "number",
-        "const": 2
-      },
-      "action": {
-        "type": "string",
-        "enum": [
-          "initialized",
-          "configuration",
-          "edited"
-        ]
-      },
-      "path": {
-        "type": "string"
-      },
-      "configuration": {
-        "$ref": "definitions.json#/c133df2bc17c22d578e7d607f77037b60c560864d3a490b6484e383c10c2a3c4"
-      }
-    },
-    "required": [
-      "version",
-      "action",
-      "path",
-      "configuration"
-    ],
-    "additionalProperties": false
-  },
   "43052e5eb8df1bca2c212d76fc3f227dd6dfcc87509323124675d89aec6f57ab": {
     "type": "object",
     "properties": {
@@ -793,6 +763,65 @@
       "status",
       "createdAt",
       "updatedAt"
+    ],
+    "additionalProperties": false
+  },
+  "b0389e8b8426e0f21c793d3dcc1d1294a1e30278adecf7d02555858982a9ea52": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "number",
+        "const": 2
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "initialized",
+          "configuration",
+          "edited"
+        ]
+      },
+      "path": {
+        "type": "string"
+      },
+      "configuration": {
+        "$ref": "definitions.json#/c133df2bc17c22d578e7d607f77037b60c560864d3a490b6484e383c10c2a3c4"
+      },
+      "review": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "const": "user"
+          },
+          "lenses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "agent": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "lenses"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "version",
+      "action",
+      "path",
+      "configuration"
     ],
     "additionalProperties": false
   },
