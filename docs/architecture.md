@@ -51,7 +51,7 @@ Interlock never deletes a workspace. See the [Git adapter](../src/adapters/works
 - Design rationale: [execution boundaries](adr/0001-lanes-environments-and-session-hosts.md)
   and [tracker writes](adr/0002-tracker-write-minimalism.md).
 
-Tracker, claim-lock, host and lane contracts are plain TypeScript interfaces;
+Tracker, claim-lock and lane contracts are plain TypeScript interfaces;
 see the [domain model](domain-model.md#tracker).
 
 Public surfaces are frozen as JSON Schema under [`contracts/`](../contracts/):

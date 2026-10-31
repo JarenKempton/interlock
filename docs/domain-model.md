@@ -25,8 +25,7 @@ A run never substitutes for its human assignee. See [claim semantics](claim-sema
 
 ## Capabilities
 
-Each boundary owns its vocabulary: `TrackerCapabilities`, `HostCapabilities`,
-and the claim lock's `conditional_update`, the only entry in `CAPABILITIES`.
+Each boundary owns its vocabulary: `TrackerCapabilities` and the claim lock's `conditional_update`, the only entry in `CAPABILITIES`.
 Identifiers are additive; published names cannot be repurposed. An adapter advertises only behavior it can verify; a
 method's presence or successful authentication is not evidence. Operations
 check the exact required set through `requireCapabilities`, which raises
@@ -49,13 +48,17 @@ claim or stale version is a `ClaimCollisionError`; an outcome readback cannot
 confirm is an `AmbiguousTrackerResultError`. Expiry never releases or reassigns.
 See [claim semantics](claim-semantics.md).
 
-## Host and lane
+## Lane
 
-[`Host`](../src/domain/host.ts) requires `launch` and `locate`; message,
-interrupt, focus, subagents and PR ownership are optional capabilities.
-[`LaneProtocol`](../src/domain/lane.ts) defines `next`, `attach`, `submit`,
-`verdict` and `done`, each returning a value or a refusal with a
-machine-readable code. The lane state machine in the same module moves a lane
+T3 Code hosts the lane through its in-thread MCP tools; Interlock has no host
+adapter and never launches or stops an agent. Lane actions return a value or a
+refusal with a machine-readable code. `lane attach --ticket REF`, run from the
+worktree before any work, finds the ticket's one claimed run and its active
+claim, verifies the current directory is that run's worktree root on its
+recorded branch and that the remote claim lock is held by that claim, run and
+owner, then binds the ticket's lane to them and starts it. Any mismatch
+refuses and records no lane; repeating attach returns the same lane. The
+[lane state machine](../src/domain/lane.ts) moves a lane
 through queued, claimed, implementing, submitted, reviewing, approved, merged
 and done; changes_requested loops back to implementing up to the lane's
 configured round limit, then routes to attention, which resumes to the prior

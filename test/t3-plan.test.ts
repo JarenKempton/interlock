@@ -1,10 +1,19 @@
 import { expect, test } from "bun:test";
-import { resolveConfiguration, type UserSettings } from "../src/configuration/schema.ts";
+import {
+  resolveConfiguration,
+  reviewChoicesFrom,
+  type UserSettings,
+} from "../src/configuration/schema.ts";
 import { planT3Models, validateT3Catalog } from "../src/execution/t3-plan.ts";
 import { catalogEnvelope } from "./fixtures/pickup-runtime.ts";
 
 function configuration(user: UserSettings = {}) {
   return resolveConfiguration(undefined, user);
+}
+
+function review(user: UserSettings, raw = catalogEnvelope()) {
+  return planT3Models(configuration(user), validateT3Catalog(raw), reviewChoicesFrom(user))
+    .reviewers;
 }
 
 test("with no user choices the implementer inherits the calling thread's provider, model and options", () => {
@@ -51,4 +60,62 @@ test("requested context and permission expansion fail when the host cannot verif
   expect(() =>
     planT3Models(configuration({ runtime_mode: "full-access" }), validateT3Catalog(raw)),
   ).toThrow("exceed the calling thread");
+});
+
+test("each configured review lens gets the implementer selection unless reviewer choices are set", () => {
+  const raw = catalogEnvelope();
+  expect(review({ reviewers: "correctness, security" }, raw)).toEqual({
+    correctness: {
+      provider: "codex",
+      instanceId: "codex",
+      model: "test-model",
+      options: { reasoningEffort: "high" },
+    },
+    security: {
+      provider: "codex",
+      instanceId: "codex",
+      model: "test-model",
+      options: { reasoningEffort: "high" },
+    },
+  });
+  raw.catalog.providers.push({
+    providerInstanceId: "claudeAgent",
+    driverKind: "claudeAgent",
+    canRunChildTask: true,
+    constraints: [],
+    models: [{ id: "review-model", options: [{ id: "effort", values: ["medium", "high"] }] }],
+  });
+  expect(
+    review(
+      {
+        reviewers: "correctness",
+        reviewer_agent: "claudeAgent",
+        reviewer_model: "review-model",
+        reviewer_effort: "high",
+      },
+      raw,
+    ),
+  ).toEqual({
+    correctness: {
+      provider: "claudeAgent",
+      instanceId: "claudeAgent",
+      model: "review-model",
+      options: { effort: "high" },
+    },
+  });
+});
+
+test("an unverifiable reviewer fails closed, and reviewer choices without lenses plan none", () => {
+  expect(() => review({ reviewers: "correctness", reviewer_model: "missing" })).toThrow(
+    "missing or ambiguous for reviewer",
+  );
+  expect(() => review({ reviewers: "correctness", reviewer_effort: "max" })).toThrow(
+    "option is unavailable for reviewer",
+  );
+  expect(review({ reviewer_model: "missing" })).toEqual({});
+});
+
+test("review lenses must be distinct lowercase names", () => {
+  for (const reviewers of ["Correctness", "a,a", "has space", ","])
+    expect(() => configuration({ reviewers })).toThrow("Invalid configuration");
 });

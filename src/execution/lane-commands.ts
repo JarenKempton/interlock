@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { z } from "zod";
 import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
 import { BunGitCommandExecutor, GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
@@ -8,6 +9,7 @@ import { ticketRefSchema } from "../domain/identifiers.ts";
 import { type LaneResult, laneActionSchema, laneResultSchema, laneSchema } from "../domain/lane.ts";
 import { claimRef, laneRef, runRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
+import { RecordedAttachAuthority } from "./attachment.ts";
 import { LaneService } from "./lane.ts";
 import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
@@ -77,6 +79,9 @@ export function laneActions(services: RuntimeServices) {
           store,
           services.execution?.git ?? new BunGitCommandExecutor(),
         ),
+      attachments:
+        services.lane?.attachments ??
+        new RecordedAttachAuthority(services.execution?.git ?? new BunGitCommandExecutor()),
       ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
     });
   const withLane = <T>(
@@ -109,6 +114,24 @@ export function laneActions(services: RuntimeServices) {
             ...(input["max-review-rounds"]
               ? { maxReviewRounds: Number(input["max-review-rounds"]) }
               : {}),
+          }),
+        ),
+      exitCode,
+    }),
+    attach: defineAction({
+      description:
+        "Verify the claimed run's worktree, branch and remote claim, then bind the ticket's lane to it before work starts.",
+      input: {
+        ticket: text("Tracker ticket reference from the launch message.", "TICKET"),
+        worktree: optional(text("Worktree to verify; defaults to the current directory.", "PATH")),
+        state,
+      },
+      result: laneResult,
+      handler: (input) =>
+        withLane(input.state, (laneService) =>
+          laneService.attach({
+            ticket: input.ticket,
+            worktree: resolve(services.configuration?.cwd ?? process.cwd(), input.worktree ?? "."),
           }),
         ),
       exitCode,

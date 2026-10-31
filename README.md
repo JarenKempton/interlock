@@ -40,6 +40,12 @@ bun run src/cli.ts config edit --set pickable_statuses "To Do, Ready"
 bun run src/cli.ts config edit --follow model
 ```
 
+`reviewers` takes a comma-separated list of review lenses (for example
+`correctness, security`); each runs as a review subagent in the lane, on the
+implementer's model unless `reviewer_agent`, `reviewer_model` or
+`reviewer_effort` is set. With no lenses, review goes to a person. Pickup's
+plan shows the checked reviewers; `config show` does not list these choices.
+
 `--follow` clears that setting; `--follow all` clears every personal choice.
 An optional shared `interlock.toml` (`init` writes a commented one) holds team
 tracker facts only: the Jira site, statuses, `claim_home` and instruction paths.

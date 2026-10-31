@@ -1,0 +1,29 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "ticket": {
+        "type": "string",
+        "description": "Tracker ticket reference from the launch message.",
+        "metavar": "TICKET"
+      },
+      "worktree": {
+        "type": "string",
+        "description": "Worktree to verify; defaults to the current directory.",
+        "metavar": "PATH"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "ticket"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "$ref": "definitions.json#/01c8f99928eadcd0b5fb32cba0a43002c621c31f898773f50ec66cd7724b7e14"
+  }
+}

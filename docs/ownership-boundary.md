@@ -60,7 +60,22 @@ The implementer uses the user's `agent` and `model`, or the calling thread's
 when unset, checked against exact provider instance/model IDs and advertised
 option values. Inherited T3 model options apply only to the same provider
 instance and model; `effort` and `context_window` override them. The plan's
-`reviewers` object is empty; pickup starts no reviewer.
+`reviewers` object has one checked selection per lens in the user's
+`reviewers` setting, using the implementer's selection unless `reviewer_agent`,
+`reviewer_model` or `reviewer_effort` is set; with no lenses it is empty.
+Pickup starts no reviewer.
+
+The launch message carries the lane procedure, with the exact Interlock
+invocation and ledger pickup used: `lane attach` before any work, commits on
+the branch only, `lane submit` to push and open the one pull request, then
+`link_pull_request` and `watch_pull_request` on that URL and no other. Each
+planned lens runs as a `delegate_task` review inside the lane with its plan
+target; the lane records one verdict for the submitted head, and merge stays
+outside the lane. After the merge, `lane merge` and `lane complete` verify it
+and retire the worktree and branch. Interlock enforces the attach checks, the
+one-pull-request rule, head binding and merge readback. It cannot enforce what
+the agent does outside its commands: the procedure tells the agent not to use
+GitHub write credentials, and only the host can withhold them.
 
 `interlock login jira` verifies an email and API token against Jira's `/myself`
 and keeps them in the OS credential store (macOS Keychain, Windows Credential

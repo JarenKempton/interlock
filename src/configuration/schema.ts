@@ -43,11 +43,40 @@ const jiraSite = configText.refine((site) => {
 });
 const branchTemplate = configText.refine((value) => value.includes("{key}"));
 const statusList = configText.refine((value) => statuses(value).length > 0);
+const lensName = configText.regex(/^[a-z][a-z0-9-]*$/);
+const lensList = configText.refine(
+  (value) =>
+    statuses(value).length > 0 &&
+    statuses(value).every((lens) => lensName.safeParse(lens).success) &&
+    new Set(statuses(value)).size === statuses(value).length,
+);
+const reviewChoices = {
+  reviewer_agent: configText,
+  reviewer_model: configText,
+  reviewer_effort: configText,
+};
+export interface ReviewChoices {
+  lenses: string[];
+  agent?: string;
+  model?: string;
+  effort?: string;
+}
+export function reviewChoicesFrom(user: UserSettings): ReviewChoices {
+  const settings = validateUserSettings(user);
+  return {
+    lenses: settings.reviewers ? statuses(settings.reviewers) : [],
+    ...(settings.reviewer_agent ? { agent: settings.reviewer_agent } : {}),
+    ...(settings.reviewer_model ? { model: settings.reviewer_model } : {}),
+    ...(settings.reviewer_effort ? { effort: settings.reviewer_effort } : {}),
+  };
+}
 export const userSettingsSchema = z
   .strictObject({
     jira_site: jiraSite,
     claim_home: configText,
     ...personalChoices,
+    reviewers: lensList,
+    ...reviewChoices,
     branch: branchTemplate,
     pickable_statuses: statusList,
     claimed_status: configText,
@@ -57,6 +86,10 @@ export type UserSettings = z.infer<typeof userSettingsSchema>;
 export type UserSettingKey = keyof UserSettings;
 export const CHOICE_KEYS = [
   ...SETTING_KEYS,
+  "reviewers",
+  "reviewer_agent",
+  "reviewer_model",
+  "reviewer_effort",
   "branch",
   "pickable_statuses",
   "claimed_status",
@@ -277,7 +310,15 @@ const DEFAULT_SETTINGS_V2 = {
 } satisfies SettingsLayer;
 
 function userChoices(user: UserSettings): SettingsLayer {
-  const { claim_home: _claimHome, pickable_statuses, ...choices } = validateUserSettings(user);
+  const {
+    claim_home: _claimHome,
+    pickable_statuses,
+    reviewers: _reviewers,
+    reviewer_agent: _agent,
+    reviewer_model: _model,
+    reviewer_effort: _effort,
+    ...choices
+  } = validateUserSettings(user);
   return {
     ...choices,
     ...(pickable_statuses === undefined ? {} : { pickable_statuses: statuses(pickable_statuses) }),

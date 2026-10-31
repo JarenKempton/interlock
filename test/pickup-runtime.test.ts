@@ -1248,3 +1248,37 @@ test(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test(
+  "the launch message's attach command, run from the new worktree, binds the lane to the pickup",
+  async () => {
+    const f = await fixture();
+    await configurationOperations({ cwd: f.root, statePath: f.state }).edit({
+      set: ["reviewers", "correctness, security"],
+    });
+    const result = await createApplication(f.services).pickup.execute(f.input);
+    if (!("run" in result)) throw new Error("Expected a claimed plan");
+    expect(Object.keys(result.reviewers)).toEqual(["correctness", "security"]);
+    const target = JSON.stringify({
+      providerInstanceId: "codex",
+      model: "test-model",
+      options: { reasoningEffort: "high" },
+    });
+    expect(result.launch.message).toContain(`   - correctness: target ${target}`);
+    expect(result.launch.message).toContain("watch_pull_request");
+    const attach = /`([^`]* lane attach [^`]*)`/.exec(result.launch.message)?.[1];
+    if (!attach) throw new Error("Launch message has no attach command");
+    expect(attach).toContain(`--ticket ${ref}`);
+    expect(attach).toContain(`--state ${f.state}`);
+    const child = Bun.spawnSync(attach.split(" "), { cwd: f.worktree });
+    expect(child.exitCode).toBe(0);
+    expect(JSON.parse(child.stdout.toString())).toMatchObject({
+      ok: true,
+      value: { ticket: ref, run: result.run, claim: result.claim, state: "implementing" },
+    });
+    const elsewhere = Bun.spawnSync(attach.split(" "), { cwd: f.remote.alice });
+    expect(elsewhere.exitCode).toBe(1);
+    expect(JSON.parse(elsewhere.stdout.toString()).refusal.code).toBe("workspace_unknown");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

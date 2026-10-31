@@ -1,5 +1,6 @@
 import type { ConfigurationPlatformOptions } from "./configuration/project-files.ts";
 import type { SubmissionAuthority } from "./domain/submission.ts";
+import type { AttachAuthority } from "./execution/attachment.ts";
 import type { ArtifactHost, LaneTrackerPort, LaneWorkspaces } from "./execution/lane.ts";
 import type { ExecutionPlatform } from "./execution/pickup-runtime.ts";
 import type { RetirementAuthority } from "./execution/retirement-authority.ts";
@@ -16,5 +17,6 @@ export interface RuntimeServices {
     workspaces?: LaneWorkspaces;
     submissions?: SubmissionAuthority;
     retirementAuthority?: RetirementAuthority;
+    attachments?: AttachAuthority;
   };
 }

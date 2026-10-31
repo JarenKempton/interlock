@@ -36,6 +36,7 @@ import {
 } from "../domain/submission.ts";
 import type { TrackerRead } from "../domain/tracker.ts";
 import type { StateStore } from "../persistence/state.ts";
+import { type AttachAuthority, AttachRefusal } from "./attachment.ts";
 import { configuredPickable, unblockedBy } from "./eligibility.ts";
 
 export interface LaneTrackerPort {
@@ -94,7 +95,9 @@ export interface LaneServiceOptions {
     | "listLanes"
     | "laneForTicket"
     | "run"
+    | "listRuns"
     | "claim"
+    | "claimForRun"
     | "retirement"
     | "beginRetirement"
     | "advanceRetirement"
@@ -104,6 +107,7 @@ export interface LaneServiceOptions {
   artifacts?: ArtifactHost;
   workspaces?: LaneWorkspaces;
   submissions?: SubmissionAuthority;
+  attachments?: AttachAuthority;
   clock?: { now(): Date };
   newId?: () => LaneRef;
 }
@@ -129,6 +133,7 @@ export class LaneService {
   readonly #artifacts: ArtifactHost | undefined;
   readonly #workspaces: LaneWorkspaces | undefined;
   readonly #submissions: SubmissionAuthority | undefined;
+  readonly #attachments: AttachAuthority | undefined;
   readonly #clock: { now(): Date };
   readonly #newId: () => LaneRef;
 
@@ -138,6 +143,7 @@ export class LaneService {
     this.#artifacts = options.artifacts;
     this.#workspaces = options.workspaces;
     this.#submissions = options.submissions;
+    this.#attachments = options.attachments;
     this.#clock = options.clock ?? { now: () => new Date() };
     this.#newId = options.newId ?? (() => laneRefSchema.parse(`interlock-lane:${randomUUID()}`));
   }
@@ -161,6 +167,56 @@ export class LaneService {
     if (created.refusal) return { ok: false, refusal: created.refusal };
     this.#store.saveLane(created.lane);
     return ok(created.lane);
+  }
+
+  async attach(input: { ticket: string; worktree: string }): Promise<LaneResult<Lane>> {
+    const ticket = ticketRefSchema.safeParse(input.ticket);
+    if (!ticket.success) return fail("gates_unmet", "Attach requires a tracker ticket reference");
+    const runs = this.#store
+      .listRuns()
+      .filter((run) => run.ticket === ticket.data && run.status === "claimed");
+    const run = runs[0];
+    if (!run) return fail("gates_unmet", "Ticket has no claimed run; run pickup first");
+    if (runs.length > 1)
+      return fail("claim_collision", "Ticket has more than one claimed run; release the extras");
+    let claim: ReturnType<LaneServiceOptions["store"]["claimForRun"]>;
+    try {
+      claim = this.#store.claimForRun(run.ref);
+    } catch {
+      return fail("claim_collision", "Claimed run has no recorded claim");
+    }
+    if (claim.status !== "active" || claim.ticket !== ticket.data || claim.run !== run.ref)
+      return fail("claim_collision", "Run's claim is not the active claim for this ticket");
+    if (!this.#attachments)
+      return fail("unsupported_capability", "Attach requires worktree and claim verification");
+    try {
+      await this.#attachments.verify(run, claim, input.worktree);
+    } catch (error) {
+      if (error instanceof AttachRefusal) return fail(error.code, error.message);
+      return fail("workspace_unknown", errorMessage(error, "Worktree could not be verified"));
+    }
+    const existing = this.#store.laneForTicket(ticket.data);
+    const queued = existing?.state === "queued" && !existing.run ? existing : undefined;
+    if (existing && existing.state !== "done" && !queued) {
+      if (existing.run === run.ref && existing.claim === claim.ref) return ok(existing);
+      return fail("claim_collision", `Ticket already has lane ${existing.id} for another run`);
+    }
+    const now = this.#clock.now().toISOString();
+    const created = queued
+      ? { lane: queued }
+      : createLane({ id: this.#newId(), ticket: ticket.data }, now);
+    if (created.refusal) return { ok: false, refusal: created.refusal };
+    let lane = created.lane;
+    for (const command of [
+      { type: "claim", run: run.ref, claim: claim.ref },
+      { type: "start" },
+    ] as const) {
+      const transition = transitionLane(lane, command, now);
+      if (transition.refusal) return { ok: false, refusal: transition.refusal };
+      lane = transition.lane;
+    }
+    this.#store.saveLane(lane);
+    return ok(lane);
   }
 
   get(id: LaneRef): LaneResult<Lane> {
