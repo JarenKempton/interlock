@@ -35,7 +35,8 @@ const jiraSite = configText.refine((site) => {
       !url.password &&
       !url.search &&
       !url.hash &&
-      url.pathname === "/"
+      url.pathname === "/" &&
+      /^[^.]+(\.[^.]+)+$/.test(url.hostname)
     );
   } catch {
     return false;

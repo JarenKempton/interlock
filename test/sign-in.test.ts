@@ -350,3 +350,21 @@ test("doctor exits 1 when any check fails, with or without --json", async () => 
   expect(await subject.cli("doctor")).toBe(1);
   expect(await subject.cli("doctor", "--json")).toBe(1);
 });
+
+test("a site that is not a full https origin is refused before any prompt for secrets or Jira call", async () => {
+  for (const site of [
+    "h",
+    "https://h",
+    "https://responsibid.atlassian.net/br",
+    "http://x.atlassian.net",
+  ]) {
+    const subject = harness({ answers: [site, "lane@example.com", TOKEN] });
+    await expect(subject.cli("login", "jira")).rejects.toThrow(
+      "Jira site must be an https site origin such as https://example.atlassian.net",
+    );
+    expect(subject.terminal.asked).toEqual([{ label: "Jira site", hidden: false }]);
+    expect(subject.jira.calls).toEqual([]);
+    expect(subject.store.entries.size).toBe(0);
+    expect(userSettings(subject.statePath)).toEqual({});
+  }
+});
