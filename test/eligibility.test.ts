@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
-import type { MapRef, Ticket, TicketRef } from "../src/domain/model.ts";
+import type { Ticket, TicketRef } from "../src/domain/model.ts";
 import type { TrackerRead, TrackerReader } from "../src/domain/tracker.ts";
 import { pickupEligibility, unblockedBy } from "../src/execution/eligibility.ts";
 
 const mapped = mapRefSchema.parse("jira:example:TEST:map:TEST-1");
 const unmapped = mapRefSchema.parse("jira:example:TEST:map:TEST-2");
-const statuses = (map: MapRef) => (map === mapped ? ["To Do"] : undefined);
+const pickable = ["To Do"];
+const inMap = (candidate: Ticket) => (candidate.map === mapped ? pickable : undefined);
 const ref = (key: string) => ticketRefSchema.parse(`jira:example:TEST:ticket:${key}`);
 
 function ticket(key: string, options: Partial<Ticket> = {}): Ticket {
@@ -44,14 +45,13 @@ class FakeReader implements TrackerReader {
 }
 
 describe("pickup eligibility", () => {
-  test("open, unassigned, available, in a configured map, with closed blockers is eligible", async () => {
+  test("open, unassigned, pickable, with closed blockers is eligible", async () => {
     const reader = new FakeReader([ticket("TEST-9", { state: "closed", status: "Done" })]);
     const candidate = ticket("TEST-10", { dependencies: [blocks("TEST-9", "TEST-10")] });
-    expect(await pickupEligibility(reader, candidate, statuses)).toBe("eligible");
+    expect(await pickupEligibility(reader, candidate, pickable)).toBe("eligible");
   });
 
   test.each([
-    ["outside map", { map: unmapped }],
     ["assigned", { assignee: actorRefSchema.parse("someone") }],
     ["wrong status", { status: "In Review" }],
     ["closed", { state: "closed" as const }],
@@ -61,14 +61,14 @@ describe("pickup eligibility", () => {
       ...options,
       dependencies: [blocks("TEST-9", "TEST-10")],
     });
-    expect(await pickupEligibility(reader, candidate, statuses)).toBe("unavailable");
+    expect(await pickupEligibility(reader, candidate, pickable)).toBe("unavailable");
     expect(reader.reads).toEqual([]);
   });
 
   test("an open blocker blocks", async () => {
     const reader = new FakeReader([ticket("TEST-9")]);
     const candidate = ticket("TEST-10", { dependencies: [blocks("TEST-9", "TEST-10")] });
-    expect(await pickupEligibility(reader, candidate, statuses)).toBe("blocked");
+    expect(await pickupEligibility(reader, candidate, pickable)).toBe("blocked");
   });
 });
 
@@ -100,7 +100,7 @@ describe("unblockedBy", () => {
   ];
 
   test("lists only dependents whose every blocker is closed and that pickup would accept", async () => {
-    expect(await unblockedBy(new FakeReader(tickets()), done, statuses)).toEqual([ref("TEST-10")]);
+    expect(await unblockedBy(new FakeReader(tickets()), done, inMap)).toEqual([ref("TEST-10")]);
   });
 
   test("lists every dependent once all of its blockers are closed", async () => {
@@ -109,12 +109,19 @@ describe("unblockedBy", () => {
         item.ref === ref("TEST-6") ? { ...item, state: "closed", status: "Done" } : item,
       ),
     );
-    expect(await unblockedBy(reader, done, statuses)).toEqual([ref("TEST-10"), ref("TEST-11")]);
+    expect(await unblockedBy(reader, done, inMap)).toEqual([ref("TEST-10"), ref("TEST-11")]);
+  });
+
+  test("a dependent outside scope is skipped without reading its blockers", async () => {
+    const reader = new FakeReader(tickets());
+    const outside = ticket("TEST-5", { dependents: [blocks("TEST-5", "TEST-12")] });
+    expect(await unblockedBy(reader, outside, inMap)).toEqual([]);
+    expect(reader.reads).toEqual([ref("TEST-12")]);
   });
 
   test("a ticket that blocks nothing unblocks nothing without reading", async () => {
     const reader = new FakeReader([]);
-    expect(await unblockedBy(reader, ticket("TEST-5", { state: "closed" }), statuses)).toEqual([]);
+    expect(await unblockedBy(reader, ticket("TEST-5", { state: "closed" }), inMap)).toEqual([]);
     expect(reader.reads).toEqual([]);
   });
 
@@ -123,7 +130,7 @@ describe("unblockedBy", () => {
     async (key) => {
       const reader = new FakeReader(tickets());
       reader.failing.add(ref(key));
-      await expect(unblockedBy(reader, done, statuses)).rejects.toThrow("read failed");
+      await expect(unblockedBy(reader, done, inMap)).rejects.toThrow("read failed");
     },
   );
 });

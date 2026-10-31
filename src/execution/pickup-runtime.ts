@@ -187,9 +187,10 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   if (map.claim_status !== "In Progress")
     throw new Error("Jira mirror supports only the In Progress claim status");
   const eligible = async (current: Ticket) => {
-    const eligibility = await pickupEligibility(jira.tracker, current, (candidate) =>
-      candidate === ticket.map ? map.available_statuses : undefined,
-    );
+    const eligibility =
+      current.map === ticket.map
+        ? await pickupEligibility(jira.tracker, current, map.available_statuses)
+        : "unavailable";
     if (eligibility === "unavailable")
       throw new Error("Ticket is not available in the configured map");
     if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
