@@ -1,0 +1,25 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "claim": {
+        "type": "string",
+        "description": "Recorded claim reference.",
+        "metavar": "CLAIM",
+        "positional": true
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "claim"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "$ref": "definitions.json#/1a4b036ba28bd2384635bb2e7fe173c218d6c3438c14ce13ac95521e82a1f69c"
+  }
+}

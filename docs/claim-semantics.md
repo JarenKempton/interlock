@@ -155,7 +155,7 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   Tests fail when the shape drifts from the current version's file, when
   `CLAIM_RECORD_VERSION` is not the highest committed version, or when a
   committed file changes. A format change adds a new version file and bumps the
-  constant; `bun run contracts:hash` writes the new file and hashes only files
+  constant; `bun run contracts:write` writes the new file and hashes only files
   without an entry.
 
 [Lock tests](../test/git-claim-lock.test.ts) and

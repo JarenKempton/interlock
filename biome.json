@@ -8,7 +8,8 @@
       "!!site-variants",
       "!!node_modules",
       "!!src/persistence/migrations/meta",
-      "!!contracts/claim-record.v*.json"
+      "!!contracts/*.v*.json",
+      "!!contracts/definitions.json"
     ]
   },
   "formatter": {

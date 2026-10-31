@@ -1,0 +1,64 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Project configuration file; defaults to interlock.toml in the current directory.",
+        "metavar": "FILE"
+      },
+      "editor": {
+        "type": "string",
+        "description": "Editor executable; defaults to VISUAL or EDITOR.",
+        "metavar": "EXECUTABLE"
+      },
+      "set": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string",
+            "enum": [
+              "host",
+              "agent",
+              "model",
+              "effort",
+              "context_window",
+              "runtime_mode",
+              "interaction_mode",
+              "claim-home"
+            ],
+            "description": "Personal setting, or the user-level claim-home",
+            "metavar": "SETTING"
+          },
+          {
+            "type": "string",
+            "metavar": "VALUE"
+          }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "Save one explicit personal choice in local SQLite, or set the user-level claim-home; never supply secrets."
+      },
+      "follow": {
+        "type": "string",
+        "enum": [
+          "host",
+          "agent",
+          "model",
+          "effort",
+          "context_window",
+          "runtime_mode",
+          "interaction_mode",
+          "all"
+        ],
+        "description": "Follow a project setting, or use all to clear every personal choice.",
+        "metavar": "SETTING"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "$ref": "definitions.json#/456e332c6110109c39263b911fc1fbaf8705b97db13dfc56be8b2d5a6122e3a3"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "transport": {
+        "type": "string",
+        "enum": [
+          "stdio",
+          "socket"
+        ],
+        "description": "MCP transport.",
+        "metavar": "stdio|socket"
+      },
+      "socket": {
+        "type": "string",
+        "description": "Local socket path for the socket transport.",
+        "metavar": "PATH"
+      },
+      "lane": {
+        "description": "Expose only the allowlisted lane actions; token from INTERLOCK_MCP_TOKEN.",
+        "type": "boolean"
+      },
+      "allow": {
+        "type": "string",
+        "description": "Comma-separated action commands exposed in lane mode.",
+        "metavar": "LIST"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "string"
+  }
+}

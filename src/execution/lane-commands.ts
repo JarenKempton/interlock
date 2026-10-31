@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
 import { BunGitCommandExecutor, GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { defineAction } from "../cli/definition.ts";
 import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { ticketRefSchema } from "../domain/identifiers.ts";
-import type { LaneResult } from "../domain/lane.ts";
+import { type LaneResult, laneActionSchema, laneResultSchema, laneSchema } from "../domain/lane.ts";
 import { claimRef, laneRef, runRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { LaneService } from "./lane.ts";
@@ -16,6 +17,8 @@ import { RecordedSubmissionAuthority } from "./submission.ts";
 function exitCode(output: unknown): number {
   return typeof output === "object" && output !== null && "ok" in output && !output.ok ? 1 : 0;
 }
+
+const laneResult = laneResultSchema(laneSchema);
 
 export function laneActions(services: RuntimeServices) {
   const lane = positional(text("Recorded lane reference.", "LANE"));
@@ -97,6 +100,7 @@ export function laneActions(services: RuntimeServices) {
         "max-review-rounds": optional(text("Maximum review rounds before attention.", "ROUNDS")),
         state,
       },
+      result: laneResult,
       handler: (input) =>
         withLane(input.state, (laneService) =>
           laneService.create({
@@ -112,11 +116,13 @@ export function laneActions(services: RuntimeServices) {
     list: defineAction({
       description: "List durable local lanes.",
       input: { state },
+      result: z.array(laneSchema),
       handler: (input) => withLane(input.state, (laneService) => laneService.list()),
     }),
     show: defineAction({
       description: "Inspect a durable local lane.",
       input: { lane, state },
+      result: laneResult,
       handler: (input) =>
         withLane(input.state, (laneService) => laneService.get(laneRef(input.lane))),
       exitCode,
@@ -124,6 +130,7 @@ export function laneActions(services: RuntimeServices) {
     next: defineAction({
       description: "Return exactly one next action for a lane.",
       input: { lane, state },
+      result: laneResultSchema(laneActionSchema),
       handler: (input) =>
         withLane(input.state, (laneService) => laneService.next(laneRef(input.lane))),
       exitCode,
@@ -136,6 +143,7 @@ export function laneActions(services: RuntimeServices) {
         claim: optional(text("Claim reference.", "CLAIM")),
         state,
       },
+      result: laneResult,
       handler: (input) =>
         apply(input.lane, input.state, {
           type: "claim",
@@ -147,6 +155,7 @@ export function laneActions(services: RuntimeServices) {
     start: defineAction({
       description: "Move a claimed lane to implementing.",
       input: { lane, state },
+      result: laneResult,
       handler: (input) => apply(input.lane, input.state, { type: "start" }),
       exitCode,
     }),
@@ -162,6 +171,7 @@ export function laneActions(services: RuntimeServices) {
         draft: flag("Open the pull request as a draft."),
         state,
       },
+      result: laneResult,
       handler: (input) =>
         withLane(input.state, (laneService) =>
           laneService.submit(laneRef(input.lane), {
@@ -176,6 +186,7 @@ export function laneActions(services: RuntimeServices) {
     review: defineAction({
       description: "Move a submitted lane to reviewing.",
       input: { lane, state },
+      result: laneResult,
       handler: (input) => apply(input.lane, input.state, { type: "begin_review" }),
       exitCode,
     }),
@@ -188,6 +199,7 @@ export function laneActions(services: RuntimeServices) {
         findings: optional(text("Finding for changes_requested.", "FINDING")),
         state,
       },
+      result: laneResult,
       handler: (input) =>
         apply(input.lane, input.state, {
           type: "verdict",
@@ -204,6 +216,7 @@ export function laneActions(services: RuntimeServices) {
         head: text("Current head commit.", "HEAD"),
         state,
       },
+      result: laneResult,
       handler: (input) => apply(input.lane, input.state, { type: "merge", head: input.head }),
       exitCode,
     }),
@@ -211,6 +224,7 @@ export function laneActions(services: RuntimeServices) {
       description:
         "Move a merged lane's ticket to Done, verify it by readback, remove its clean merged worktree and branch, close the lane, and report the tickets it unblocked.",
       input: { lane, state },
+      result: laneResult,
       handler: (input) =>
         apply(input.lane, input.state, { type: "complete", trackerDoneVerified: false }),
       exitCode,
@@ -222,6 +236,7 @@ export function laneActions(services: RuntimeServices) {
         reason: text("Reason the lane needs the user.", "REASON"),
         state,
       },
+      result: laneResult,
       handler: (input) =>
         apply(input.lane, input.state, { type: "attention", reason: input.reason }),
       exitCode,
@@ -229,6 +244,7 @@ export function laneActions(services: RuntimeServices) {
     resume: defineAction({
       description: "Resume a lane from attention to its previous state.",
       input: { lane, state },
+      result: laneResult,
       handler: (input) => apply(input.lane, input.state, { type: "resume" }),
       exitCode,
     }),
@@ -239,6 +255,7 @@ export function laneActions(services: RuntimeServices) {
         ticket: text("Tracker ticket reference.", "TICKET"),
         state,
       },
+      result: laneResult,
       handler: (input) =>
         apply(input.lane, input.state, {
           type: "promote",

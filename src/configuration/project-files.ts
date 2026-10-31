@@ -23,39 +23,18 @@ import type {
 import { readPersonalSettings } from "./local-settings.ts";
 import {
   type PersonalSettings,
-  type ResolvedConfiguration,
+  resolvedConfigurationSchema,
   resolveProjectConfiguration,
-  validateResolvedConfiguration,
 } from "./schema.ts";
 
 export { INITIAL_CONFIGURATION };
-export interface ConfigurationOutput {
-  version: 1;
-  action: "initialized" | "configuration" | "edited";
-  path: string;
-  configuration: ResolvedConfiguration;
-}
-export function validateConfigurationOutput(output: unknown): ConfigurationOutput {
-  if (
-    !output ||
-    typeof output !== "object" ||
-    !("configuration" in output) ||
-    !("version" in output) ||
-    output.version !== 1 ||
-    !("path" in output) ||
-    typeof output.path !== "string" ||
-    !("action" in output) ||
-    !["initialized", "configuration", "edited"].includes(String(output.action))
-  )
-    throw new Error("Invalid configuration result");
-  validateResolvedConfiguration(output.configuration);
-  return {
-    version: 1,
-    path: output.path,
-    configuration: validateResolvedConfiguration(output.configuration),
-    action: z.enum(["initialized", "configuration", "edited"]).parse(output.action),
-  };
-}
+export const configurationOutputSchema = z.strictObject({
+  version: z.literal(1),
+  action: z.enum(["initialized", "configuration", "edited"]),
+  path: z.string(),
+  configuration: resolvedConfigurationSchema,
+});
+export type ConfigurationOutput = z.infer<typeof configurationOutputSchema>;
 export interface ConfigurationPlatformOptions {
   cwd: string;
   statePath?: string;

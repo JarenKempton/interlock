@@ -116,7 +116,7 @@ export const projectConfigurationSchema = z
     }
   });
 export type ProjectConfiguration = z.infer<typeof projectConfigurationSchema>;
-const resolvedConfigurationSchema = z.strictObject({
+export const resolvedConfigurationSchema = z.strictObject({
   version: z.literal(1),
   source: z.strictObject({ path: configText, version: configText }),
   project: projectConfigurationSchema,

@@ -3,7 +3,7 @@ import { editInput, initInput, showInput } from "./inputs.ts";
 import {
   type ConfigurationPlatformOptions,
   configurationOperations,
-  validateConfigurationOutput,
+  configurationOutputSchema,
 } from "./project-files.ts";
 
 export function configurationActions(platform: ConfigurationPlatformOptions) {
@@ -13,16 +13,16 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
       description:
         "Create project configuration without overwriting a file; show resolved defaults and requirements.",
       input: initInput,
+      result: configurationOutputSchema,
       handler: operations.init,
-      output: validateConfigurationOutput,
     }),
     config: {
       show: defineAction({
         description:
           "Read project configuration and explicit personal choices without changing durable state.",
         input: showInput,
+        result: configurationOutputSchema,
         handler: operations.show,
-        output: validateConfigurationOutput,
       }),
       edit: defineAction({
         description:
@@ -35,8 +35,8 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
           )
             throw new Error("Choose one of --editor, --set, or --follow");
         },
+        result: configurationOutputSchema,
         handler: operations.edit,
-        output: validateConfigurationOutput,
       }),
     },
   };

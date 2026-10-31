@@ -1,0 +1,225 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "lane": {
+        "type": "string",
+        "description": "Recorded lane reference.",
+        "metavar": "LANE",
+        "positional": true
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "lane"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "claim"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "implement"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "submit"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "review"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "record_verdict"
+                  },
+                  "lane": {
+                    "type": "string"
+                  },
+                  "head": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "merge"
+                  },
+                  "lane": {
+                    "type": "string"
+                  },
+                  "head": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "verify_done"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "attention"
+                  },
+                  "lane": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "none"
+                  },
+                  "lane": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lane"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "retirement": {
+            "type": "object",
+            "properties": {
+              "preservedFiles": {
+                "type": "string"
+              },
+              "retainedRef": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "preservedFiles",
+              "retainedRef"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "$ref": "definitions.json#/5dfdb1a8d17a817f464152783bc2c6e577bc2970bec61a40274e2e657bcc6a89"
+      }
+    ]
+  }
+}

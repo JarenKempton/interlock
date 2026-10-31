@@ -1,0 +1,14 @@
+{
+  "file": {
+    "type": "object",
+    "properties": {
+      "jira_site": {
+        "type": "string"
+      },
+      "claim_home": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  }
+}

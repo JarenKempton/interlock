@@ -48,6 +48,7 @@ test("a newly registered action becomes a tool without a hand-written list", asy
     sample: defineAction({
       description: "Echo a value.",
       input: { value: positional(text("Value.", "VALUE")) },
+      result: z.string(),
       handler: ({ value }) => `got:${value}`,
     }),
   };
