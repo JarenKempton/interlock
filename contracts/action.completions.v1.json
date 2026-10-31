@@ -1,0 +1,30 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "shell": {
+        "type": "string",
+        "enum": [
+          "bash",
+          "zsh",
+          "fish"
+        ],
+        "description": "Completion shell.",
+        "metavar": "bash|zsh|fish",
+        "positional": true
+      },
+      "at": {
+        "description": "Return completion candidates for a command prefix (empty for root).",
+        "metavar": "PREFIX",
+        "type": "string"
+      }
+    },
+    "required": [
+      "shell"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "string"
+  }
+}

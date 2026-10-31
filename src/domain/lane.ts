@@ -1,29 +1,48 @@
+import { z } from "zod";
 import type { HostSession } from "./host.ts";
+import { claimRefSchema, laneRefSchema, runRefSchema, ticketRefSchema } from "./identifiers.ts";
 import type { ClaimRef, LaneRef, MapRef, RunRef, Ticket, TicketRef } from "./model.ts";
 
-export type LaneRefusalCode =
-  | "claim_collision"
-  | "stale_version"
-  | "unsupported_capability"
-  | "ambiguous_write"
-  | "invalid_transition"
-  | "stale_evidence"
-  | "recovery_required"
-  | "gates_unmet"
-  | "artifact_required"
-  | "artifact_mismatch"
-  | "tracker_not_done"
-  | "lane_not_found"
-  | "workspace_unknown"
-  | "push_failed"
-  | "artifact_host_unavailable"
-  | "duplicate_artifact"
-  | "tracker_unavailable"
-  | "tracker_write_failed"
-  | "pull_request_unmerged"
-  | "workspace_dirty"
-  | "branch_unmerged"
-  | "cleanup_pending";
+export const laneRefusalCodeSchema = z.enum([
+  "claim_collision",
+  "stale_version",
+  "unsupported_capability",
+  "ambiguous_write",
+  "invalid_transition",
+  "stale_evidence",
+  "recovery_required",
+  "gates_unmet",
+  "artifact_required",
+  "artifact_mismatch",
+  "tracker_not_done",
+  "lane_not_found",
+  "workspace_unknown",
+  "push_failed",
+  "artifact_host_unavailable",
+  "duplicate_artifact",
+  "tracker_unavailable",
+  "tracker_write_failed",
+  "pull_request_unmerged",
+  "workspace_dirty",
+  "branch_unmerged",
+  "cleanup_pending",
+]);
+export type LaneRefusalCode = z.infer<typeof laneRefusalCodeSchema>;
+
+const laneRefusalSchema = z.strictObject({ code: laneRefusalCodeSchema, message: z.string() });
+
+export function laneResultSchema<T extends z.ZodType>(value: T) {
+  return z.discriminatedUnion("ok", [
+    z.strictObject({
+      ok: z.literal(true),
+      value,
+      retirement: z
+        .strictObject({ preservedFiles: z.string(), retainedRef: z.string() })
+        .optional(),
+    }),
+    z.strictObject({ ok: z.literal(false), refusal: laneRefusalSchema }),
+  ]);
+}
 
 export type LaneResult<T> =
   | { ok: true; value: T; retirement?: { preservedFiles: string; retainedRef: string } }
@@ -55,48 +74,55 @@ export interface LaneProtocol {
   done(request: LaneIdentity & { head: string }): Promise<LaneResult<LaneIdentity>>;
 }
 
-export type LaneState =
-  | "queued"
-  | "claimed"
-  | "implementing"
-  | "submitted"
-  | "reviewing"
-  | "approved"
-  | "merged"
-  | "done"
-  | "attention";
+export const laneStateSchema = z.enum([
+  "queued",
+  "claimed",
+  "implementing",
+  "submitted",
+  "reviewing",
+  "approved",
+  "merged",
+  "done",
+  "attention",
+]);
+export type LaneState = z.infer<typeof laneStateSchema>;
 
-export interface LaneEvidence {
-  gate: string;
-  head: string;
-  url: string;
-}
+export const laneEvidenceSchema = z.strictObject({
+  gate: z.string(),
+  head: z.string(),
+  url: z.string(),
+});
+export type LaneEvidence = z.infer<typeof laneEvidenceSchema>;
 
-export interface LaneVerdictRecord {
-  head: string;
-  decision: "approved" | "changes_requested";
-  findings: readonly string[];
-  round: number;
-}
+const reviewDecisionSchema = z.enum(["approved", "changes_requested"]);
 
-export interface Lane {
-  id: LaneRef;
-  ticket?: TicketRef;
-  title?: string;
-  run?: RunRef;
-  claim?: ClaimRef;
-  state: LaneState;
-  previousState?: LaneState;
-  attentionReason?: string;
-  artifact?: string;
-  head?: string;
-  evidence: readonly LaneEvidence[];
-  verdict?: LaneVerdictRecord;
-  reviewRound: number;
-  maxReviewRounds: number;
-  createdAt: string;
-  updatedAt: string;
-}
+export const laneVerdictRecordSchema = z.strictObject({
+  head: z.string(),
+  decision: reviewDecisionSchema,
+  findings: z.array(z.string()).readonly(),
+  round: z.number(),
+});
+export type LaneVerdictRecord = z.infer<typeof laneVerdictRecordSchema>;
+
+export const laneSchema = z.strictObject({
+  id: laneRefSchema,
+  ticket: ticketRefSchema.optional(),
+  title: z.string().optional(),
+  run: runRefSchema.optional(),
+  claim: claimRefSchema.optional(),
+  state: laneStateSchema,
+  previousState: laneStateSchema.optional(),
+  attentionReason: z.string().optional(),
+  artifact: z.string().optional(),
+  head: z.string().optional(),
+  evidence: z.array(laneEvidenceSchema).readonly(),
+  verdict: laneVerdictRecordSchema.optional(),
+  reviewRound: z.number(),
+  maxReviewRounds: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Lane = z.infer<typeof laneSchema>;
 
 export type LaneCommand =
   | { type: "claim"; run: RunRef; claim: ClaimRef }
@@ -120,16 +146,19 @@ export interface LaneTransition {
   refusal?: { code: LaneRefusalCode; message: string };
 }
 
-export type LaneAction =
-  | { kind: "claim"; lane: LaneRef }
-  | { kind: "implement"; lane: LaneRef }
-  | { kind: "submit"; lane: LaneRef }
-  | { kind: "review"; lane: LaneRef }
-  | { kind: "record_verdict"; lane: LaneRef; head?: string }
-  | { kind: "merge"; lane: LaneRef; head?: string }
-  | { kind: "verify_done"; lane: LaneRef }
-  | { kind: "attention"; lane: LaneRef; reason?: string }
-  | { kind: "none"; lane: LaneRef };
+const laneTarget = { lane: laneRefSchema };
+export const laneActionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("claim"), ...laneTarget }),
+  z.strictObject({ kind: z.literal("implement"), ...laneTarget }),
+  z.strictObject({ kind: z.literal("submit"), ...laneTarget }),
+  z.strictObject({ kind: z.literal("review"), ...laneTarget }),
+  z.strictObject({ kind: z.literal("record_verdict"), ...laneTarget, head: z.string().optional() }),
+  z.strictObject({ kind: z.literal("merge"), ...laneTarget, head: z.string().optional() }),
+  z.strictObject({ kind: z.literal("verify_done"), ...laneTarget }),
+  z.strictObject({ kind: z.literal("attention"), ...laneTarget, reason: z.string().optional() }),
+  z.strictObject({ kind: z.literal("none"), ...laneTarget }),
+]);
+export type LaneAction = z.infer<typeof laneActionSchema>;
 
 export const DEFAULT_MAX_REVIEW_ROUNDS = 3;
 

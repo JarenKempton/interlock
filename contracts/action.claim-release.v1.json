@@ -1,0 +1,61 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "claim": {
+        "type": "string",
+        "description": "Recorded claim reference.",
+        "metavar": "CLAIM",
+        "positional": true
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "claim"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean",
+        "const": true
+      },
+      "state": {
+        "type": "string",
+        "const": "released"
+      },
+      "run": {
+        "type": "string"
+      },
+      "claim": {
+        "type": "string"
+      },
+      "ticket": {
+        "type": "string"
+      },
+      "lockVersion": {
+        "type": "string"
+      },
+      "mirror": {
+        "type": "string",
+        "const": "restored_verified"
+      }
+    },
+    "required": [
+      "ok",
+      "state",
+      "run",
+      "claim",
+      "ticket",
+      "lockVersion",
+      "mirror"
+    ],
+    "additionalProperties": false
+  }
+}

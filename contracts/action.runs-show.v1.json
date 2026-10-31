@@ -1,0 +1,25 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "Recorded run reference.",
+        "metavar": "RUN",
+        "positional": true
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "run"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "$ref": "definitions.json#/ad59b74d5bddccbf8cd5c604d3473e3d4698511386daad20f5eb372434bb6c09"
+  }
+}

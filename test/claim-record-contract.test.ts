@@ -4,34 +4,33 @@ import { join } from "node:path";
 import { parseLockRecordMessage } from "../src/adapters/claims/git-lock.ts";
 import { parseClaimProperty } from "../src/adapters/trackers/jira.ts";
 import {
-  CONTRACTS_DIRECTORY,
-  claimRecordContract,
-  committedContractHashes,
-  committedContracts,
+  committedContractFiles,
   contractFileName,
-  contractHash,
-} from "../src/conformance/claim-record-contract.ts";
+  contractSurfaces,
+  contractText,
+  parseContractFileName,
+} from "../src/conformance/contracts.ts";
 import { CLAIM_RECORD_VERSION } from "../src/domain/claim-lock.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures/claim-records");
 
+const claimRecord = contractSurfaces().find((surface) => surface.name === "claim-record");
+
 test("CLAIM_RECORD_VERSION is the highest committed claim record contract", () => {
-  expect(CLAIM_RECORD_VERSION).toBe(Math.max(...committedContracts().keys()));
+  const versions = committedContractFiles()
+    .map(parseContractFileName)
+    .filter((parsed) => parsed?.name === "claim-record")
+    .map((parsed) => parsed?.version ?? 0);
+  expect(CLAIM_RECORD_VERSION).toBe(Math.max(...versions));
 });
 
 test("the claim record shape matches the frozen contract for its version", () => {
-  const frozen = readFileSync(
-    join(CONTRACTS_DIRECTORY, contractFileName(CLAIM_RECORD_VERSION)),
-    "utf8",
+  if (!claimRecord) throw new Error("claim-record surface is not registered");
+  expect(claimRecord.frozen).toBe(true);
+  expect(contractFileName(claimRecord)).toBe(`claim-record.v${CLAIM_RECORD_VERSION}.json`);
+  expect(contractText(claimRecord)).toBe(
+    readFileSync(join(import.meta.dirname, "../contracts", contractFileName(claimRecord)), "utf8"),
   );
-  expect(claimRecordContract()).toBe(frozen);
-});
-
-test("committed claim record contracts are never edited", () => {
-  const hashes = committedContractHashes();
-  const names = [...committedContracts().values()].sort();
-  expect(Object.keys(hashes).sort()).toEqual(names);
-  for (const name of names) expect(`${name} ${contractHash(name)}`).toBe(`${name} ${hashes[name]}`);
 });
 
 test("the current reader accepts a v2 lock commit message", () => {

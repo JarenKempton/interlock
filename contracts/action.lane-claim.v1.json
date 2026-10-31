@@ -1,0 +1,35 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "lane": {
+        "type": "string",
+        "description": "Recorded lane reference.",
+        "metavar": "LANE",
+        "positional": true
+      },
+      "run": {
+        "type": "string",
+        "description": "Run reference.",
+        "metavar": "RUN"
+      },
+      "claim": {
+        "type": "string",
+        "description": "Claim reference.",
+        "metavar": "CLAIM"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "required": [
+      "lane"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "$ref": "definitions.json#/861048456ad2d99c384627b2c103188fd4ba61fd845cb7bc548ce36d5a956f65"
+  }
+}

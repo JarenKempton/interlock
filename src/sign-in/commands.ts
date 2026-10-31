@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { defineAction } from "../cli/definition.ts";
 import { withStore } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
@@ -16,6 +17,7 @@ export function signInActions(services: RuntimeServices) {
       jira: defineAction({
         description: "Sign in to Jira and keep the credentials in the OS credential store.",
         input: {},
+        result: z.string(),
         handler: () => login(services, "jira"),
       }),
     },
@@ -23,6 +25,7 @@ export function signInActions(services: RuntimeServices) {
       jira: defineAction({
         description: "Remove Jira credentials from the OS credential store.",
         input: {},
+        result: z.string(),
         handler: () => logout(services, "jira"),
       }),
     },
