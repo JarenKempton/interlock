@@ -196,7 +196,9 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
         : "unavailable";
     if (eligibility === "unavailable")
       throw new Error("Ticket is not available in the configured map");
-    if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
+    const planned = (value: Ticket) =>
+      JSON.stringify({ ...value, order: 0, dependents: undefined });
+    if (planned(current) !== planned(ticket))
       throw new Error("Ticket changed during planning; retry pickup");
     if (eligibility === "blocked")
       throw new Error("Ticket is not available; unfinished dependencies block pickup");

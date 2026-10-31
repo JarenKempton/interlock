@@ -178,6 +178,14 @@ describe("Jira tracker read adapter", () => {
             type: { inward: "is blocked by", outward: "blocks" },
             outwardIssue: { key: "JWB-295", fields: { status: { name: "To Do" } } },
           },
+          {
+            type: { inward: "relates to", outward: "relates to" },
+            inwardIssue: { key: "JWB-296", fields: { status: { name: "To Do" } } },
+          },
+          {
+            type: { inward: "relates to", outward: "relates to" },
+            outwardIssue: { key: "JWB-297", fields: { status: { name: "To Do" } } },
+          },
         ],
       }),
     ];
