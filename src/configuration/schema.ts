@@ -56,6 +56,7 @@ const reviewChoices = {
   reviewer_model: configText,
   reviewer_effort: configText,
 };
+export const REVIEWER_CHOICE_KEYS = z.object(reviewChoices).keyof().options;
 export interface ReviewChoices {
   lenses: string[];
   agent?: string;
