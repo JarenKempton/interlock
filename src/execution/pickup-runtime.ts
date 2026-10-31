@@ -30,6 +30,7 @@ import type { RuntimeServices } from "../runtime-services.ts";
 import { requireCredentials, trackerSignIns } from "../sign-in/credentials.ts";
 import { CHANGE_CLAIM_HOME, resolveClaimHome } from "./claim-home.ts";
 import { ClaimCoordinator } from "./claims.ts";
+import { pickupEligibility } from "./eligibility.ts";
 import { journalJiraWrite } from "./jira-write-journal.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
 import { PickupCoordinator } from "./pickup.ts";
@@ -186,19 +187,15 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   if (map.claim_status !== "In Progress")
     throw new Error("Jira mirror supports only the In Progress claim status");
   const eligible = async (current: Ticket) => {
-    if (
-      current.map !== ticket.map ||
-      current.state !== "open" ||
-      current.assignee !== undefined ||
-      !map.available_statuses.includes(current.status)
-    )
+    const eligibility = await pickupEligibility(jira.tracker, current, (candidate) =>
+      candidate === ticket.map ? map.available_statuses : undefined,
+    );
+    if (eligibility === "unavailable")
       throw new Error("Ticket is not available in the configured map");
     if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
       throw new Error("Ticket changed during planning; retry pickup");
-    for (const dependency of current.dependencies ?? []) {
-      if ((await jira.tracker.read(dependency.blocking)).ticket.state !== "closed")
-        throw new Error("Ticket is not available; unfinished dependencies block pickup");
-    }
+    if (eligibility === "blocked")
+      throw new Error("Ticket is not available; unfinished dependencies block pickup");
   };
   await eligible(ticket);
   const repository = repositorySpec(configuration, map.repository);
