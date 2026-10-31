@@ -456,6 +456,80 @@
       "additionalProperties": false
     }
   },
+  "62e4a4507141f71f0755075092ba6b9ee9ca8f75f97ebefcf47c94a244fe8321": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean",
+        "const": false
+      },
+      "refusal": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "claim_collision",
+              "stale_version",
+              "unsupported_capability",
+              "ambiguous_write",
+              "invalid_transition",
+              "stale_evidence",
+              "recovery_required",
+              "gates_unmet",
+              "artifact_required",
+              "artifact_mismatch",
+              "tracker_not_done",
+              "lane_not_found",
+              "workspace_unknown",
+              "push_failed",
+              "artifact_host_unavailable",
+              "duplicate_artifact",
+              "tracker_unavailable",
+              "tracker_write_failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "ok",
+      "refusal"
+    ],
+    "additionalProperties": false
+  },
+  "79a42445b1d020fe30657230e6eacbdc2dea9d06a4008f8c8612829e7cf02bd8": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "value": {
+            "$ref": "definitions.json#/c778cd108d2d5c437976da93ed47d251b1be51fc371acd210d1ba1f349c33f7e"
+          }
+        },
+        "required": [
+          "ok",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "$ref": "definitions.json#/62e4a4507141f71f0755075092ba6b9ee9ca8f75f97ebefcf47c94a244fe8321"
+      }
+    ]
+  },
   "9c6d6311a58f714eab4a4f1a1e1882ae5e02ca193006b87e7fbcf255fdaf2a4b": {
     "type": "object",
     "properties": {
@@ -631,30 +705,6 @@
     ],
     "additionalProperties": false
   },
-  "bdf667e43acf9f821929f1787a8e8df715a05494c40c687761a5c40b7ece890e": {
-    "oneOf": [
-      {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          },
-          "value": {
-            "$ref": "definitions.json#/c778cd108d2d5c437976da93ed47d251b1be51fc371acd210d1ba1f349c33f7e"
-          }
-        },
-        "required": [
-          "ok",
-          "value"
-        ],
-        "additionalProperties": false
-      },
-      {
-        "$ref": "definitions.json#/cecfaf3303b376cfaebb33e793b1ba39bf60ad79625eb12ac8049167a6e5de09"
-      }
-    ]
-  },
   "c778cd108d2d5c437976da93ed47d251b1be51fc371acd210d1ba1f349c33f7e": {
     "type": "object",
     "properties": {
@@ -787,50 +837,6 @@
       "maxReviewRounds",
       "createdAt",
       "updatedAt"
-    ],
-    "additionalProperties": false
-  },
-  "cecfaf3303b376cfaebb33e793b1ba39bf60ad79625eb12ac8049167a6e5de09": {
-    "type": "object",
-    "properties": {
-      "ok": {
-        "type": "boolean",
-        "const": false
-      },
-      "refusal": {
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "string",
-            "enum": [
-              "claim_collision",
-              "stale_version",
-              "unsupported_capability",
-              "ambiguous_write",
-              "invalid_transition",
-              "stale_evidence",
-              "recovery_required",
-              "gates_unmet",
-              "artifact_required",
-              "artifact_mismatch",
-              "tracker_not_done",
-              "lane_not_found"
-            ]
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "message"
-        ],
-        "additionalProperties": false
-      }
-    },
-    "required": [
-      "ok",
-      "refusal"
     ],
     "additionalProperties": false
   }

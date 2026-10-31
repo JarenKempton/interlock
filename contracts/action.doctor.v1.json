@@ -22,6 +22,22 @@
       "database": {
         "type": "string"
       },
+      "config": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "found": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "found"
+        ],
+        "additionalProperties": false
+      },
       "jira": {
         "anyOf": [
           {
@@ -125,6 +141,7 @@
       "ok",
       "version",
       "database",
+      "config",
       "jira",
       "claimLock",
       "missing"

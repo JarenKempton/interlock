@@ -4,6 +4,8 @@
     "includes": [
       "**",
       "!!dist",
+      "!!site",
+      "!!site-variants",
       "!!node_modules",
       "!!src/persistence/migrations/meta",
       "!!contracts/*.v*.json",

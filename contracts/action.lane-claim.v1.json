@@ -30,6 +30,6 @@
     "additionalProperties": false
   },
   "output": {
-    "$ref": "definitions.json#/bdf667e43acf9f821929f1787a8e8df715a05494c40c687761a5c40b7ece890e"
+    "$ref": "definitions.json#/79a42445b1d020fe30657230e6eacbdc2dea9d06a4008f8c8612829e7cf02bd8"
   }
 }

@@ -8,11 +8,6 @@
         "metavar": "LANE",
         "positional": true
       },
-      "artifact": {
-        "type": "string",
-        "description": "Artifact URL, for example the pull request.",
-        "metavar": "ARTIFACT"
-      },
       "head": {
         "type": "string",
         "description": "Head commit the evidence covers.",
@@ -28,6 +23,15 @@
         "description": "Evidence URL for the gate at the head commit.",
         "metavar": "URL"
       },
+      "title": {
+        "type": "string",
+        "description": "Pull request title; the ticket key is prefixed.",
+        "metavar": "TITLE"
+      },
+      "draft": {
+        "description": "Open the pull request as a draft.",
+        "type": "boolean"
+      },
       "state": {
         "type": "string",
         "description": "Local execution database path.",
@@ -36,7 +40,6 @@
     },
     "required": [
       "lane",
-      "artifact",
       "head",
       "gate",
       "evidence-url"
@@ -44,6 +47,6 @@
     "additionalProperties": false
   },
   "output": {
-    "$ref": "definitions.json#/bdf667e43acf9f821929f1787a8e8df715a05494c40c687761a5c40b7ece890e"
+    "$ref": "definitions.json#/79a42445b1d020fe30657230e6eacbdc2dea9d06a4008f8c8612829e7cf02bd8"
   }
 }
