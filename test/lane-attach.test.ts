@@ -39,7 +39,7 @@ function git(argv: string[], cwd: string) {
   return result.stdout.toString().trim();
 }
 
-async function claimedRun(options: { lock?: "held" | "absent" | "other" } = {}) {
+async function claimedRun(options: { lock?: "held" | "absent" | "other" | "owner" } = {}) {
   const root = mkdtempSync(join(tmpdir(), "interlock-attach-"));
   directories.push(root);
   const origin = join(root, "origin.git");
@@ -90,7 +90,7 @@ async function claimedRun(options: { lock?: "held" | "absent" | "other" } = {}) 
       claim: lock === "held" ? claimRef : claimRefSchema.parse("interlock-claim:someone-else"),
       run: runRef,
       ticket,
-      owner,
+      owner: lock === "owner" ? actorRefSchema.parse("jira:x:user:intruder") : owner,
       leaseExpiresAt: "2099-01-01T00:00:00.000Z",
       expectedVersion: (await claimLock.read(ticket)).version,
     });
@@ -165,8 +165,14 @@ test("attach on a different branch refuses before any lane exists", async () => 
   expect(fixture.lanes()).toHaveLength(0);
 });
 
-test("attach refuses when the remote claim is absent or held by another claim", async () => {
-  for (const lock of ["absent", "other"] as const) {
+test("attach on a detached HEAD refuses", async () => {
+  const fixture = await claimedRun();
+  git(["switch", "--quiet", "--detach"], fixture.worktree);
+  expect((await fixture.attach()).result.refusal.code).toBe("workspace_unknown");
+});
+
+test("attach refuses when the remote claim is absent, another claim's, or another owner's", async () => {
+  for (const lock of ["absent", "other", "owner"] as const) {
     const fixture = await claimedRun({ lock });
     const { result } = await fixture.attach();
     expect(result.refusal.code).toBe("claim_collision");

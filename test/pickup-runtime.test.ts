@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../src/adapters/claims/git-lock.ts";
 import type { CommandResult } from "../src/adapters/workspaces/git.ts";
@@ -1279,6 +1279,21 @@ test(
     const elsewhere = Bun.spawnSync(attach.split(" "), { cwd: f.remote.alice });
     expect(elsewhere.exitCode).toBe(1);
     expect(JSON.parse(elsewhere.stdout.toString()).refusal.code).toBe("workspace_unknown");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a relative --state is embedded in the launch commands as the absolute ledger pickup used",
+  async () => {
+    const f = await fixture();
+    const result = await createApplication(f.services).pickup.execute({
+      ...f.input,
+      state: "relative/ledger.db",
+      "dry-run": true,
+    });
+    expect(result.launch.message).toContain(`--state ${resolve("relative/ledger.db")}`);
+    expect(result.launch.message).not.toContain("--state relative/");
   },
   GIT_TEST_TIMEOUT_MS,
 );

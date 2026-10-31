@@ -358,7 +358,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     ...(instructions.roleTemplate ? { roleTemplate: instructions.roleTemplate.content } : {}),
     lane: {
       command: RELEASE_BUILD ? ["interlock"] : ["bun", resolve(import.meta.dir, "../cli.ts")],
-      ...(input.state ? { state: statePath } : {}),
+      ...(input.state ? { state: resolve(statePath) } : {}),
       reviewers: models.reviewers,
     },
   });

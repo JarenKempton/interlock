@@ -523,3 +523,16 @@ test("CLI runs a one-off lane and refuses completion without an owned claim", as
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("the no-lens procedure reaches merge: review, attention, resume, then a person's verdict", () => {
+  const lane = drive(
+    implementing(domainLane()),
+    { type: "submit", artifact: "https://github.com/o/r/pull/1", head: "abc", evidence },
+    { type: "begin_review" },
+    { type: "attention", reason: "review_required" },
+    { type: "resume" },
+    { type: "verdict", head: "abc", decision: "approved", findings: [] },
+    { type: "merge", head: "abc" },
+  );
+  expect(lane.state).toBe("merged");
+});

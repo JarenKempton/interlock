@@ -80,8 +80,8 @@ export function laneProcedure(ticket: Ticket, lane: LaneProcedure): string {
         `6. Record one verdict for that head: ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")} only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.`,
       ]
     : [
-        `5. No review lenses are planned. Run ${run("lane", "attention", "LANE", "--reason", "review_required")} and wait; a person reviews and records the verdict.`,
-        "6. Once a person has recorded an approved verdict for the head, continue with step 7.",
+        `5. No review lenses are planned. Run ${run("lane", "review", "LANE", "--json")}, then ${run("lane", "attention", "LANE", "--reason", "review_required")}, and wait; a person reviews, runs ${run("lane", "resume", "LANE")} and records the verdict with ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")}.`,
+        "6. On changes_requested, fix, commit and repeat from step 3 with the new head; once the verdict for the head is approved, continue with step 7.",
       ];
   return [
     "Lane procedure:",
