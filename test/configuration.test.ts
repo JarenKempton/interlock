@@ -30,6 +30,7 @@ import {
   personalSettingsSchema,
   projectConfigurationSchema,
   REMOVED_SECTIONS,
+  type ResolvedConfiguration,
   type ResolvedConfigurationV1,
   resolveConfiguration,
   SETTING_KEYS,
@@ -99,7 +100,7 @@ test.each(Object.keys(REMOVED_SECTIONS))(
   "a shared config that still has [%s] fails and names the replacement",
   (section) => {
     expect(() => parseProjectToml(`version = 1\n[${section}]\n`)).toThrow(
-      `interlock.toml [${section}] was removed: ${REMOVED_SECTIONS[section]}`,
+      `interlock.toml [${section}] was removed: ${REMOVED_SECTIONS[section]}. Delete these sections from interlock.toml first.`,
     );
   },
 );
@@ -539,6 +540,15 @@ test.each(["success", "constraint failure"])(
   },
 );
 
+test("follow jira_site clears a mistyped site", async () => {
+  const f = fixture();
+  await f.ops.edit({ set: ["jira_site", "https://typo.atlassian.net"] });
+  expect(
+    (await f.ops.edit({ follow: "jira_site" })).configuration.settings.jira_site,
+  ).toBeUndefined();
+  expect(readUserSettings(f.statePath)).toEqual({});
+});
+
 test("follow all clears every personal choice but keeps sign-in and claim home", async () => {
   const f = fixture();
   await f.ops.edit({ set: ["jira_site", "https://mine.atlassian.net"] });
@@ -570,6 +580,27 @@ test("symlink aliases share project identity without permitting overwrite", asyn
   await expect(f.ops.init({ path: alias })).rejects.toThrow();
   expect(readFileSync(f.path, "utf8")).toBe(INITIAL_CONFIGURATION);
   await expect(f.ops.edit({ path: alias, editor: "unused" })).rejects.toThrow("not a symlink");
+});
+
+test("version 2 receipts retain their historical defaults", () => {
+  const receipt = {
+    version: 2,
+    settings: {
+      host: "t3",
+      branch: "task/{key}",
+      pickable_statuses: ["To Do"],
+      claimed_status: "In Progress",
+      jira_site: "https://example.atlassian.net",
+    },
+    sources: {
+      host: "default",
+      branch: "default",
+      pickable_statuses: "default",
+      claimed_status: "default",
+      jira_site: "user",
+    },
+  } satisfies ResolvedConfiguration;
+  expect(validateExecutionConfiguration(receipt)).toEqual(receipt);
 });
 
 test("version 1 receipts retain their historical resolution contract", () => {

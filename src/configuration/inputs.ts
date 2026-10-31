@@ -24,8 +24,10 @@ export const editInput = {
     .describe("Save one user setting in local SQLite; never supply secrets.")
     .optional(),
   follow: z
-    .enum([...CHOICE_KEYS, "all"])
-    .describe("Clear a user setting so shared config or the default applies; all clears every one.")
+    .enum([...CHOICE_KEYS, "jira_site", "all"])
+    .describe(
+      "Clear a user setting so shared config or the default applies; all clears every choice except jira_site.",
+    )
     .meta({ metavar: "SETTING" })
     .optional(),
 };

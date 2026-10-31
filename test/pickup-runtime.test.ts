@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../src/adapters/claims/git-lock.ts";
@@ -13,7 +13,7 @@ import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import type { Claim } from "../src/domain/model.ts";
 import { PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
-import { GIT_TEST_TIMEOUT_MS, ScriptedGit } from "./fixtures/git-remote.ts";
+import { checkedGit, GIT_TEST_TIMEOUT_MS, ScriptedGit } from "./fixtures/git-remote.ts";
 import { catalogEnvelope, pickupFixture } from "./fixtures/pickup-runtime.ts";
 
 const fixtures: Awaited<ReturnType<typeof pickupFixture>>[] = [];
@@ -1094,6 +1094,7 @@ test(
   async () => {
     const f = await fixture();
     await setUser(f, "jira_site", "https://example.atlassian.net");
+    await rm(join(f.remote.alice, "interlock.toml"));
     f.services.configuration = { cwd: f.remote.alice };
     Reflect.deleteProperty(f.jira.issue.fields, "parent");
     const result = await createApplication(f.services).pickup.execute({
@@ -1109,7 +1110,26 @@ test(
       worktree: f.worktree,
     });
     expect(result.prompt).not.toContain("Map:");
-    expect(existsSync(join(f.remote.alice, "interlock.toml"))).toBe(true);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "pickup from a linked worktree plans against the main checkout",
+  async () => {
+    const f = await fixture();
+    const linked = join(f.root, "linked");
+    await checkedGit(
+      f.git,
+      ["worktree", "add", "--quiet", "-b", "side", linked, "main"],
+      f.remote.alice,
+    );
+    const result = await createApplication(f.services).pickup.execute({
+      ...f.input,
+      repo: linked,
+      "dry-run": true,
+    });
+    expect(result).toMatchObject({ repository: "alice", worktree: f.worktree });
   },
   GIT_TEST_TIMEOUT_MS,
 );

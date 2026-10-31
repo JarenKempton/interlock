@@ -108,6 +108,20 @@ async function gitOutput(git: GitCommandExecutor, argv: readonly string[], cwd: 
   return result.stdout.trim();
 }
 
+async function mainCheckout(git: GitCommandExecutor, directory: string) {
+  const [topLevel, commonDirectory] = (
+    await gitOutput(
+      git,
+      ["git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"],
+      directory,
+    )
+  )
+    .split(/\r?\n/)
+    .map((line) => resolve(line));
+  if (!topLevel || !commonDirectory) throw new Error("Work repo is not a Git checkout");
+  return basename(commonDirectory) === ".git" ? dirname(commonDirectory) : topLevel;
+}
+
 export async function executionTracker(
   jiraSite: string,
   workspace: string,
@@ -185,9 +199,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   const cwd = services.configuration?.cwd ?? process.cwd();
   const statePath = executionStatePath(services, input.state);
   const git = services.execution?.git ?? new BunGitCommandExecutor();
-  const repositoryPath = resolve(
-    await gitOutput(git, ["git", "rev-parse", "--show-toplevel"], resolve(cwd, input.repo ?? ".")),
-  );
+  const repositoryPath = await mainCheckout(git, resolve(cwd, input.repo ?? "."));
   const configPath = projectConfigPath(
     input.config ? cwd : repositoryPath,
     input.config ?? "interlock.toml",

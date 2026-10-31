@@ -260,12 +260,12 @@ export function validateProjectConfiguration(value: unknown): ProjectConfigurati
           ([replacement, sections]) =>
             `${sections.join(", ")} ${sections.length > 1 ? "were" : "was"} removed: ${replacement}`,
         )
-        .join("; ")}`,
+        .join("; ")}. Delete these sections from interlock.toml first.`,
     );
   return parseConfiguration(projectConfigurationSchema, value, "project");
 }
 
-const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS_V2 = {
   host: "t3",
   branch: "task/{key}",
   pickable_statuses: ["To Do"],
@@ -301,7 +301,7 @@ function resolveConfigurationV2(
     ...(project?.statuses?.claimed ? { claimed_status: project.statuses.claimed } : {}),
   };
   const layers: [ResolvedSource, SettingsLayer][] = [
-    ["default", DEFAULT_SETTINGS],
+    ["default", DEFAULT_SETTINGS_V2],
     ["user", user],
     ["shared", shared],
   ];
