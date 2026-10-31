@@ -126,7 +126,6 @@ export class GitClaimLock implements RecoverableClaimLock {
     if (held.claim === fencedClaim) return;
     if (held.claim !== request.claim || state.version !== request.expectedVersion)
       throw new ClaimCollisionError("Retirement claim changed");
-    this.#requireFutureLease(held.leaseExpiresAt);
     await this.#append(request.ticket, state, { ...held, claim: fencedClaim });
   }
 

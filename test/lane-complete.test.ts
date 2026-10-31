@@ -53,11 +53,12 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
 });
 
-function git(argv: string[], cwd: string) {
+function git(argv: string[], cwd: string, allowFailure = false) {
   const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...argv], {
     cwd,
   });
-  if (result.exitCode !== 0) throw new Error(`git ${argv.join(" ")}: ${result.stderr}`);
+  if (result.exitCode !== 0 && !allowFailure)
+    throw new Error(`git ${argv.join(" ")}: ${result.stderr}`);
   return result.stdout.toString().trim();
 }
 
@@ -129,6 +130,7 @@ async function mergedLane(
     git?: GitCommandExecutor;
     authority?: boolean;
     mcp?: boolean;
+    leaseExpiresAt?: string;
   } = {},
 ) {
   const repo = repository({ merged: options.merged ?? true, squash: options.squash ?? false });
@@ -151,7 +153,7 @@ async function mergedLane(
     humanOwner: actorRefSchema.parse("owner"),
     previousState: { version: "1", payload: null },
     claimedAt: now,
-    leaseExpiresAt: "2099-01-01T00:00:00Z",
+    leaseExpiresAt: options.leaseExpiresAt ?? "2099-01-01T00:00:00Z",
     status: "active",
   });
   const service = new LaneService({
@@ -177,7 +179,12 @@ async function mergedLane(
     const home = normalizeClaimHome(repo.origin);
     store.saveClaim({ ...claim, claimHome: home.identity, claimHomeUrl: home.url });
     const commands = new BunGitCommandExecutor();
-    const lock = new GitClaimLock({ repository: repo.main, home, git: commands });
+    const lock = new GitClaimLock({
+      repository: repo.main,
+      home,
+      git: commands,
+      clock: { now: () => new Date(Date.parse(claim.leaseExpiresAt) - 60_000) },
+    });
     await lock.claim({
       claim: claim.ref,
       run: runRef,
@@ -509,17 +516,17 @@ test("main checkout is never retired", async () => {
   expect(existsSync(join(lane.repo.main, "README"))).toBe(true);
 });
 
-test("ignored files refuse as dirty before tracker mutation", async () => {
+test("ignored files such as installed dependencies are preserved, not refused", async () => {
   const lane = await mergedLane();
   const info = git(["rev-parse", "--git-path", "info/exclude"], lane.repo.main);
-  writeFileSync(join(lane.repo.main, info), "scratch\n");
-  writeFileSync(join(lane.repo.lane, "scratch"), "keep me");
-  expect((await lane.complete()).result).toMatchObject({
-    ok: false,
-    refusal: { code: "workspace_dirty" },
-  });
-  expect(lane.tracker.transitions).toEqual([]);
-  lane.intact();
+  writeFileSync(join(lane.repo.main, info), "node_modules/\n");
+  mkdirSync(join(lane.repo.lane, "node_modules"));
+  writeFileSync(join(lane.repo.lane, "node_modules", "dep.js"), "keep me");
+  const { result } = await lane.complete();
+  expect(result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(
+    readFileSync(join(result.retirement.preservedFiles, "node_modules", "dep.js"), "utf8"),
+  ).toBe("keep me");
 });
 
 for (const operation of ["worktree", "branch"] as const) {
@@ -770,11 +777,7 @@ test("release and replacement claim during proof fetch prevent cleanup", async (
     authority: true,
     git: {
       async run(argv, cwd) {
-        if (
-          argv.join(" ") === "git fetch --no-tags origin refs/heads/main" &&
-          ++fetches === 2 &&
-          repo
-        ) {
+        if (argv[1] === "fetch" && ++fetches === 2 && repo) {
           const lock = new GitClaimLock({
             repository: repo.main,
             home: normalizeClaimHome(repo.origin),
@@ -872,6 +875,105 @@ test("lost response after archival move resumes without deleting the preserved c
   expect((await lane.complete()).result).toMatchObject({
     ok: false,
     refusal: { code: "cleanup_pending" },
+  });
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+});
+
+test("an expired claim lease does not block the retirement fence", async () => {
+  const lane = await mergedLane({ authority: true, leaseExpiresAt: "2020-01-02T00:00:00.000Z" });
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(existsSync(lane.repo.lane)).toBe(false);
+});
+
+test("a branch tracking a stale local base is still deleted after verified integration", async () => {
+  const lane = await mergedLane({ squash: true });
+  git(["config", `branch.${branch}.remote`, "."], lane.repo.main);
+  git(["config", `branch.${branch}.merge`, "refs/heads/main"], lane.repo.main);
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(git(["branch", "--list", branch], lane.repo.main)).toBe("");
+  expect(git(["config", "--get-regexp", "^branch\\.task/JWB-909\\."], lane.repo.main, true)).toBe(
+    "",
+  );
+});
+
+test("a commit landing on a self-tracking branch before deletion is never lost", async () => {
+  const executor = new BunGitCommandExecutor();
+  let repo: Awaited<ReturnType<typeof mergedLane>>["repo"] | undefined;
+  let extra = "";
+  const lane = await mergedLane({
+    git: {
+      async run(argv, cwd) {
+        if (repo && !extra && argv.includes("branch") && argv.includes("-d")) {
+          const tree = git(["rev-parse", `${branch}^{tree}`], repo.main);
+          extra = git(["commit-tree", tree, "-p", branch, "-m", "late"], repo.main);
+          git(["update-ref", `refs/heads/${branch}`, extra], repo.main);
+        }
+        return executor.run(argv, cwd);
+      },
+    },
+  });
+  repo = lane.repo;
+  git(["config", `branch.${branch}.remote`, "."], lane.repo.main);
+  git(["config", `branch.${branch}.merge`, `refs/heads/${branch}`], lane.repo.main);
+  expect((await lane.complete()).result).toMatchObject({ ok: false });
+  expect(extra).not.toBe("");
+  expect(git(["rev-parse", branch], lane.repo.main)).toBe(extra);
+});
+
+test("a later lane for the same ticket can retire after the first lane is done", () => {
+  const root = mkdtempSync(join(tmpdir(), "interlock-retire-again-"));
+  directories.push(root);
+  const store = new StateStore(join(root, "interlock.db"));
+  try {
+    const plan = (lane: string, run: string) => ({
+      lane: laneRefSchema.parse(lane),
+      run: runRefSchema.parse(run),
+      claim: claimRefSchema.parse(`interlock-claim:${run.split(":")[1]}`),
+      ticket: ticketRef,
+      path: "/w/JWB-909",
+      branch,
+      head: "a".repeat(40),
+      artifact: prUrl,
+      worktreePath: "/w/JWB-909",
+      repositoryPath: "/r",
+      commonDirectory: "/r/.git",
+      worktreeDirectory: "/r/.git/worktrees/JWB-909",
+      worktreeIdentity: "1:2:3",
+      proof: {
+        merged: true,
+        url: prUrl,
+        repository: "github.com/o/r",
+        branch,
+        head: "a".repeat(40),
+        base: "main",
+        commit: "b".repeat(40),
+      },
+      retainedRef: `refs/interlock/retired/${lane.length}`,
+      integration: "ancestry" as const,
+    });
+    store.beginRetirement(plan("interlock-lane:first", "interlock-run:first"));
+    store.advanceRetirement(laneRefSchema.parse("interlock-lane:first"), "worktree_removed");
+    store.advanceRetirement(laneRefSchema.parse("interlock-lane:first"), "branch_removed");
+    expect(
+      store.beginRetirement(plan("interlock-lane:second-lane", "interlock-run:second")).phase,
+    ).toBe("prepared");
+  } finally {
+    store.close();
+  }
+});
+
+test("a done lane that once used the same path does not block completion", async () => {
+  const lane = await mergedLane();
+  changeStore(lane, (store) => {
+    const otherRun = runRefSchema.parse("interlock-run:earlier");
+    store.saveRun({ ...store.run(runRef), ref: otherRun, status: "released" });
+    store.saveLane({
+      ...store.lane(lane.id),
+      id: laneRefSchema.parse("interlock-lane:earlier"),
+      run: otherRun,
+      claim: claimRefSchema.parse("interlock-claim:earlier"),
+      state: "done",
+    });
   });
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
 });

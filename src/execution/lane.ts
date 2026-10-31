@@ -449,7 +449,7 @@ export class LaneService {
       if (other.id === lane.id) continue;
       if (other.run === lane.run || other.claim === lane.claim)
         throw new Error(`Run or claim is shared with lane ${other.id}`);
-      if (other.run) {
+      if (other.run && other.state !== "done") {
         const workspace = this.#store.run(other.run).workspace;
         const canonical = async (path: string) =>
           realpath(path).catch((error: unknown) => {

@@ -93,6 +93,19 @@ export class GitRetirement {
               "cleanup_pending",
               "Retained head changed; refusing branch deletion",
             );
+          for (const key of ["merge", "remote"]) {
+            const unset = await this.git.run(
+              ["git", "config", "--local", "--unset-all", `branch.${plan.branch}.${key}`],
+              plan.repositoryPath,
+            );
+            if (unset.exitCode !== 0 && unset.exitCode !== 5)
+              throw new Error(`Cannot clear branch.${plan.branch}.${key}`);
+          }
+          if ((await this.ref(`refs/heads/${plan.branch}`, plan)) !== plan.head)
+            throw new RetirementRefusal(
+              "cleanup_pending",
+              `Branch ${plan.branch} moved during cleanup; refusing deletion`,
+            );
           await this.checked(
             [
               "-c",
@@ -228,7 +241,7 @@ export class GitRetirement {
         "workspace_dirty",
         `Worktree ${path} hides tracked files with index flags; refusing cleanup`,
       );
-    if (await this.checked(["status", "--porcelain", "--untracked-files=all", "--ignored"], path))
+    if (await this.checked(["status", "--porcelain", "--untracked-files=all"], path))
       throw new RetirementRefusal(
         "workspace_dirty",
         `Worktree ${path} is dirty; ${path} and ${plan.branch} are left`,
@@ -239,8 +252,9 @@ export class GitRetirement {
     const { base, commit } = plan.proof;
     const cwd = plan.repositoryPath;
     if (!commit) throw new RetirementRefusal("branch_unmerged", "Host has no merged commit");
-    await this.checked(["fetch", "--no-tags", "origin", `refs/heads/${base}`], cwd);
-    const fetched = await this.checked(["rev-parse", "FETCH_HEAD^{commit}"], cwd);
+    const fetchedRef = `refs/interlock/retire-base/${plan.retainedRef.split("/").at(-1)}`;
+    await this.checked(["fetch", "--no-tags", "origin", `+refs/heads/${base}:${fetchedRef}`], cwd);
+    const fetched = await this.checked(["rev-parse", `${fetchedRef}^{commit}`], cwd);
     if (!(await this.ancestor(commit, fetched, cwd)))
       throw new RetirementRefusal(
         "branch_unmerged",
