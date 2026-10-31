@@ -1,12 +1,16 @@
+import type { ResolvedConfiguration } from "../configuration/schema.ts";
 import type { Ticket, TicketRef } from "../domain/model.ts";
+import { parseRef } from "../domain/reference.ts";
 import type { TrackerReader } from "../domain/tracker.ts";
 
 export type Eligibility = "eligible" | "unavailable" | "blocked";
 
 export type PickableStatuses = (ticket: Ticket) => readonly string[] | undefined;
 
+type TicketReader = Pick<TrackerReader, "read">;
+
 export async function pickupEligibility(
-  tracker: TrackerReader,
+  tracker: TicketReader,
   ticket: Ticket,
   pickable: readonly string[],
 ): Promise<Eligibility> {
@@ -19,7 +23,7 @@ export async function pickupEligibility(
 }
 
 export async function unblockedBy(
-  tracker: TrackerReader,
+  tracker: TicketReader,
   ticket: Ticket,
   pickable: PickableStatuses,
 ): Promise<TicketRef[]> {
@@ -31,4 +35,9 @@ export async function unblockedBy(
       unblocked.push(blocked);
   }
   return unblocked;
+}
+
+export function configuredPickable(configuration: ResolvedConfiguration): PickableStatuses {
+  return (ticket) =>
+    configuration.project.maps[parseRef(ticket.map).nativeId ?? ""]?.available_statuses;
 }

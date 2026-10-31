@@ -25,8 +25,17 @@ export type LaneRefusalCode =
   | "branch_unmerged"
   | "cleanup_pending";
 
+export type Unblocked =
+  | { state: "known"; tickets: TicketRef[] }
+  | { state: "unknown"; reason: string };
+
 export type LaneResult<T> =
-  | { ok: true; value: T; retirement?: { preservedFiles: string; retainedRef: string } }
+  | {
+      ok: true;
+      value: T;
+      retirement?: { preservedFiles: string; retainedRef: string };
+      unblocked?: Unblocked;
+    }
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
 
 export interface LaneIdentity {
