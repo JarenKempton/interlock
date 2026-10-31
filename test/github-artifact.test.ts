@@ -182,3 +182,27 @@ test("real temporary Git remote cannot be rewound with a plus-prefixed head", as
     await fixture.dispose();
   }
 });
+
+test("merge proof names the repository exactly as prepare and the submission record do, whatever the URL's case", async () => {
+  const url = "https://github.com/JarenKempton/Interlock/pull/70";
+  const commands = new Commands((argv) =>
+    argv[0] === "gh" && argv[1] === "api"
+      ? {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            html_url: url,
+            merged: true,
+            merge_commit_sha: "b".repeat(40),
+            head: { ref: branch, sha: head, repo: { full_name: "JarenKempton/Interlock" } },
+            base: { ref: "main", repo: { full_name: "JarenKempton/Interlock" } },
+          }),
+          stderr: "",
+        }
+      : undefined,
+  );
+  commands.fetch = commands.push = "https://github.com/JarenKempton/Interlock.git";
+  const host = new GitHubArtifactHost(commands);
+  const prepared = await host.prepare({ path: target.path, branch }, head);
+  expect(prepared.repository).toBe("github.com/jarenkempton/interlock");
+  expect((await host.merged(url)).repository).toBe(prepared.repository);
+});
