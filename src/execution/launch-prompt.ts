@@ -62,7 +62,7 @@ export interface LaunchPromptOptions {
   lane?: LaneProcedure;
 }
 
-function shellWord(value: string): string {
+export function shellWord(value: string): string {
   return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 

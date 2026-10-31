@@ -11,6 +11,7 @@ import { configurationOperations } from "../src/configuration/project-files.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { ticketRefSchema } from "../src/domain/identifiers.ts";
 import type { Claim } from "../src/domain/model.ts";
+import { shellWord } from "../src/execution/launch-prompt.ts";
 import { PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS, ScriptedGit } from "./fixtures/git-remote.ts";
@@ -1269,14 +1270,17 @@ test(
     const attach = /`([^`]* lane attach [^`]*)`/.exec(result.launch.message)?.[1];
     if (!attach) throw new Error("Launch message has no attach command");
     expect(attach).toContain(`--ticket ${ref}`);
-    expect(attach).toContain(`--state ${f.state}`);
-    const child = Bun.spawnSync(attach.split(" "), { cwd: f.worktree });
+    expect(attach).toContain(`--state ${shellWord(f.state)}`);
+    const argv = [...attach.matchAll(/'((?:[^']|'\\'')*)'|(\S+)/g)].map(
+      (word) => word[2] ?? (word[1] ?? "").replaceAll("'\\''", "'"),
+    );
+    const child = Bun.spawnSync(argv, { cwd: f.worktree });
     expect(child.exitCode).toBe(0);
     expect(JSON.parse(child.stdout.toString())).toMatchObject({
       ok: true,
       value: { ticket: ref, run: result.run, claim: result.claim, state: "implementing" },
     });
-    const elsewhere = Bun.spawnSync(attach.split(" "), { cwd: f.remote.alice });
+    const elsewhere = Bun.spawnSync(argv, { cwd: f.remote.alice });
     expect(elsewhere.exitCode).toBe(1);
     expect(JSON.parse(elsewhere.stdout.toString()).refusal.code).toBe("workspace_unknown");
   },
@@ -1292,7 +1296,7 @@ test(
       state: "relative/ledger.db",
       "dry-run": true,
     });
-    expect(result.launch.message).toContain(`--state ${resolve("relative/ledger.db")}`);
+    expect(result.launch.message).toContain(`--state ${shellWord(resolve("relative/ledger.db"))}`);
     expect(result.launch.message).not.toContain("--state relative/");
   },
   GIT_TEST_TIMEOUT_MS,
