@@ -204,6 +204,28 @@ describe("contract classifier", () => {
     const c = object({ kind: { const: "c" } }, ["kind"]);
     expect(breakingChanges({ anyOf: [a, b] }, { anyOf: [c, b, a] })).toEqual([]);
     expect(breakingChanges({ oneOf: [a, b] }, { oneOf: [a, b, {}] }).length).toBeGreaterThan(0);
+    expect(
+      breakingChanges({ oneOf: [a, b] }, { oneOf: [b, { anyOf: [a] }] }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("a discriminated oneOf compares branches by discriminator", () => {
+    const ok = (value: Record<string, unknown>) =>
+      object({ ok: { type: "boolean", const: true }, ...value }, ["ok"]);
+    const refused = object({ ok: { type: "boolean", const: false }, code: name }, ["ok", "code"]);
+    const output = (value: Record<string, unknown>) => ({
+      output: { oneOf: [ok(value), refused] },
+    });
+    expect(contractBreakingChanges(output({ name }), output({ name, note: name }))).toEqual([]);
+    expect(
+      breakingChanges(
+        { oneOf: [ok({ name }), refused] },
+        { oneOf: [refused, ok({ name, note: name })] },
+      ),
+    ).toEqual([]);
+    expect(contractBreakingChanges(output({ name, note: name }), output({ name }))).toContain(
+      "output|0.note: removed",
+    );
   });
   test("an added optional field passes", () => {
     expect(breakingChanges(object({ name }), object({ name, note: name }))).toEqual([]);

@@ -46,6 +46,24 @@ function key(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function discriminator(option: unknown, name: string): string | undefined {
+  const object = schema(option);
+  const property = schema(schema(object.properties)[name]);
+  return object.type === "object" &&
+    list(object.required).includes(name) &&
+    property.const !== undefined
+    ? key(property.const)
+    : undefined;
+}
+
+function disjoint(options: unknown[]): boolean {
+  const names = Object.keys(schema(schema(options[0]).properties));
+  return names.some((name) => {
+    const values = options.map((option) => discriminator(option, name));
+    return values.every((value) => value !== undefined) && new Set(values).size === values.length;
+  });
+}
+
 export function breakingChanges(
   before: unknown,
   after: unknown,
@@ -140,15 +158,31 @@ export function breakingChanges(
   for (const union of ["anyOf", "oneOf"]) {
     const options = list(next[union]);
     const previous = list(old[union]);
-    if (union === "oneOf" && key(old[union]) !== key(next[union])) {
+    if (
+      union === "oneOf" &&
+      key(old[union]) !== key(next[union]) &&
+      !(disjoint(previous) && disjoint(options))
+    ) {
       changes.push(`${path}: unclassified change to oneOf`);
       continue;
     }
-    for (const [index, option] of previous.entries())
+    for (const [index, option] of previous.entries()) {
       if (
-        !options.some((candidate) => breakingChanges(option, candidate, path, output).length === 0)
+        options.some((candidate) => breakingChanges(option, candidate, path, output).length === 0)
       )
-        changes.push(`${path}: ${union} option ${index} removed`);
+        continue;
+      const counterpart = options.find((candidate) =>
+        Object.keys(schema(schema(option).properties)).some((name) => {
+          const value = discriminator(option, name);
+          return value !== undefined && value === discriminator(candidate, name);
+        }),
+      );
+      changes.push(
+        ...(counterpart === undefined
+          ? [`${path}: ${union} option ${index} removed`]
+          : breakingChanges(option, counterpart, `${path}|${index}`, output)),
+      );
+    }
     if (output)
       for (const [index, option] of options.entries())
         if (
