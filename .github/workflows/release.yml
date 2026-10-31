@@ -36,7 +36,7 @@ jobs:
           - runner: ubuntu-latest
             target: bun-linux-arm64
             asset: interlock-linux-arm64
-          - runner: macos-14
+          - runner: macos-15
             target: bun-darwin-arm64
             asset: interlock-darwin-arm64
           - runner: macos-15-intel
@@ -83,7 +83,7 @@ jobs:
         include:
           - runner: ubuntu-latest
             asset: interlock-linux-x64
-          - runner: macos-14
+          - runner: macos-15
             asset: interlock-darwin-arm64
           - runner: macos-15-intel
             asset: interlock-darwin-x64
