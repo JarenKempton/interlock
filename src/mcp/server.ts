@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { registeredActions } from "../cli/catalog.ts";
-import type { ActionTree } from "../cli/definition.ts";
+import type { ActionTree, ActionView } from "../cli/definition.ts";
 import { VERSION } from "../distribution/version.ts";
 
 export interface McpServerOptions {
@@ -18,6 +18,11 @@ function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null
     ? Object.fromEntries(Object.entries(value))
     : {};
+}
+
+export function actionInputSchema(action: ActionView): Record<string, unknown> {
+  const { $schema: _schema, ...inputSchema } = z.toJSONSchema(z.strictObject(action.fields));
+  return inputSchema;
 }
 
 export function toolName(command: readonly string[]): string {
@@ -51,12 +56,10 @@ export class McpServer {
       if (label === "mcp") continue;
       known.add(label);
       if (allowed && !allowed.includes(label)) continue;
-      const schema = z.toJSONSchema(z.strictObject(entry.action.fields));
-      const { $schema: _schema, ...inputSchema } = schema;
       this.tools.push({
         name: toolName(entry.command),
         description: entry.action.description,
-        inputSchema,
+        inputSchema: actionInputSchema(entry.action),
         command: entry.command,
         invoke: (input) => entry.action.invoke(input),
       });

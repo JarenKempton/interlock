@@ -24,7 +24,13 @@ import type { ExecutionConfiguration } from "../configuration/schema.ts";
 import type { ClaimHome } from "../domain/claim-home.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
-import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
+import {
+  actorRefSchema,
+  adapterRefSchema,
+  claimRefSchema,
+  runRefSchema,
+  ticketRefSchema,
+} from "../domain/identifiers.ts";
 import type { RepositorySpec, RunRef, Ticket } from "../domain/model.ts";
 import { ticketKeyMatches } from "../domain/submission.ts";
 import { lockExecution } from "../persistence/execution-lock.ts";
@@ -38,6 +44,67 @@ import { journalJiraWrite } from "./jira-write-journal.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
 import { PickupCoordinator } from "./pickup.ts";
 import { planT3Models, validateT3Catalog } from "./t3-plan.ts";
+
+const modelSelectionSchema = z.strictObject({
+  provider: z.string(),
+  instanceId: z.string(),
+  model: z.string(),
+  options: z.record(z.string(), z.union([z.string(), z.boolean()])),
+});
+
+const pickupPlanSchema = z.strictObject({
+  version: z.literal(1),
+  repository: z.string(),
+  ticket: ticketRefSchema,
+  worktree: z.string(),
+  branch: z.string(),
+  title: z.string(),
+  modelSelection: modelSelectionSchema,
+  reviewers: z.record(z.string(), modelSelectionSchema),
+  prompt: z.string(),
+  hostVerification: z.strictObject({
+    source: z.literal("caller-supplied-t3-catalog"),
+    observedAt: z.string(),
+    threadId: z.string(),
+  }),
+  instructions: z.array(
+    z.strictObject({ path: z.string(), resolvedPath: z.string(), version: z.string() }),
+  ),
+  claimHome: z.strictObject({
+    home: z.string(),
+    url: z.string(),
+    source: z.string(),
+    change: z.string(),
+    lockRef: z.string(),
+    recordVersion: z.number(),
+    configCommit: z.string(),
+  }),
+  launch: z.strictObject({
+    title: z.string(),
+    message: z.string(),
+    modelSelection: modelSelectionSchema,
+    runtimeMode: z.string(),
+    interactionMode: z.string(),
+    workspaceStrategy: z.strictObject({
+      type: z.literal("existing_worktree"),
+      worktreePath: z.string(),
+      branch: z.string(),
+    }),
+  }),
+});
+type PickupPlan = z.infer<typeof pickupPlanSchema>;
+
+export const pickupResultSchema = z.discriminatedUnion("dryRun", [
+  pickupPlanSchema.extend({ dryRun: z.literal(true), state: z.literal("planned") }),
+  pickupPlanSchema.extend({
+    dryRun: z.literal(false),
+    state: z.literal("claimed"),
+    run: runRefSchema,
+    claim: claimRefSchema,
+    claimHomeSaved: z.boolean(),
+  }),
+]);
+export type PickupResult = z.infer<typeof pickupResultSchema>;
 
 export interface ExecutionPlatform {
   jira?: JiraTransport;
@@ -291,7 +358,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       : {}),
     ...(instructions.roleTemplate ? { roleTemplate: instructions.roleTemplate.content } : {}),
   });
-  const plan = {
+  const plan: PickupPlan = {
     version: 1,
     repository: repository.name,
     ticket: ref,
@@ -330,7 +397,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     },
   };
   validateT3Catalog(catalog, clock.now());
-  if (input.dryRun) return { ...plan, dryRun: true, state: "planned" };
+  if (input.dryRun) return { ...plan, dryRun: true, state: "planned" } satisfies PickupResult;
   return withExecutionStore(services, statePath, async (store) => {
     let journalRun: RunRef | undefined;
     const mirror = new JiraTrackerAdapter({
@@ -396,6 +463,6 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       run: receipt.run,
       claim: receipt.claim,
       claimHomeSaved,
-    };
+    } satisfies PickupResult;
   });
 }

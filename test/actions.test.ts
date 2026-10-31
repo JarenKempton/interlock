@@ -17,6 +17,7 @@ function example(greet: (name: string) => string) {
           name: positional(text("Person to greet.", "NAME")),
           punctuation: optional(text("Ending punctuation.", "TEXT")),
         },
+        result: z.string(),
         handler: (input) => greet(input.name) + (input.punctuation ?? "!"),
       }),
     },
@@ -97,7 +98,7 @@ export function actionTypeChecks(app: ReturnType<typeof createApplication>) {
   // @ts-expect-error required positional input cannot be omitted.
   void app.stop.execute({});
   const action = example((name) => name).sample.greet;
-  // @ts-expect-error handler result is inferred as a string, not a number.
+  // @ts-expect-error the result schema types execute as a string, not a number.
   const result: Promise<number> = action.execute({ name: "Jaren" });
   return result;
 }
@@ -162,6 +163,7 @@ test("CLI and typed invocation apply Zod transforms exactly once, including chan
       }),
       count: z.string().transform(Number),
     },
+    result: z.strictObject({ value: z.string(), count: z.number() }),
     handler: (input) => input,
   });
   expect(calls).toBe(0);
@@ -190,6 +192,7 @@ test("schema defaults agree across typed calls, CLI and JSON help", async () => 
   const action = defineAction({
     description: "Defaults",
     input: { name: z.string().default("world"), enabled: z.boolean().default(true) },
+    result: z.strictObject({ name: z.string(), enabled: z.boolean() }),
     handler: (input) => input,
   });
   const output: string[] = [];
@@ -206,6 +209,7 @@ test("help respects end-of-options, accepts omitted required fields, and shares 
   const action = defineAction({
     description: "Echo",
     input: { value: positional(text("Literal", "VALUE")) },
+    result: z.string(),
     handler: ({ value }) => {
       calls++;
       return value;
@@ -220,4 +224,21 @@ test("help respects end-of-options, accepts omitted required fields, and shares 
   expect(help.usage).toContain("--json");
   expect(calls).toBe(1);
   await expect(dispatch({ echo: action }, ["echo"], () => {})).rejects.toThrow(help.usage);
+});
+
+test("an action fails when its handler result does not match its result schema", async () => {
+  const action = defineAction({
+    description: "Drifted",
+    input: {},
+    result: z.strictObject({ count: z.number() }),
+    handler: () => JSON.parse('{"count":"1"}'),
+  });
+  await expect(action.execute({})).rejects.toThrow(
+    "Action result does not match its contract at count",
+  );
+  const output: string[] = [];
+  await expect(
+    dispatch({ drifted: action }, ["drifted", "--json"], (line) => output.push(line)),
+  ).rejects.toThrow("does not match its contract");
+  expect(output).toEqual([]);
 });

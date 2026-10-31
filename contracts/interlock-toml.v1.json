@@ -1,0 +1,15 @@
+{
+  "file": {
+    "type": "object",
+    "properties": {
+      "$ref": "definitions.json#/5e6b2e86ea878bcc578192dc63d11676606ed2967fc1e71629e428dc08065208"
+    },
+    "required": [
+      "version",
+      "repositories",
+      "maps",
+      "tracker"
+    ],
+    "additionalProperties": false
+  }
+}

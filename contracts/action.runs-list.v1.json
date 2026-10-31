@@ -1,0 +1,19 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "array",
+    "items": {
+      "$ref": "definitions.json#/ad59b74d5bddccbf8cd5c604d3473e3d4698511386daad20f5eb372434bb6c09"
+    }
+  }
+}

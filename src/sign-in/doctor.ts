@@ -1,9 +1,30 @@
 import { existsSync } from "node:fs";
+import { z } from "zod";
 import { CLAIM_LOCK_NAMESPACE } from "../adapters/claims/git-lock.ts";
 import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
 import { projectConfigPath } from "../configuration/files.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { lookupCredentials, savedSite, trackerSignIns } from "./credentials.ts";
+
+export const doctorReportSchema = z.strictObject({
+  ok: z.boolean(),
+  version: z.string(),
+  database: z.string(),
+  config: z.strictObject({ path: z.string(), found: z.boolean() }),
+  jira: z.union([
+    z.strictObject({
+      site: z.string(),
+      signedIn: z.boolean(),
+      account: z.string(),
+      from: z.array(z.enum(["environment", "credential store"])),
+      permissions: z.strictObject({ project: z.string(), missing: z.array(z.string()) }).optional(),
+    }),
+    z.strictObject({ site: z.string().nullable(), signedIn: z.boolean() }),
+  ]),
+  claimLock: z.strictObject({ repository: z.string().nullable(), dryRunPush: z.boolean() }),
+  missing: z.array(z.string()),
+});
+export type DoctorReport = z.infer<typeof doctorReportSchema>;
 
 export async function doctorChecks(services: RuntimeServices, project: string | undefined) {
   const jira = await jiraSignIn(services, project);
@@ -82,23 +103,19 @@ export function doctorConfig(services: RuntimeServices) {
   return { path, found: existsSync(path) };
 }
 
-export function renderDoctor(
-  report: Awaited<ReturnType<typeof doctorChecks>> & {
-    database: string;
-    config: ReturnType<typeof doctorConfig>;
-  },
-) {
+export function renderDoctor(report: DoctorReport) {
   const { jira, claimLock } = report;
   const lockFix = claimLock.dryRunPush ? [] : report.missing.slice(-1);
   const jiraFixes = claimLock.dryRunPush ? report.missing : report.missing.slice(0, -1);
-  const scope = "permissions" in jira ? ` in ${jira.permissions.project}` : "";
+  const checked = "permissions" in jira ? jira.permissions : undefined;
+  const scope = checked ? ` in ${checked.project}` : "";
   const signIn =
     "account" in jira
       ? check(true, `Jira signed in at ${jira.site} as ${jira.account} (${jira.from.join(", ")})`)
       : check(false, `Jira not signed in${jira.site ? ` at ${jira.site}` : ""}`, jiraFixes);
   const permissions = !("account" in jira)
     ? check(false, "Jira permissions not checked", ["sign in first: run interlock login jira"])
-    : "permissions" in jira && jira.permissions.missing.length === 0
+    : checked?.missing.length === 0
       ? check(true, `Jira permissions${scope}: browse, transition, assign, edit issue properties`)
       : check(false, `Jira permissions${scope} incomplete`, jiraFixes);
   return [

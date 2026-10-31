@@ -1,0 +1,479 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "key": {
+        "type": "string",
+        "description": "Jira ticket key.",
+        "metavar": "KEY",
+        "positional": true
+      },
+      "config": {
+        "type": "string",
+        "description": "Shared interlock.toml path; defaults to the work repo's.",
+        "metavar": "PATH"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Work repo; defaults to the current directory.",
+        "metavar": "PATH"
+      },
+      "branch": {
+        "type": "string",
+        "description": "Branch name; defaults to the branch user setting.",
+        "metavar": "NAME"
+      },
+      "state": {
+        "type": "string",
+        "description": "Local execution database path.",
+        "metavar": "PATH"
+      },
+      "t3-catalog": {
+        "type": "string",
+        "description": "Fresh in-thread T3 catalog envelope; use - for stdin.",
+        "metavar": "PATH"
+      },
+      "dry-run": {
+        "description": "Print the launch plan without mutations.",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "key",
+      "t3-catalog"
+    ],
+    "additionalProperties": false
+  },
+  "output": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "repository": {
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "worktree": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "modelSelection": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "instanceId": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "options": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "boolean"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "provider",
+              "instanceId",
+              "model",
+              "options"
+            ],
+            "additionalProperties": false
+          },
+          "reviewers": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "instanceId": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "boolean"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "provider",
+                "instanceId",
+                "model",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "hostVerification": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "const": "caller-supplied-t3-catalog"
+              },
+              "observedAt": {
+                "type": "string"
+              },
+              "threadId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "observedAt",
+              "threadId"
+            ],
+            "additionalProperties": false
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "resolvedPath": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "resolvedPath",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "claimHome": {
+            "type": "object",
+            "properties": {
+              "home": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "change": {
+                "type": "string"
+              },
+              "lockRef": {
+                "type": "string"
+              },
+              "recordVersion": {
+                "type": "number"
+              },
+              "configCommit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "home",
+              "url",
+              "source",
+              "change",
+              "lockRef",
+              "recordVersion",
+              "configCommit"
+            ],
+            "additionalProperties": false
+          },
+          "launch": {
+            "$ref": "definitions.json#/43052e5eb8df1bca2c212d76fc3f227dd6dfcc87509323124675d89aec6f57ab"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "const": true
+          },
+          "state": {
+            "type": "string",
+            "const": "planned"
+          }
+        },
+        "required": [
+          "version",
+          "repository",
+          "ticket",
+          "worktree",
+          "branch",
+          "title",
+          "modelSelection",
+          "reviewers",
+          "prompt",
+          "hostVerification",
+          "instructions",
+          "claimHome",
+          "launch",
+          "dryRun",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "repository": {
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "worktree": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "modelSelection": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "instanceId": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "options": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "boolean"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "provider",
+              "instanceId",
+              "model",
+              "options"
+            ],
+            "additionalProperties": false
+          },
+          "reviewers": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "instanceId": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "boolean"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "provider",
+                "instanceId",
+                "model",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "hostVerification": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "const": "caller-supplied-t3-catalog"
+              },
+              "observedAt": {
+                "type": "string"
+              },
+              "threadId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "observedAt",
+              "threadId"
+            ],
+            "additionalProperties": false
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "resolvedPath": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "resolvedPath",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "claimHome": {
+            "type": "object",
+            "properties": {
+              "home": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "change": {
+                "type": "string"
+              },
+              "lockRef": {
+                "type": "string"
+              },
+              "recordVersion": {
+                "type": "number"
+              },
+              "configCommit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "home",
+              "url",
+              "source",
+              "change",
+              "lockRef",
+              "recordVersion",
+              "configCommit"
+            ],
+            "additionalProperties": false
+          },
+          "launch": {
+            "$ref": "definitions.json#/43052e5eb8df1bca2c212d76fc3f227dd6dfcc87509323124675d89aec6f57ab"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "const": false
+          },
+          "state": {
+            "type": "string",
+            "const": "claimed"
+          },
+          "run": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          },
+          "claimHomeSaved": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "repository",
+          "ticket",
+          "worktree",
+          "branch",
+          "title",
+          "modelSelection",
+          "reviewers",
+          "prompt",
+          "hostVerification",
+          "instructions",
+          "claimHome",
+          "launch",
+          "dryRun",
+          "state",
+          "run",
+          "claim",
+          "claimHomeSaved"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  }
+}

@@ -240,7 +240,7 @@ export class StateStore {
     return claimFromRow(row);
   }
 
-  steps(run: RunRef): unknown[] {
+  steps(run: RunRef) {
     return this.#db
       .select({
         state: transactionSteps.state,
@@ -310,7 +310,7 @@ export class StateStore {
       .run();
   }
 
-  recoveryEvidence(run: RunRef): unknown[] {
+  recoveryEvidence(run: RunRef) {
     return this.#db
       .select({
         outcome: recoveryEvidence.outcome,

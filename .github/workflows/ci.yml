@@ -34,6 +34,14 @@ jobs:
       - run: bun run typecheck
       - run: bun run check
       - run: bun run db:check
+      - name: Fail on unversioned breaking contract changes
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          bun run contracts:check "origin/$BASE_REF"
       - run: bun run db:generate
       - name: Fail if schema and migrations disagree
         shell: bash

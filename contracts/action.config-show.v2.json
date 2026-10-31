@@ -1,0 +1,16 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Shared configuration file; defaults to interlock.toml in the current directory.",
+        "metavar": "FILE"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "$ref": "definitions.json#/38c8f4acb6d22af0c5c188bd26c7d63fa8241d2151446bfc8dd7d5f5fa3ea81e"
+  }
+}

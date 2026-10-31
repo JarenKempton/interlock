@@ -25,32 +25,18 @@ import {
   CHOICE_KEYS,
   type ResolvedConfiguration,
   resolveConfiguration,
+  resolvedConfigurationSchema,
   type UserSettings,
-  validateResolvedConfiguration,
 } from "./schema.ts";
 
 export { INITIAL_CONFIGURATION };
-export interface ConfigurationOutput {
-  version: 2;
-  action: "initialized" | "configuration" | "edited";
-  path: string;
-  configuration: ResolvedConfiguration;
-}
-export function validateConfigurationOutput(output: unknown): ConfigurationOutput {
-  const parsed = z
-    .object({
-      version: z.literal(2),
-      action: z.enum(["initialized", "configuration", "edited"]),
-      path: z.string(),
-      configuration: z.unknown(),
-    })
-    .safeParse(output);
-  if (!parsed.success) throw new Error("Invalid configuration result");
-  return {
-    ...parsed.data,
-    configuration: validateResolvedConfiguration(parsed.data.configuration),
-  };
-}
+export const configurationOutputSchema = z.strictObject({
+  version: z.literal(2),
+  action: z.enum(["initialized", "configuration", "edited"]),
+  path: z.string(),
+  configuration: resolvedConfigurationSchema,
+});
+export type ConfigurationOutput = z.infer<typeof configurationOutputSchema>;
 export interface ConfigurationPlatformOptions {
   cwd: string;
   statePath?: string;

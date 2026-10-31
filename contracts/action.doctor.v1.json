@@ -1,0 +1,151 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "project": {
+        "type": "string",
+        "description": "Jira project key to check permissions in.",
+        "metavar": "KEY"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "version": {
+        "type": "string"
+      },
+      "database": {
+        "type": "string"
+      },
+      "config": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "found": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "found"
+        ],
+        "additionalProperties": false
+      },
+      "jira": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "site": {
+                "type": "string"
+              },
+              "signedIn": {
+                "type": "boolean"
+              },
+              "account": {
+                "type": "string"
+              },
+              "from": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "environment",
+                    "credential store"
+                  ]
+                }
+              },
+              "permissions": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string"
+                  },
+                  "missing": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "project",
+                  "missing"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "site",
+              "signedIn",
+              "account",
+              "from"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "site": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "signedIn": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "site",
+              "signedIn"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "claimLock": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dryRunPush": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repository",
+          "dryRunPush"
+        ],
+        "additionalProperties": false
+      },
+      "missing": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "ok",
+      "version",
+      "database",
+      "config",
+      "jira",
+      "claimLock",
+      "missing"
+    ],
+    "additionalProperties": false
+  }
+}

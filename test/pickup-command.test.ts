@@ -93,6 +93,12 @@ test(
         action: "claim",
         claim: picked.claim,
       });
+      expect(await command(["claim", "show", picked.claim])).toMatchObject({
+        ref: picked.claim,
+        status: "active",
+        lockRef: expect.any(String),
+      });
+      expect((await command(["runs", "export", picked.run])).run.ref).toBe(picked.run);
       const claimedJira = await f.readJira();
       expect(claimedJira.issue.fields.status.name).toBe("In Progress");
       Reflect.deleteProperty(claimedJira.issue.fields, "parent");

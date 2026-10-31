@@ -1,0 +1,72 @@
+{
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Shared configuration file; defaults to interlock.toml in the current directory.",
+        "metavar": "FILE"
+      },
+      "editor": {
+        "type": "string",
+        "description": "Editor executable; defaults to VISUAL or EDITOR.",
+        "metavar": "EXECUTABLE"
+      },
+      "set": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string",
+            "enum": [
+              "host",
+              "agent",
+              "model",
+              "effort",
+              "context_window",
+              "runtime_mode",
+              "interaction_mode",
+              "branch",
+              "pickable_statuses",
+              "claimed_status",
+              "jira_site",
+              "claim-home"
+            ],
+            "description": "User setting",
+            "metavar": "SETTING"
+          },
+          {
+            "type": "string",
+            "metavar": "VALUE"
+          }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "Save one user setting in local SQLite; never supply secrets."
+      },
+      "follow": {
+        "type": "string",
+        "enum": [
+          "host",
+          "agent",
+          "model",
+          "effort",
+          "context_window",
+          "runtime_mode",
+          "interaction_mode",
+          "branch",
+          "pickable_statuses",
+          "claimed_status",
+          "jira_site",
+          "all"
+        ],
+        "description": "Clear a user setting so shared config or the default applies; all clears every choice except jira_site.",
+        "metavar": "SETTING"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "$ref": "definitions.json#/38c8f4acb6d22af0c5c188bd26c7d63fa8241d2151446bfc8dd7d5f5fa3ea81e"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "file": {
+    "type": "object",
+    "properties": {
+      "jira_site": {
+        "type": "string"
+      },
+      "claim_home": {
+        "type": "string"
+      },
+      "host": {
+        "type": "string"
+      },
+      "agent": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "string"
+      },
+      "context_window": {
+        "type": "string"
+      },
+      "runtime_mode": {
+        "type": "string"
+      },
+      "interaction_mode": {
+        "type": "string"
+      },
+      "branch": {
+        "type": "string"
+      },
+      "pickable_statuses": {
+        "type": "string"
+      },
+      "claimed_status": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  }
+}

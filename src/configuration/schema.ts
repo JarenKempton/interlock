@@ -194,7 +194,7 @@ const projectConfigurationV1Schema = z
     }
   });
 export type ProjectConfigurationV1 = z.infer<typeof projectConfigurationV1Schema>;
-const resolvedConfigurationV1Schema = z.strictObject({
+export const resolvedConfigurationV1Schema = z.strictObject({
   version: z.literal(1),
   source: sourceSchema,
   project: projectConfigurationV1Schema,
@@ -205,6 +205,10 @@ const resolvedConfigurationV1Schema = z.strictObject({
   ),
 });
 export type ResolvedConfigurationV1 = z.infer<typeof resolvedConfigurationV1Schema>;
+export const executionConfigurationSchema = z.union([
+  resolvedConfigurationSchema,
+  resolvedConfigurationV1Schema,
+]);
 export type ExecutionConfiguration = ResolvedConfiguration | ResolvedConfigurationV1;
 
 // Only schema-owned field names may reach diagnostics; record keys and values are untrusted.
