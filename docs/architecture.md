@@ -40,7 +40,9 @@ transition is recorded before the next side effect. See [claim semantics](claim-
 for collision, compensation, and recovery behavior. A T3 Code lane runs the
 agent; a finished agent turn does not establish ticket completion.
 
-Pickup prepares `task/KEY` at `<worktree_root>/KEY`. Preparation verifies the
+Pickup prepares `task/KEY` at `<worktree_root>/KEY`. A new branch starts, untracked,
+at the origin's default branch as fetched just before claiming, never at the
+possibly stale local branch of the same name. Preparation verifies the
 exact repository/path/branch mapping before reuse and preserves dirty work.
 Interlock never deletes a workspace. See the [Git adapter](../src/adapters/workspaces/git.ts).
 

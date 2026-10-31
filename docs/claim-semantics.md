@@ -35,7 +35,7 @@ assertion is not itself proof of the remote outcome.
 
 Pickup persists each transition before beginning the next side effect. It
 stops after workspace preparation and records the run as `claimed`, with T3
-launch arguments in its plan; the T3 caller launches the lane. Preflights are read-only; the local recovery
+launch arguments in its plan; the T3 caller launches the lane. Preflights are read-only. A mutating pickup then fetches the origin's default branch into `refs/remotes/origin/<branch>`; a failed fetch refuses it before any claim, and `--dry-run` skips it. The local recovery
 intent (including the original snapshot) is journaled before the first remote
 claim write. No workspace or agent side effect precedes the verified lock and
 Jira mirror. Verified compensation marks the run `compensated` and its local
