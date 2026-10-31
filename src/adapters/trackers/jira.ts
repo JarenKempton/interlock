@@ -204,7 +204,11 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   async describe() {
-    return { link_artifact: true } as const;
+    return { link_artifact: true, transition: true } as const;
+  }
+
+  async transition(ticket: TicketRef, status: string): Promise<void> {
+    await this.#transition(ticket, status);
   }
 
   async link_artifact(ticket: TicketRef, url: string, title = url): Promise<void> {

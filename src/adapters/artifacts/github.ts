@@ -1,5 +1,7 @@
+import { tmpdir } from "node:os";
 import { z } from "zod";
 import { normalizeClaimHome } from "../../domain/claim-home.ts";
+import { type MergeProof, mergeProofSchema } from "../../domain/retirement.ts";
 import { commitOidSchema, ticketKeyMatches } from "../../domain/submission.ts";
 import type {
   ArtifactHost,
@@ -129,6 +131,42 @@ export class GitHubArtifactHost implements ArtifactHost {
     );
     if (view.exitCode !== 0) throw new Error("Created PR readback failed");
     return this.parse(pullRequestSchema.parse(JSON.parse(view.stdout)), target);
+  }
+
+  async merged(url: string): Promise<MergeProof> {
+    const parsed = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([1-9][0-9]*)$/.exec(url);
+    if (!parsed) throw new Error("Expected a canonical GitHub pull request URL");
+    const repository = `${parsed[1]}/${parsed[2]}`;
+    const result = await this.commands.run(
+      ["gh", "api", `repos/${repository}/pulls/${parsed[3]}`],
+      tmpdir(),
+    );
+    if (result.exitCode !== 0) throw new Error(`gh api exited ${result.exitCode}`);
+    const repo = z.object({ full_name: z.string() });
+    const view = z
+      .object({
+        html_url: z.url(),
+        merged: z.boolean(),
+        merge_commit_sha: z.string().nullable(),
+        head: z.object({ ref: z.string(), sha: z.string(), repo: repo.nullable() }),
+        base: z.object({ ref: z.string(), repo }),
+      })
+      .parse(JSON.parse(result.stdout));
+    if (
+      view.html_url !== url ||
+      view.base.repo.full_name.toLowerCase() !== repository.toLowerCase() ||
+      view.head.repo?.full_name.toLowerCase() !== repository.toLowerCase()
+    )
+      throw new Error("Pull request repository identity mismatch");
+    return mergeProofSchema.parse({
+      merged: view.merged,
+      url,
+      repository: `github.com/${repository}`,
+      branch: view.head.ref,
+      head: view.head.sha,
+      base: view.base.ref,
+      commit: view.merge_commit_sha,
+    });
   }
 
   private async list(target: ArtifactTarget, filter: readonly string[]) {

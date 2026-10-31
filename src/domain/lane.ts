@@ -19,10 +19,14 @@ export type LaneRefusalCode =
   | "artifact_host_unavailable"
   | "duplicate_artifact"
   | "tracker_unavailable"
-  | "tracker_write_failed";
+  | "tracker_write_failed"
+  | "pull_request_unmerged"
+  | "workspace_dirty"
+  | "branch_unmerged"
+  | "cleanup_pending";
 
 export type LaneResult<T> =
-  | { ok: true; value: T }
+  | { ok: true; value: T; retirement?: { preservedFiles: string; retainedRef: string } }
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
 
 export interface LaneIdentity {

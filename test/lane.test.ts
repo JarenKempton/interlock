@@ -434,73 +434,21 @@ test("service refuses a second active lane for a ticket and promotion collisions
   }
 });
 
-test("one-off lane completes from the local ledger with no tracker", async () => {
-  const { service, cleanup } = makeService();
-  try {
-    const id = await serviceLaneToMerged(service);
-    const completed = await service.apply(id, { type: "complete", trackerDoneVerified: false });
-    expect(completed).toMatchObject({ ok: true, value: { state: "done" } });
-  } finally {
-    cleanup();
-  }
-});
-
-test("merged completes without a tracker write when merge automation already marked it done", async () => {
-  const tracker = new FakeTracker("Done", "closed");
+test("completion without a recorded run refuses before tracker writes", async () => {
+  const tracker = new FakeTracker();
   const { service, cleanup } = makeService(tracker);
   try {
     const id = await serviceLaneToMerged(service, String(ticketRef));
-    const completed = await service.apply(id, { type: "complete", trackerDoneVerified: false });
-    expect(completed).toMatchObject({ ok: true, value: { state: "done" } });
+    expect(await service.apply(id, { type: "complete", trackerDoneVerified: false })).toMatchObject(
+      { ok: false, refusal: { code: "workspace_unknown" } },
+    );
     expect(tracker.transitions).toEqual([]);
   } finally {
     cleanup();
   }
 });
 
-test("merged marks the ticket done itself and verifies by reading back", async () => {
-  const tracker = new FakeTracker();
-  const { service, cleanup } = makeService(tracker);
-  try {
-    const id = await serviceLaneToMerged(service, String(ticketRef));
-    const completed = await service.apply(id, { type: "complete", trackerDoneVerified: false });
-    expect(completed).toMatchObject({ ok: true, value: { state: "done" } });
-    expect(tracker.transitions).toEqual(["Done"]);
-  } finally {
-    cleanup();
-  }
-});
-
-test("merged stays merged when the tracker cannot verify done", async () => {
-  const fake = (patch: Partial<FakeTracker>) => Object.assign(new FakeTracker(), patch);
-  const readOnly = new FakeTracker();
-  const failsAfterWrite = new FakeTracker();
-  failsAfterWrite.transition = async (ticket, status) => {
-    await FakeTracker.prototype.transition.call(failsAfterWrite, ticket, status);
-    failsAfterWrite.failRead = true;
-  };
-  const cases: { tracker?: LaneTrackerPort; code: string }[] = [
-    { code: "unsupported_capability" },
-    { tracker: { read: () => readOnly.read() }, code: "unsupported_capability" },
-    { tracker: fake({ failRead: true }), code: "tracker_not_done" },
-    { tracker: fake({ failTransition: true }), code: "ambiguous_write" },
-    { tracker: fake({ markDoneOnTransition: false }), code: "tracker_not_done" },
-    { tracker: failsAfterWrite, code: "tracker_not_done" },
-  ];
-  for (const item of cases) {
-    const { service, cleanup } = makeService(item.tracker);
-    try {
-      const id = await serviceLaneToMerged(service, String(ticketRef));
-      const refused = await service.apply(id, { type: "complete", trackerDoneVerified: false });
-      expect(refused).toMatchObject({ ok: false, refusal: { code: item.code } });
-      expect(service.get(id)).toMatchObject({ ok: true, value: { state: "merged" } });
-    } finally {
-      cleanup();
-    }
-  }
-});
-
-test("CLI runs a one-off lane through the same machine", async () => {
+test("CLI runs a one-off lane and refuses completion without an owned claim", async () => {
   const directory = mkdtempSync(join(tmpdir(), "interlock-lane-cli-"));
   const statePath = join(directory, "interlock.db");
   const seed = new StateStore(statePath);
@@ -567,8 +515,8 @@ test("CLI runs a one-off lane through the same machine", async () => {
     expect(verdict.value.value.state).toBe("approved");
     await call(["lane", "merge", id, "--head", "abc", "--json"]);
     const completed = await call(["lane", "complete", id, "--json"]);
-    expect(completed.value.value.state).toBe("done");
-    expect((await call(["lane", "next", id, "--json"])).value.value.kind).toBe("none");
+    expect(completed.value).toMatchObject({ ok: false, refusal: { code: "workspace_unknown" } });
+    expect((await call(["lane", "next", id, "--json"])).value.value.kind).toBe("verify_done");
     const listed = await call(["lane", "list", "--json"]);
     expect(listed.value).toHaveLength(1);
   } finally {
