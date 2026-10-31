@@ -160,7 +160,7 @@ test(
       workspaceStrategy: { type: "existing_worktree", worktreePath: f.worktree },
     });
     expect(result.prompt).toContain("- Claim before creating a worktree.");
-    expect(result.reviewers.correctness?.model).toBe("test-model");
+    expect(result.reviewers).toEqual({});
     expect(existsSync(f.state)).toBe(false);
     expect(existsSync(f.worktree)).toBe(false);
     expect(f.jira.property).toBeNull();
@@ -426,7 +426,7 @@ test(
   GIT_TEST_TIMEOUT_MS,
 );
 
-test.each(["stale", "missing", "ambiguous", "disabled", "option", "reviewer"])(
+test.each(["stale", "missing", "ambiguous", "disabled", "option"])(
   "invalid %s catalog selection fails before tracker or ledger access",
   async (failure) => {
     const f = await fixture();
@@ -436,14 +436,6 @@ test.each(["stale", "missing", "ambiguous", "disabled", "option", "reviewer"])(
     if (failure === "ambiguous") catalog.catalog.providers.push(first(catalog.catalog.providers));
     if (failure === "disabled") first(catalog.catalog.providers).canRunChildTask = false;
     if (failure === "option") first(catalog.catalog.inheritedOptions).value = "unsupported";
-    if (failure === "reviewer")
-      await writeFile(
-        f.config,
-        (await readFile(f.config, "utf8")).replace(
-          '[roles.reviewers.correctness]\nprovider = "codex"\nmodel = "test-model"',
-          '[roles.reviewers.correctness]\nprovider = "codex"\nmodel = "missing"',
-        ),
-      );
     await writeFile(f.t3Catalog, JSON.stringify(catalog));
     await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow();
     expect(f.jira.calls).toEqual([]);
@@ -635,18 +627,16 @@ test(
 );
 
 test(
-  "an unavailable requested host fails before Jira, Git or state access",
+  "an unavailable requested host fails before Jira access or any state change",
   async () => {
     const f = await fixture();
-    await writeFile(
-      f.config,
-      `${await readFile(f.config, "utf8")}\n[defaults]\nhost = "unavailable"\n`,
-    );
+    await setUser(f, "host", "unavailable");
+    const before = await readFile(f.state);
     await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
       "Requested host is unavailable",
     );
     expect(f.jira.calls).toEqual([]);
-    expect(existsSync(f.state)).toBe(false);
+    expect((await readFile(f.state)).equals(before)).toBe(true);
   },
   GIT_TEST_TIMEOUT_MS,
 );
@@ -705,16 +695,13 @@ test(
 );
 
 test(
-  "release uses the recorded repository when configured roots overlap",
+  "release uses the recorded repository, site and claimed status after shared config changes",
   async () => {
     const f = await fixture();
-    await writeFile(
-      f.config,
-      `${await readFile(f.config, "utf8")}\n[repositories.other]\ngithub = "other/repo"\npath = "bob"\nworktree_root = "worktrees"\nbase_branch = "main"\n`,
-    );
     const app = createApplication(f.services);
     const picked = await app.pickup.execute(f.input);
     if (!("claim" in picked)) throw new Error("Expected claimed plan");
+    await writeFile(f.config, '[statuses]\nclaimed = "Elsewhere"\n');
     expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
     expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
   },
@@ -1084,9 +1071,141 @@ test.each([
   GIT_TEST_TIMEOUT_MS,
 );
 
+async function setUser(
+  f: Awaited<ReturnType<typeof fixture>>,
+  name: "host" | "branch" | "pickable_statuses" | "claimed_status" | "jira_site",
+  value: string,
+) {
+  await configurationOperations({ cwd: f.root, statePath: f.state }).edit({
+    path: f.config,
+    set: [name, value],
+  });
+}
+
 async function configureUserHome(f: Awaited<ReturnType<typeof fixture>>, value: string) {
   await configurationOperations({ cwd: f.root, statePath: f.state }).edit({
     path: f.config,
     set: ["claim-home", value],
   });
 }
+
+test(
+  "pickup runs in the current repo with no interlock.toml, using the signed-in Jira site",
+  async () => {
+    const f = await fixture();
+    await setUser(f, "jira_site", "https://example.atlassian.net");
+    f.services.configuration = { cwd: f.remote.alice };
+    Reflect.deleteProperty(f.jira.issue.fields, "parent");
+    const result = await createApplication(f.services).pickup.execute({
+      key: "TEST-492",
+      state: f.state,
+      "t3-catalog": f.t3Catalog,
+      "dry-run": true,
+    });
+    expect(result).toMatchObject({
+      state: "planned",
+      repository: "alice",
+      branch: "task/TEST-492",
+      worktree: f.worktree,
+    });
+    expect(result.prompt).not.toContain("Map:");
+    expect(existsSync(join(f.remote.alice, "interlock.toml"))).toBe(true);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "pickup without a Jira site names login and the user setting",
+  async () => {
+    const f = await fixture();
+    await writeFile(f.config, "version = 2\n");
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "run interlock login jira or interlock config edit --set jira_site URL",
+    );
+    expect(f.jira.calls).toEqual([]);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a branch template or --branch names the branch, which is recorded for the run",
+  async () => {
+    const f = await fixture();
+    await setUser(f, "branch", "feature/{key}-work");
+    const app = createApplication(f.services);
+    const planned = await app.pickup.execute({ ...f.input, "dry-run": true });
+    expect(planned.branch).toBe("feature/TEST-492-work");
+    const picked = await app.pickup.execute({ ...f.input, branch: "fix/TEST-492" });
+    if (!("run" in picked)) throw new Error("Expected a claimed plan");
+    expect(picked.launch.workspaceStrategy.branch).toBe("fix/TEST-492");
+    expect(inspect(f, (s) => s.run(picked.run)).workspace.branch).toBe("fix/TEST-492");
+    expect((await f.git.run(["git", "branch", "--show-current"], f.worktree)).stdout.trim()).toBe(
+      "fix/TEST-492",
+    );
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test.each([
+  ["fix/other", "must contain TEST-492"],
+  ["bad..TEST-492", "not a valid Git branch name"],
+])(
+  "--branch %s is refused before tracker access",
+  async (branch, message) => {
+    const f = await fixture();
+    await expect(
+      createApplication(f.services).pickup.execute({ ...f.input, branch }),
+    ).rejects.toThrow(message);
+    expect(f.jira.calls).toEqual([]);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "shared statuses override user statuses, which override the defaults",
+  async () => {
+    const f = await fixture();
+    f.jira.issue.fields.status.name = "Ready";
+    const app = createApplication(f.services);
+    await expect(app.pickup.execute({ ...f.input, "dry-run": true })).rejects.toThrow(
+      "unassigned ticket in To Do",
+    );
+    await setUser(f, "pickable_statuses", "Ready, To Do");
+    expect((await app.pickup.execute({ ...f.input, "dry-run": true })).state).toBe("planned");
+    await writeFile(
+      f.config,
+      `${await readFile(f.config, "utf8")}[statuses]\npickable = ["To Do"]\nclaimed = "Doing"\n`,
+    );
+    await expect(app.pickup.execute({ ...f.input, "dry-run": true })).rejects.toThrow(
+      "unassigned ticket in To Do",
+    );
+    f.jira.issue.fields.status.name = "To Do";
+    const picked = await app.pickup.execute(f.input);
+    if (!("claim" in picked)) throw new Error("Expected a claimed plan");
+    expect(f.jira.issue.fields.status.name).toBe("Doing");
+    expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
+    expect(f.jira.issue.fields.status.name).toBe("To Do");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "an unfinished blocker still blocks a ticket with no parent epic",
+  async () => {
+    const f = await fixture();
+    Reflect.deleteProperty(f.jira.issue.fields, "parent");
+    const blocker = structuredClone(f.jira.issue);
+    blocker.key = "TEST-491";
+    f.jira.relatedIssues.push(blocker);
+    f.jira.issue.fields.issuelinks = [
+      {
+        type: { inward: "is blocked by", outward: "blocks" },
+        inwardIssue: { key: "TEST-491", fields: { status: blocker.fields.status } },
+      },
+    ];
+    await expect(
+      createApplication(f.services).pickup.execute({ ...f.input, "dry-run": true }),
+    ).rejects.toThrow("unfinished dependencies block pickup");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

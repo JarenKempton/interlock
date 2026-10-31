@@ -14,8 +14,8 @@ import { journalJiraWrite, verifyJournaledJiraWrite } from "./jira-write-journal
 import {
   claimCoordination,
   executionStatePath,
+  executionTarget,
   executionTracker,
-  repositorySpec,
   withExecutionStore,
 } from "./pickup-runtime.ts";
 
@@ -53,11 +53,11 @@ export async function releaseClaim(
     const plan = z
       .object({ plan: z.object({ repository: z.string() }) })
       .parse(JSON.parse(intent.receipt_json)).plan;
-    const repository = repositorySpec(configuration, plan.repository);
+    const { repository, jiraSite, claimedStatus } = executionTarget(configuration, plan.repository);
     if (resolve(repository.worktreeRoot, key ?? "") !== run.workspace.path)
       throw new Error("Recorded workspace does not match its selected repository");
     const jira = await executionTracker(
-      configuration,
+      jiraSite,
       parseRef(claim.ticket).workspace ?? "",
       services,
       "release",
@@ -69,6 +69,7 @@ export async function releaseClaim(
     const mirror = new JiraTrackerAdapter({
       ...jira.options,
       claimHome: home.identity,
+      claimedStatus,
       journalWrite: (pending) => journalJiraWrite(store, run.ref, pending),
     });
     const { claims, claimLock } = claimCoordination(repository, mirror, services, home);

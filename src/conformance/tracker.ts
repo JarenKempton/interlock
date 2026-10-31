@@ -25,12 +25,12 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
     scenario("read_only", async ({ adapter, claim, observe }) => {
       const before = await observe();
       const read = await adapter.read(claim.ticket);
-      const listed = await adapter.list_work(read.ticket.map);
       requireBehavior(read.ticket.ref === claim.ticket, "read returned a different ticket");
-      requireBehavior(
-        listed.some((ticket) => ticket.ref === claim.ticket),
-        "list_work lost ticket",
-      );
+      if (read.ticket.map)
+        requireBehavior(
+          (await adapter.list_work(read.ticket.map)).some((ticket) => ticket.ref === claim.ticket),
+          "list_work lost ticket",
+        );
       requireBehavior((await observe()).writes === before.writes, "Tracker reads mutated state");
       requireBehavior(
         !("conditional_update" in (await adapter.describe())),

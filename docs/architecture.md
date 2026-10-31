@@ -13,7 +13,7 @@ executable behavior stays at platform boundaries.
 | --- | --- |
 | Action registration and runtime services | [Application](../src/application.ts), [runtime services](../src/runtime-services.ts) |
 | Input validation, invocation, help, completion | [CLI](../src/cli/) |
-| Project requirements and personal choices | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml) |
+| Shared tracker facts and user settings | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml) |
 | Entities, references, capabilities, adapter interfaces | [Domain](../src/domain/) |
 | Adapter conformance suites | [Conformance](../src/conformance/) |
 | Pickup, T3 launch plan, launch prompt | [Execution](../src/execution/) |
@@ -48,9 +48,8 @@ Interlock never deletes a workspace. See the [Git adapter](../src/adapters/works
 
 - [Domain vocabulary](domain-model.md) and [claim semantics](claim-semantics.md).
 - [Client/core ownership](ownership-boundary.md).
-- Design rationale: [execution boundaries](adr/0001-lanes-environments-and-session-hosts.md),
-  [tracker writes](adr/0002-tracker-write-minimalism.md), and
-  [organization policy](adr/0003-organization-policy-and-enforced-configuration.md).
+- Design rationale: [execution boundaries](adr/0001-lanes-environments-and-session-hosts.md)
+  and [tracker writes](adr/0002-tracker-write-minimalism.md).
 
 Tracker, claim-lock, host and lane contracts are plain TypeScript interfaces;
 see the [domain model](domain-model.md#tracker).

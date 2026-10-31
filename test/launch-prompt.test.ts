@@ -10,7 +10,7 @@ import {
   parseProjectToml,
 } from "../src/configuration/files.ts";
 import { INITIAL_CONFIGURATION } from "../src/configuration/project-files.ts";
-import { resolveProjectConfiguration } from "../src/configuration/schema.ts";
+import { resolveConfiguration } from "../src/configuration/schema.ts";
 import { mapRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
 import type { Ticket, TicketKind } from "../src/domain/model.ts";
 import { acceptanceCriteria, buildLaunchPrompt } from "../src/execution/launch-prompt.ts";
@@ -136,7 +136,7 @@ test("configured instruction paths are loaded read-only, versioned, and used in 
     const workflow =
       "Implement exactly this task; report evidence. Completion requires human merge approval; keep the ticket open pending approval.";
     writeFileSync(join(cwd, "task.md"), workflow);
-    const configuration = resolveProjectConfiguration(
+    const configuration = resolveConfiguration(
       parseProjectToml(content),
       {},
       { path, version: configurationVersion(content) },

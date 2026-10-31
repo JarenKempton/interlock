@@ -2,7 +2,7 @@ import { z } from "zod";
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "./identifiers.ts";
 export const ticketSchema = z.object({
   ref: ticketRefSchema,
-  map: mapRefSchema,
+  map: mapRefSchema.optional(),
   kind: z.enum(["task", "research", "prototype", "decision"]),
   state: z.enum(["open", "closed"]),
   status: z.string(),

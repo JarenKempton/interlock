@@ -21,7 +21,7 @@ import {
   configurationVersion,
   parseProjectToml,
 } from "../src/configuration/files.ts";
-import { readPersonalSettings, readUserSettings } from "../src/configuration/local-settings.ts";
+import { readUserSettings } from "../src/configuration/local-settings.ts";
 import {
   configurationOperations,
   INITIAL_CONFIGURATION,
@@ -29,14 +29,18 @@ import {
 import {
   personalSettingsSchema,
   projectConfigurationSchema,
-  type ResolvedConfiguration,
-  resolveProjectConfiguration,
+  REMOVED_SECTIONS,
+  type ResolvedConfigurationV1,
+  resolveConfiguration,
   SETTING_KEYS,
+  type UserSettings,
+  validateExecutionConfiguration,
   validateProjectConfiguration,
   validateResolvedConfiguration,
 } from "../src/configuration/schema.ts";
 import { adapterRefSchema, runRefSchema, ticketRefSchema } from "../src/domain/identifiers.ts";
 import type { Run } from "../src/domain/model.ts";
+import { executionTarget } from "../src/execution/pickup-runtime.ts";
 import { configurationStore } from "../src/persistence/configuration.ts";
 import { StateStore } from "../src/persistence/state.ts";
 
@@ -67,25 +71,16 @@ test("Zod schemas own configuration types and setting discovery", () => {
   void typeExamples;
 });
 
-test.each(["unknown-field", "record-key", "record-value", "nested-array", "null-section"])(
+test.each(["unknown-field", "nested-array", "null-section"])(
   "Zod rejects malformed %s without exposing untrusted keys or values",
   (scenario) => {
     const project = z
       .record(z.string(), z.unknown())
       .parse(structuredClone(Bun.TOML.parse(INITIAL_CONFIGURATION)));
     if (scenario === "unknown-field") project.instructions = { DO_NOT_ECHO: "DO_NOT_ECHO" };
-    if (scenario === "record-key") project.maps = { DO_NOT_ECHO: {} };
-    if (scenario === "record-value")
-      project.repositories = { DO_NOT_ECHO: { github: "DO_NOT_ECHO" } };
     if (scenario === "nested-array")
-      project.maps = {
-        example: {
-          repository: "example",
-          claim_status: "In Progress",
-          available_statuses: ["To Do", { DO_NOT_ECHO: true }],
-        },
-      };
-    if (scenario === "null-section") project.t3 = null;
+      project.statuses = { pickable: ["To Do", { DO_NOT_ECHO: true }] };
+    if (scenario === "null-section") project.statuses = null;
     let error: unknown;
     try {
       validateProjectConfiguration(project);
@@ -100,6 +95,22 @@ test.each(["unknown-field", "record-key", "record-value", "nested-array", "null-
   },
 );
 
+test.each(Object.keys(REMOVED_SECTIONS))(
+  "a shared config that still has [%s] fails and names the replacement",
+  (section) => {
+    expect(() => parseProjectToml(`version = 1\n[${section}]\n`)).toThrow(
+      `interlock.toml [${section}] was removed: ${REMOVED_SECTIONS[section]}`,
+    );
+  },
+);
+
+test("a version 1 file names every removed section it still has, not its version", () => {
+  const legacy = `version = 1\n[repositories.app]\ngithub = "o/r"\npath = "."\nworktree_root = "../w"\nbase_branch = "main"\n[maps.APP-1]\nrepository = "app"\nclaim_status = "In Progress"\navailable_statuses = ["To Do"]\n[tracker.jira]\nsite = "https://example.atlassian.net"\n[t3]\nprovider = "codex"\n[defaults]\nhost = "t3"\n`;
+  expect(() => parseProjectToml(legacy)).toThrow(
+    `interlock.toml [repositories] was removed: ${REMOVED_SECTIONS.repositories}; [maps] was removed: ${REMOVED_SECTIONS.maps}; [t3], [defaults] were removed: ${REMOVED_SECTIONS.t3}`,
+  );
+});
+
 test("resolved snapshot validation rejects forged settings and provenance after schema validation", () => {
   const snapshot = resolve(INITIAL_CONFIGURATION, { model: "chosen" });
   expect(() =>
@@ -111,41 +122,82 @@ test("resolved snapshot validation rejects forged settings and provenance after 
   expect(() =>
     validateResolvedConfiguration({
       ...snapshot,
-      settings: { ...snapshot.settings, runtime_mode: "full-access" },
+      settings: { ...snapshot.settings, pickable_statuses: ["Anything"] },
     }),
   ).toThrow("resolved.settings");
 });
-function resolve(content: string, personal = {}) {
-  return resolveProjectConfiguration(parseProjectToml(content), personal, {
-    path: "/project/interlock.toml",
-    version: configurationVersion(content),
-  });
+function resolve(content: string | undefined, user: UserSettings = {}) {
+  return content === undefined
+    ? resolveConfiguration(undefined, user)
+    : resolveConfiguration(parseProjectToml(content), user, {
+        path: "/project/interlock.toml",
+        version: configurationVersion(content),
+      });
 }
 
-test("new resolutions follow changed defaults; explicit choices persist; requirements reject conflict", () => {
-  const first = INITIAL_CONFIGURATION.replace("[defaults]", '[defaults]\nmodel = "first"');
-  const second = first.replace('model = "first"', 'model = "second"');
-  const snapshot = resolve(first);
-  expect(resolve(second).settings.model).toBe("second");
-  expect(snapshot.settings.model).toBe("first");
-  expect(resolve(second, { model: "personal" }).settings.model).toBe("personal");
-  const required = second.replace("[required]", '[required]\nmodel = "required"');
-  expect(resolve(required).sources.model).toBe("required");
-  expect(resolve(required, { model: "required" }).settings.model).toBe("required");
-  expect(() => resolve(required, { model: "personal" })).toThrow(
-    "model conflicts with project requirement in /project/interlock.toml",
-  );
-  expect(resolve(first).source.version).not.toBe(resolve(second).source.version);
+test("with no shared config, defaults apply and user settings override them", () => {
+  expect(resolve(undefined)).toEqual({
+    version: 2,
+    settings: {
+      host: "t3",
+      branch: "task/{key}",
+      pickable_statuses: ["To Do"],
+      claimed_status: "In Progress",
+    },
+    sources: {
+      host: "default",
+      branch: "default",
+      pickable_statuses: "default",
+      claimed_status: "default",
+    },
+  });
+  const user = resolve(undefined, {
+    jira_site: "https://mine.atlassian.net",
+    model: "chosen",
+    pickable_statuses: "Ready, To Do",
+    claimed_status: "Doing",
+  });
+  expect(user.settings).toMatchObject({
+    jira_site: "https://mine.atlassian.net",
+    model: "chosen",
+    pickable_statuses: ["Ready", "To Do"],
+    claimed_status: "Doing",
+  });
+  expect(user.sources).toMatchObject({ jira_site: "user", model: "user", claimed_status: "user" });
+});
+
+test("shared tracker facts override user settings; personal choices stay personal", () => {
+  const shared = `version = 2\n[tracker.jira]\nsite = "https://team.atlassian.net"\n[statuses]\npickable = ["Ready"]\nclaimed = "Doing"\n`;
+  const resolved = resolve(shared, {
+    jira_site: "https://mine.atlassian.net",
+    pickable_statuses: "To Do",
+    model: "chosen",
+  });
+  expect(resolved.settings).toMatchObject({
+    jira_site: "https://team.atlassian.net",
+    pickable_statuses: ["Ready"],
+    claimed_status: "Doing",
+    model: "chosen",
+  });
+  expect(resolved.sources).toMatchObject({
+    jira_site: "shared",
+    pickable_statuses: "shared",
+    claimed_status: "shared",
+    model: "user",
+  });
+  expect(resolve(shared).source?.version).not.toBe(resolve(`${shared}\n`).source?.version);
+});
+
+test("a branch template must carry {key}", () => {
+  expect(() => resolve(undefined, { branch: "task/fixed" })).toThrow("user.branch");
+  expect(resolve(undefined, { branch: "me/{key}" }).settings.branch).toBe("me/{key}");
 });
 
 test("init creates a validated shape and never replaces a file or dangling symlink", async () => {
   const f = fixture();
   const result = await f.ops.init(input);
-  expect(result.configuration.settings).toMatchObject({
-    host: "t3",
-    agent: "codex",
-    runtime_mode: "approval-required",
-  });
+  expect(result.configuration.settings).toMatchObject({ host: "t3", branch: "task/{key}" });
+  expect(result.configuration.source?.path).toBe(f.path);
   expect(existsSync(f.statePath)).toBe(false);
   await expect(f.ops.init(input)).rejects.toThrow();
   expect(readFileSync(f.path, "utf8")).toBe(INITIAL_CONFIGURATION);
@@ -165,32 +217,34 @@ test("init imports project shape explicitly and refuses invalid input before cre
   expect((await f.ops.init({ ...input, from: source })).action).toBe("initialized");
 });
 
-test("show does not initialize a SQLite store; local choices survive reopen and follow removes them", async () => {
+test("show and set work without interlock.toml; choices survive reopen and follow removes them", async () => {
   const f = fixture();
-  await f.ops.init(input);
-  const before = readdirSync(f.cwd);
-  await f.ops.show(input);
-  expect(readdirSync(f.cwd)).toEqual(before);
+  expect((await f.ops.show(input)).configuration.source).toBeUndefined();
+  expect(readdirSync(f.cwd)).toEqual([]);
   await f.ops.edit({ ...input, set: ["model", "chosen"] });
-  expect(readPersonalSettings(f.statePath, f.path)).toEqual({ model: "chosen" });
-  writeFileSync(
-    f.path,
-    INITIAL_CONFIGURATION.replace("[defaults]", '[defaults]\nmodel = "updated"'),
-  );
+  expect(readUserSettings(f.statePath)).toEqual({ model: "chosen" });
+  await f.ops.init(input);
   const reopened = configurationOperations({ cwd: f.cwd, statePath: f.statePath });
   expect((await reopened.show(input)).configuration.settings.model).toBe("chosen");
-  expect((await reopened.edit({ ...input, follow: "model" })).configuration.settings.model).toBe(
-    "updated",
-  );
-  expect(readPersonalSettings(f.statePath, f.path)).toEqual({});
+  expect(
+    (await reopened.edit({ ...input, follow: "model" })).configuration.settings.model,
+  ).toBeUndefined();
+  expect(readUserSettings(f.statePath)).toEqual({});
 });
 
-test("claim-home is one user-level setting outside project choices, stored normalized", async () => {
+test("an explicitly named shared config must exist", async () => {
   const f = fixture();
-  await f.ops.init(input);
+  await expect(f.ops.show({ path: "absent.toml" })).rejects.toThrow();
+  await expect(f.ops.edit({ path: "absent.toml", set: ["model", "chosen"] })).rejects.toThrow();
+  expect(existsSync(f.statePath)).toBe(false);
+});
+
+test("claim-home is one user-level setting, stored normalized", async () => {
+  const f = fixture();
   await f.ops.edit({ ...input, set: ["claim-home", "Team/Locks"] });
-  expect(readUserSettings(f.statePath).claim_home).toBe("https://github.com/Team/Locks.git");
-  expect(readPersonalSettings(f.statePath, f.path)).toEqual({});
+  expect(readUserSettings(f.statePath)).toEqual({
+    claim_home: "https://github.com/Team/Locks.git",
+  });
   const leaked = await f.ops
     .edit({ ...input, set: ["claim-home", "https://secret@github.com/a/b.git"] })
     .catch((error: Error) => error.message);
@@ -199,16 +253,14 @@ test("claim-home is one user-level setting outside project choices, stored norma
   expect(readUserSettings(f.statePath).claim_home).toBe("https://github.com/Team/Locks.git");
 });
 
-test("required conflict rolls back local write and leaves earlier choice intact", async () => {
+test("an invalid choice leaves earlier choices intact", async () => {
   const f = fixture();
-  await f.ops.init(input);
-  await f.ops.edit({ ...input, set: ["model", "allowed"] });
-  writeFileSync(
-    f.path,
-    INITIAL_CONFIGURATION.replace("[required]", '[required]\nmodel = "allowed"'),
+  await f.ops.edit({ ...input, set: ["pickable_statuses", "Ready"] });
+  await expect(f.ops.edit({ ...input, set: ["branch", "no-key"] })).rejects.toThrow("user.branch");
+  await expect(f.ops.edit({ ...input, set: ["jira_site", "http://insecure"] })).rejects.toThrow(
+    "user.jira_site",
   );
-  await expect(f.ops.edit({ ...input, set: ["model", "conflict"] })).rejects.toThrow("requirement");
-  expect(readPersonalSettings(f.statePath, f.path)).toEqual({ model: "allowed" });
+  expect(readUserSettings(f.statePath)).toEqual({ pickable_statuses: "Ready" });
 });
 
 test("execution snapshots persist independently and cannot be silently replaced", () => {
@@ -225,7 +277,16 @@ test("execution snapshots persist independently and cannot be silently replaced"
     updatedAt: "now",
   };
   store.saveRun(run);
-  const original = resolve(INITIAL_CONFIGURATION, { model: "original" });
+  const original = {
+    ...resolve(INITIAL_CONFIGURATION, { model: "original" }),
+    repository: {
+      name: "app",
+      remote: "https://github.com/o/app.git",
+      path: "/repo/app",
+      worktreeRoot: "/repo/worktrees/app",
+      baseBranch: "main",
+    },
+  };
   store.saveExecutionConfiguration(run.ref, original);
   store.close();
   store = new StateStore(f.statePath);
@@ -240,11 +301,11 @@ test("execution snapshots persist independently and cannot be silently replaced"
   }
 });
 
-test.each(["version = 2", 'token = "DO_NOT_ECHO"', 'version = "DO_NOT_ECHO"'])(
+test.each(["version = 3", 'token = "DO_NOT_ECHO"', 'version = "DO_NOT_ECHO"'])(
   "malformed project values are rejected without echoing them: %s",
   (prefix) => {
     const content = prefix.includes("version")
-      ? INITIAL_CONFIGURATION.replace("version = 1", prefix)
+      ? INITIAL_CONFIGURATION.replace("version = 2", prefix)
       : `${prefix}\n${INITIAL_CONFIGURATION}`;
     try {
       parseProjectToml(content);
@@ -256,31 +317,14 @@ test.each(["version = 2", 'token = "DO_NOT_ECHO"', 'version = "DO_NOT_ECHO"'])(
   },
 );
 
-test("rejects dangling map, credentials in tracker URL, and invalid runtime", () => {
+test("rejects credentials in the tracker URL and an empty status list", () => {
   expect(() =>
-    parseProjectToml(
-      INITIAL_CONFIGURATION.replace(
-        "[maps]",
-        '[maps.bad]\nrepository = "absent"\nclaim_status = "In Progress"\navailable_statuses = ["To Do"]',
-      ),
-    ),
-  ).toThrow("project.maps.<key>.repository");
-  expect(() =>
-    parseProjectToml(
-      INITIAL_CONFIGURATION.replace(
-        "https://example.atlassian.net",
-        "https://user:secret@example.atlassian.net",
-      ),
-    ),
+    parseProjectToml('[tracker.jira]\nsite = "https://user:secret@example.atlassian.net"\n'),
   ).toThrow("tracker.jira.site");
-  expect(() =>
-    parseProjectToml(
-      INITIAL_CONFIGURATION.replace(
-        'runtime_mode = "approval-required"',
-        'runtime_mode = "unknown"',
-      ),
-    ),
-  ).toThrow("project.t3.runtime_mode");
+  expect(() => parseProjectToml("[statuses]\npickable = []\n")).toThrow(
+    "project.statuses.pickable",
+  );
+  expect(() => resolve(undefined, { pickable_statuses: " , " })).toThrow("user.pickable_statuses");
 });
 
 test("configuration references resolve against the project file without shell expansion", () => {
@@ -340,7 +384,7 @@ test("successful editor commits validated staged content and reports its identit
   });
   const output = await ops.edit({ ...input, editor: "fake" });
   expect(readFileSync(f.path, "utf8")).toBe(content);
-  expect(output.configuration.source.version).toBe(configurationVersion(content));
+  expect(output.configuration.source?.version).toBe(configurationVersion(content));
 });
 
 test("configuration catalog drives help, JSON help, registration and man page", async () => {
@@ -396,14 +440,13 @@ test("show reads an existing local database without changing durable data", asyn
   const before = readFileSync(f.statePath);
   await f.ops.show(input);
   expect(readFileSync(f.statePath).equals(before)).toBe(true);
-  expect(readPersonalSettings(f.statePath, f.path)).toEqual({ model: "chosen" });
+  expect(readUserSettings(f.statePath)).toEqual({ model: "chosen" });
 });
 
-test("invalid personal setting fails before creating local state", async () => {
+test("invalid user setting fails before creating local state", async () => {
   const f = fixture();
-  await f.ops.init(input);
   await expect(f.ops.edit({ ...input, set: ["runtime_mode", "invalid"] })).rejects.toThrow(
-    "settings.runtime_mode",
+    "user.runtime_mode",
   );
   expect(existsSync(f.statePath)).toBe(false);
 });
@@ -426,20 +469,16 @@ test("config group JSON help lists the same registered action contracts", async 
 test("Drizzle reads the existing schema, respects read-only handles and redacts driver parameters", () => {
   const f = fixture();
   const database = new Database(f.statePath, { create: true });
-  database.exec(
-    "CREATE TABLE configuration_overrides (project_path TEXT PRIMARY KEY, settings_json TEXT NOT NULL)",
-  );
-  database
-    .query("INSERT INTO configuration_overrides VALUES (?, ?)")
-    .run(f.path, '{"model":"existing-choice"}');
+  database.exec("CREATE TABLE user_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  database.query("INSERT INTO user_settings VALUES (?, ?)").run("model", "existing-choice");
   database.close();
   const before = readFileSync(f.statePath);
   const readonly = new Database(f.statePath, { readonly: true });
   try {
     const settings = configurationStore(readonly);
-    expect(settings.readPersonal(f.path)).toEqual({ model: "existing-choice" });
+    expect(settings.readUser()).toEqual({ model: "existing-choice" });
     try {
-      settings.savePersonal(f.path, { model: "DO_NOT_ECHO" });
+      settings.saveUser("model", "DO_NOT_ECHO");
       throw new Error("Expected read-only rejection");
     } catch (error) {
       expect(String(error)).toContain("Local configuration database operation failed");
@@ -452,19 +491,15 @@ test("Drizzle reads the existing schema, respects read-only handles and redacts 
   expect(readFileSync(f.statePath).equals(before)).toBe(true);
 });
 
-test("persisted configuration JSON is validated before it can become a personal override", () => {
+test("persisted user settings are validated before they can become choices", () => {
   const db = new Database(":memory:");
   try {
-    db.exec(
-      "CREATE TABLE configuration_overrides (project_path TEXT PRIMARY KEY, settings_json TEXT NOT NULL)",
-    );
-    for (const value of ["{", '{"model":42}', '{"token":"DO_NOT_ECHO"}']) {
-      db.query("INSERT OR REPLACE INTO configuration_overrides VALUES (?, ?)").run(
-        "project",
-        value,
-      );
+    db.exec("CREATE TABLE user_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    for (const name of ["runtime_mode", "token"]) {
+      db.exec("DELETE FROM user_settings");
+      db.query("INSERT INTO user_settings VALUES (?, ?)").run(name, "DO_NOT_ECHO");
       try {
-        configurationStore(db).readPersonal("project");
+        configurationStore(db).readUser();
         throw new Error("Expected malformed record rejection");
       } catch (error) {
         expect(String(error)).toContain("Invalid");
@@ -481,17 +516,15 @@ test.each(["success", "constraint failure"])(
   (scenario) => {
     const db = new Database(":memory:");
     try {
-      db.exec(
-        "CREATE TABLE configuration_overrides (project_path TEXT PRIMARY KEY, settings_json TEXT NOT NULL)",
-      );
+      db.exec("CREATE TABLE user_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
       db.exec(
         "CREATE TABLE execution_configurations (run_ref TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL)",
       );
       const store = configurationStore(db);
-      store.savePersonal("project", { model: "chosen" });
-      expect(store.readPersonal("project")).toEqual({ model: "chosen" });
-      store.savePersonal("project", {});
-      expect(store.readPersonal("project")).toEqual({});
+      store.saveUser("model", "chosen");
+      expect(store.readUser()).toEqual({ model: "chosen" });
+      store.saveUser("model", undefined);
+      expect(store.readUser()).toEqual({});
       const snapshot = resolve(INITIAL_CONFIGURATION);
       store.saveSnapshot("run", snapshot);
       expect(store.readSnapshot("run")).toEqual(snapshot);
@@ -506,36 +539,34 @@ test.each(["success", "constraint failure"])(
   },
 );
 
-test("follow all atomically recovers from multiple newly required settings", async () => {
+test("follow all clears every personal choice but keeps sign-in and claim home", async () => {
   const f = fixture();
-  await f.ops.init({});
+  await f.ops.edit({ set: ["jira_site", "https://mine.atlassian.net"] });
+  await f.ops.edit({ set: ["claim-home", "team/locks"] });
   await f.ops.edit({ set: ["agent", "claude"] });
-  await f.ops.edit({ set: ["model", "personal-model"] });
-  const project = `${INITIAL_CONFIGURATION}\nagent = "codex"\nmodel = "required-model"\n`;
-  writeFileSync(f.path, project);
-  await expect(f.ops.edit({ follow: "agent" })).rejects.toThrow("Personal model conflicts");
-  await expect(f.ops.edit({ follow: "model" })).rejects.toThrow("Personal agent conflicts");
+  await f.ops.edit({ set: ["pickable_statuses", "Ready"] });
   const output: string[] = [];
   await run(["config", "edit", "--follow", "all", "--json"], (line) => output.push(line), {
     configuration: { cwd: f.cwd, statePath: f.statePath },
   });
   const result = JSON.parse(output[0] ?? "");
-  expect(result.configuration.settings.agent).toBe("codex");
-  expect(result.configuration.settings.model).toBe("required-model");
-  expect(readPersonalSettings(f.statePath, f.path)).toEqual({});
-  expect(readFileSync(f.path, "utf8")).toBe(project);
+  expect(result.configuration.settings.agent).toBeUndefined();
+  expect(result.configuration.settings.pickable_statuses).toEqual(["To Do"]);
+  expect(readUserSettings(f.statePath)).toEqual({
+    jira_site: "https://mine.atlassian.net",
+    claim_home: "https://github.com/team/locks.git",
+  });
 });
 
-test("symlink aliases share project identity and personal choices without permitting overwrite", async () => {
+test("symlink aliases share project identity without permitting overwrite", async () => {
+  if (process.platform === "win32") return; // Windows symlink creation requires a separate OS privilege.
   const f = fixture();
   await f.ops.init({});
   const alias = join(f.cwd, "alias.toml");
   symlinkSync(f.path, alias);
-  await f.ops.edit({ path: alias, set: ["agent", "claude"] });
   expect((await f.ops.show({ path: alias })).configuration).toEqual(
     (await f.ops.show({})).configuration,
   );
-  expect((await f.ops.show({})).configuration.settings.agent).toBe("claude");
   await expect(f.ops.init({ path: alias })).rejects.toThrow();
   expect(readFileSync(f.path, "utf8")).toBe(INITIAL_CONFIGURATION);
   await expect(f.ops.edit({ path: alias, editor: "unused" })).rejects.toThrow("not a symlink");
@@ -569,9 +600,29 @@ test("version 1 receipts retain their historical resolution contract", () => {
       effort: "default",
       runtime_mode: "required",
     },
-  } satisfies ResolvedConfiguration;
-  expect(validateResolvedConfiguration(receipt)).toEqual(receipt);
-  expect(() => validateResolvedConfiguration({ ...receipt, version: 99 })).toThrow(
+  } satisfies ResolvedConfigurationV1;
+  expect(validateExecutionConfiguration(receipt)).toEqual(receipt);
+  expect(() => validateExecutionConfiguration({ ...receipt, version: 99 })).toThrow(
     "Invalid configuration",
   );
+  const withRepository = {
+    ...receipt,
+    project: {
+      ...receipt.project,
+      repositories: {
+        app: { github: "o/app", path: "app", worktree_root: "worktrees", base_branch: "main" },
+      },
+    },
+  };
+  expect(executionTarget(validateExecutionConfiguration(withRepository), "app")).toEqual({
+    repository: {
+      name: "app",
+      path: "/historical/app",
+      worktreeRoot: "/historical/worktrees",
+      baseBranch: "main",
+      remote: "https://github.com/o/app.git",
+    },
+    jiraSite: "https://example.atlassian.net",
+    claimedStatus: "In Progress",
+  });
 });

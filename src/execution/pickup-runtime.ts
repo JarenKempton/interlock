@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
 import {
@@ -13,16 +13,20 @@ import {
   type GitCommandExecutor,
   GitWorkspaceAdapter,
 } from "../adapters/workspaces/git.ts";
-import { configurationReference, loadConfigurationInstructions } from "../configuration/files.ts";
+import {
+  configurationReference,
+  loadConfigurationInstructions,
+  projectConfigPath,
+} from "../configuration/files.ts";
 import { readUserSettings } from "../configuration/local-settings.ts";
-import { configurationOperations } from "../configuration/project-files.ts";
-import type { ResolvedConfiguration } from "../configuration/schema.ts";
+import { resolveSharedConfiguration, sharedConfiguration } from "../configuration/project-files.ts";
+import type { ExecutionConfiguration } from "../configuration/schema.ts";
 import type { ClaimHome } from "../domain/claim-home.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
 import { actorRefSchema, adapterRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
 import type { RepositorySpec, RunRef, Ticket } from "../domain/model.ts";
-import { parseRef } from "../domain/reference.ts";
+import { ticketKeyMatches } from "../domain/submission.ts";
 import { lockExecution } from "../persistence/execution-lock.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
@@ -45,6 +49,8 @@ export interface ExecutionPlatform {
 export interface PickupInput {
   key: string;
   config?: string | undefined;
+  repo?: string | undefined;
+  branch?: string | undefined;
   state?: string | undefined;
   t3Catalog: string;
   dryRun?: boolean | undefined;
@@ -73,31 +79,48 @@ export async function withExecutionStore<T>(
   }
 }
 
-export function repositorySpec(configuration: ResolvedConfiguration, name: string): RepositorySpec {
-  const repository = configuration.project.repositories[name];
+export function executionTarget(configuration: ExecutionConfiguration, repositoryName: string) {
+  if (configuration.version === 2) {
+    const { repository, settings } = configuration;
+    if (!repository || !settings.jira_site)
+      throw new Error("Recorded execution configuration has no repository or Jira site");
+    return { repository, jiraSite: settings.jira_site, claimedStatus: settings.claimed_status };
+  }
+  const repository = configuration.project.repositories[repositoryName];
   if (!repository) throw new Error("Configured repository is missing");
   return {
-    name,
-    path: configurationReference(configuration.source.path, repository.path),
-    worktreeRoot: configurationReference(configuration.source.path, repository.worktree_root),
-    baseBranch: repository.base_branch,
-    remote: `https://github.com/${repository.github}.git`,
+    repository: {
+      name: repositoryName,
+      path: configurationReference(configuration.source.path, repository.path),
+      worktreeRoot: configurationReference(configuration.source.path, repository.worktree_root),
+      baseBranch: repository.base_branch,
+      remote: `https://github.com/${repository.github}.git`,
+    },
+    jiraSite: configuration.project.tracker.jira.site,
+    claimedStatus: "In Progress",
   };
 }
 
+async function gitOutput(git: GitCommandExecutor, argv: readonly string[], cwd: string) {
+  const result = await git.run(argv, cwd);
+  if (result.exitCode !== 0)
+    throw new Error(`Git command failed (${result.exitCode}): ${result.stderr.trim()}`);
+  return result.stdout.trim();
+}
+
 export async function executionTracker(
-  configuration: ResolvedConfiguration,
+  jiraSite: string,
   workspace: string,
   services: RuntimeServices,
   purpose: "pickup" | "release" = "pickup",
 ) {
-  const site = new URL(configuration.project.tracker.jira.site);
+  const site = new URL(jiraSite);
   if (
     !services.execution?.jira &&
     process.env.JIRA_SITE &&
     new URL(process.env.JIRA_SITE).origin !== site.origin
   )
-    throw new Error("JIRA_SITE does not match the project configuration");
+    throw new Error("JIRA_SITE does not match the configured Jira site");
   const { adapter } = trackerSignIns(services).jira;
   const transport =
     services.execution?.jira ??
@@ -161,9 +184,32 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     throw new Error("Pickup requires a canonical Jira key");
   const cwd = services.configuration?.cwd ?? process.cwd();
   const statePath = executionStatePath(services, input.state);
-  const configuration = (
-    await configurationOperations({ cwd, statePath }).show({ path: input.config })
-  ).configuration;
+  const git = services.execution?.git ?? new BunGitCommandExecutor();
+  const repositoryPath = resolve(
+    await gitOutput(git, ["git", "rev-parse", "--show-toplevel"], resolve(cwd, input.repo ?? ".")),
+  );
+  const configPath = projectConfigPath(
+    input.config ? cwd : repositoryPath,
+    input.config ?? "interlock.toml",
+  );
+  const user = readUserSettings(statePath);
+  const configuration = resolveSharedConfiguration(
+    configPath,
+    sharedConfiguration(configPath, input.config !== undefined),
+    user,
+  );
+  const { settings } = configuration;
+  if (!settings.jira_site)
+    throw new Error(
+      "Jira site is unknown; run interlock login jira or interlock config edit --set jira_site URL",
+    );
+  const branch = input.branch ?? settings.branch.replaceAll("{key}", input.key);
+  if (!ticketKeyMatches(branch, input.key))
+    throw new Error(`Branch ${branch} must contain ${input.key}`);
+  if (
+    (await git.run(["git", "check-ref-format", "--branch", branch], repositoryPath)).exitCode !== 0
+  )
+    throw new Error(`Branch ${branch} is not a valid Git branch name`);
   const rawCatalog: unknown = JSON.parse(
     input.t3Catalog === "-"
       ? await Bun.stdin.text()
@@ -173,7 +219,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   const catalog = validateT3Catalog(rawCatalog, clock.now());
   const models = planT3Models(configuration, catalog);
   const jira = await executionTracker(
-    configuration,
+    settings.jira_site,
     input.key.slice(0, input.key.lastIndexOf("-")),
     services,
   );
@@ -181,18 +227,16 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     `jira:${jira.instance}:${input.key.slice(0, input.key.lastIndexOf("-"))}:ticket:${input.key}`,
   );
   const ticket = (await jira.tracker.read(ref)).ticket;
-  const map = configuration.project.maps[parseRef(ticket.map).nativeId ?? ""];
-  if (!map) throw new Error("Ticket map is not configured");
-  if (map.claim_status !== "In Progress")
-    throw new Error("Jira mirror supports only the In Progress claim status");
+  const pickable = settings.pickable_statuses;
   const eligible = async (current: Ticket) => {
     if (
-      current.map !== ticket.map ||
       current.state !== "open" ||
       current.assignee !== undefined ||
-      !map.available_statuses.includes(current.status)
+      !pickable.includes(current.status)
     )
-      throw new Error("Ticket is not available in the configured map");
+      throw new Error(
+        `Ticket is not available; pickup needs an open, unassigned ticket in ${pickable.join(", ")}`,
+      );
     if (JSON.stringify({ ...current, order: 0 }) !== JSON.stringify({ ...ticket, order: 0 }))
       throw new Error("Ticket changed during planning; retry pickup");
     for (const dependency of current.dependencies ?? []) {
@@ -201,15 +245,17 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     }
   };
   await eligible(ticket);
-  const repository = repositorySpec(configuration, map.repository);
-  const workspace = new GitWorkspaceAdapter(repository, services.execution?.git);
+  const claimHome = await resolveClaimHome(repositoryPath, git, user.claim_home);
+  const repository: RepositorySpec = {
+    name: basename(repositoryPath),
+    path: repositoryPath,
+    remote: await gitOutput(git, ["git", "remote", "get-url", "origin"], repositoryPath),
+    worktreeRoot: join(dirname(repositoryPath), "worktrees", basename(repositoryPath)),
+    baseBranch: claimHome.defaultBranch,
+  };
+  const workspace = new GitWorkspaceAdapter(repository, git, undefined, () => branch);
   await workspace.preflight(ticket);
   const worktree = await workspace.plan(ticket);
-  const claimHome = await resolveClaimHome(
-    repository.path,
-    services.execution?.git ?? new BunGitCommandExecutor(),
-    readUserSettings(statePath).claim_home,
-  );
   const marker = await jira.tracker.claimMarker(ref);
   if (marker) throw new Error(`${input.key} is already claimed through claim home ${marker.home}`);
   const homeLock = claimCoordination(repository, jira.tracker, services, claimHome.home).claimLock;
@@ -224,7 +270,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   };
   const instructions = loadConfigurationInstructions(configuration, ticket.kind);
   const prompt = buildLaunchPrompt(ticket, {
-    tracker: configuration.project.tracker.jira.site,
+    tracker: settings.jira_site,
     ...(instructions.runtimeContract
       ? { runtimeContract: instructions.runtimeContract.resolvedPath }
       : {}),
@@ -232,7 +278,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   });
   const plan = {
     version: 1,
-    repository: map.repository,
+    repository: repository.name,
     ticket: ref,
     worktree: worktree.path,
     branch: worktree.branch,
@@ -275,6 +321,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     const mirror = new JiraTrackerAdapter({
       ...jira.options,
       claimHome: claimHome.home.identity,
+      claimedStatus: settings.claimed_status,
       validateClaim: eligible,
       journalWrite(pending) {
         if (!journalRun) throw new Error("Jira write requires a recorded run");
@@ -293,7 +340,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
         store.saveRun(run);
         journalRun = run.ref;
         if (!store.getExecutionConfiguration(run.ref))
-          store.saveExecutionConfiguration(run.ref, configuration);
+          store.saveExecutionConfiguration(run.ref, { ...configuration, repository });
       },
       saveClaim: (claim) => store.saveClaim(claim),
       commitClaim: (claim, receipt) => store.commitClaim(claim, receipt),

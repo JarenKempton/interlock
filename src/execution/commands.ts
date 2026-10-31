@@ -17,7 +17,9 @@ export function runActions(services: RuntimeServices) {
       description: "Claim a ticket, prepare its worktree, and return T3 launch arguments.",
       input: {
         key: positional(text("Jira ticket key.", "KEY")),
-        config: optional(text("Project TOML path.", "PATH")),
+        config: optional(text("Shared interlock.toml path; defaults to the work repo's.", "PATH")),
+        repo: optional(text("Work repo; defaults to the current directory.", "PATH")),
+        branch: optional(text("Branch name; defaults to the branch user setting.", "NAME")),
         state,
         "t3-catalog": text("Fresh in-thread T3 catalog envelope; use - for stdin.", "PATH"),
         "dry-run": flag("Print the launch plan without mutations."),
@@ -26,6 +28,8 @@ export function runActions(services: RuntimeServices) {
         pickup(services, {
           key: input.key,
           config: input.config,
+          repo: input.repo,
+          branch: input.branch,
           state: input.state,
           t3Catalog: input["t3-catalog"],
           dryRun: input["dry-run"],

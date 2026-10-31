@@ -36,15 +36,17 @@ export function loadConfigurationInstructions(
   configuration: import("./schema.ts").ResolvedConfiguration,
   role: import("../domain/model.ts").TicketKind,
 ) {
-  const references = configuration.project.instructions;
+  const references = configuration.project?.instructions;
+  const source = configuration.source;
+  if (!references || !source) return {};
   const load = (path: string) => {
-    const resolved = configurationReference(configuration.source.path, path);
+    const resolved = configurationReference(source.path, path);
     const content = readFileSync(resolved, "utf8");
     return { path, resolvedPath: resolved, version: configurationVersion(content), content };
   };
   return {
-    ...(references?.runtime_contract ? { runtimeContract: load(references.runtime_contract) } : {}),
-    ...(references?.role_templates?.[role]
+    ...(references.runtime_contract ? { runtimeContract: load(references.runtime_contract) } : {}),
+    ...(references.role_templates?.[role]
       ? { roleTemplate: load(references.role_templates[role]) }
       : {}),
   };

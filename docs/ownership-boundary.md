@@ -39,27 +39,28 @@ remote reads and local commit preparation. An expired catalog prevents that
 push; this does not guarantee availability during the subsequent network call.
 
 `pickup KEY --dry-run --json --t3-catalog PATH` reads configuration and Jira and
-returns a plan without creating a ledger, workspace or claim. A mutating pickup
-verifies the Git lock and Jira mirror, prepares `task/KEY` at
-`<worktree_root>/KEY`, and records a `claimed` run. Its JSON `launch` object is
+returns a plan without creating a ledger, workspace or claim. The work repo is
+the current directory or `--repo PATH`; worktrees go under
+`<repo parent>/worktrees/<repo name>/KEY` and branch from the origin's default
+branch. A mutating pickup verifies the Git lock and Jira mirror, prepares the
+branch from `--branch NAME` or the `branch` template, and records a `claimed`
+run with that branch; later lane commands use the recorded name. Its JSON `launch` object is
 the argument object for `t3_thread_launch`, including `existing_worktree`, title,
 message and model selection. The caller invokes that tool and retains its
 returned thread identity; pickup does not launch an agent or claim it did.
 
-Pickup checks eligibility, reading each blocker in any map, before claiming and
-again before writing the mirror. Unfinished or unreadable blockers
+Pickup checks eligibility (open, unassigned, in a pickable status, every blocker
+closed) before claiming and again before writing the mirror. A parent epic is
+not required. Unfinished or unreadable blockers
 fail closed. Jira search supplies ordering; a subsequent direct issue read
 supplies current fields, so search index lag cannot reopen completed tickets or
 hide reopened blockers.
 
-The implementer uses resolved personal/project settings unless
-`[roles.implementer]` supplies `provider`, `model`, and optional `options`.
-`[roles.reviewers.<lens>]` uses the same fields for each reviewer lens.
-Every configured role is checked against exact provider instance/model IDs and
-advertised option values. Required project settings apply to every role.
-Inherited T3 model options apply only to the same provider instance and model;
-an explicit options table replaces them. The plan's `reviewers` object carries
-the verified choices for later reviews; pickup starts no reviewer.
+The implementer uses the user's `agent` and `model`, or the calling thread's
+when unset, checked against exact provider instance/model IDs and advertised
+option values. Inherited T3 model options apply only to the same provider
+instance and model; `effort` and `context_window` override them. The plan's
+`reviewers` object is empty; pickup starts no reviewer.
 
 `interlock login jira` verifies an email and API token against Jira's `/myself`
 and keeps them in the OS credential store (macOS Keychain, Windows Credential
@@ -69,11 +70,11 @@ for CI and headless agents, and `JIRA_SITE` overrides the saved site. Each track
 adapter declares its credential fields, verification call and permission check
 (`TrackerSignIn` in `src/domain/tracker.ts`); the core prompts, stores and looks
 them up. `interlock doctor` reports sign-in, missing Jira permissions and Git
-claim-lock push access. Pickup's site comes from project configuration; an
-optional `JIRA_SITE` must match it. The authenticated Jira account owns the claim. Repository paths
-and instruction paths resolve relative to the project TOML. The Jira Rank
-field is discovered through a read-only endpoint; unsupported claim statuses
-fail closed.
+claim-lock push access. Pickup's site comes from shared configuration, else
+user settings; an optional `JIRA_SITE` must match it. The authenticated Jira account owns the claim.
+Instruction paths resolve relative to the shared TOML. The Jira Rank
+field is discovered through a read-only endpoint; a claimed status with no
+Jira transition fails closed.
 
 `claim release CLAIM --json` uses the saved execution configuration and verifies
 the authenticated owner, remote lock and restored Jira fields. It preserves the

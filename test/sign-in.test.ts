@@ -6,9 +6,6 @@ import type { HttpTransport } from "../src/adapters/trackers/http.ts";
 import { jiraApiToken } from "../src/adapters/trackers/jira-sign-in.ts";
 import type { CommandResult, GitCommandExecutor } from "../src/adapters/workspaces/git.ts";
 import { run } from "../src/cli.ts";
-import { parseProjectToml } from "../src/configuration/files.ts";
-import { INITIAL_CONFIGURATION } from "../src/configuration/project-files.ts";
-import { resolveProjectConfiguration } from "../src/configuration/schema.ts";
 import { executionTracker } from "../src/execution/pickup-runtime.ts";
 import { type CredentialStore, osCredentialStore } from "../src/persistence/credential-store.ts";
 import { StateStore } from "../src/persistence/state.ts";
@@ -129,14 +126,6 @@ function userSettings(statePath: string) {
   } finally {
     store.close();
   }
-}
-
-function projectConfiguration() {
-  return resolveProjectConfiguration(
-    parseProjectToml(INITIAL_CONFIGURATION),
-    {},
-    { path: "interlock.toml", version: "1" },
-  );
 }
 
 async function doctor(subject: ReturnType<typeof harness>, ...args: string[]) {
@@ -280,20 +269,13 @@ test("environment variables bypass the store and need no login or project config
     jira: { signedIn: true, from: ["environment"] },
     missing: [],
   });
-  const tracker = await executionTracker(
-    projectConfiguration(),
-    "JWB",
-    subject.services,
-    "release",
-  );
+  const tracker = await executionTracker(SITE, "JWB", subject.services, "release");
   expect(String(tracker.owner)).toBe("account-1");
 });
 
 test("pickup refuses to reach Jira before sign-in", async () => {
   const subject = harness();
-  await expect(
-    executionTracker(projectConfiguration(), "JWB", subject.services, "release"),
-  ).rejects.toThrow(
+  await expect(executionTracker(SITE, "JWB", subject.services, "release")).rejects.toThrow(
     `Not signed in to Jira at ${SITE}; run interlock login jira or set JIRA_USER_EMAIL and JIRA_API_TOKEN`,
   );
   expect(subject.jira.calls).toEqual([]);

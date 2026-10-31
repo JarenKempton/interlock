@@ -8,8 +8,7 @@ the linked artifact. Do not rewrite descriptions or post summaries to narrate
 work already documented elsewhere. Child tickets inherit map context.
 
 Resolution requires the configured completion gates and an artifact link.
-A comment is not an inherent resolution requirement; organization policy
-governs enabling comments. Prompts do not independently authorize closure or
+A comment is not an inherent resolution requirement. Prompts do not independently authorize closure or
 tracker writes.
 
 Claim ownership belongs in structured storage, not comments. Verification and
@@ -30,5 +29,3 @@ This is a policy decision, not evidence that every adapter enforces it.
 [Tracker implementations](../../src/adapters/trackers/) and their tests
 determine supported behavior. Existing comments are history; this decision
 does not authorize deleting them or invalidate in-flight ownership records.
-See [organization policy](0003-organization-policy-and-enforced-configuration.md)
-for the authority boundary.
