@@ -18,6 +18,8 @@ import {
 
 const base = process.argv[2];
 if (!base) throw new Error("Usage: bun scripts/check-contracts.ts <base-ref>");
+if (Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `${base}^{commit}`]).exitCode !== 0)
+  throw new Error(`Base ref ${base} is not a commit; fetch it first`);
 
 function show(path: string): string | undefined {
   const result = Bun.spawnSync(["git", "show", `${base}:contracts/${path}`]);
@@ -76,7 +78,12 @@ for (const [file, hash] of Object.entries(baseHashes)) {
     failures.push(`${file}: hash-locked snapshot changed`);
     continue;
   }
-  const before = resolved(`${base}:${file}`, JSON.parse(show(file) ?? "{}"), baseDefinitions);
+  const baseFile = show(file);
+  if (baseFile === undefined) {
+    failures.push(`${base}:${file}: listed in base hashes but unreadable`);
+    continue;
+  }
+  const before = resolved(`${base}:${file}`, JSON.parse(baseFile), baseDefinitions);
   const after = resolved(file, committedContract(file), headDefinitions);
   if (before === undefined || after === undefined) continue;
   const breaking = contractBreakingChanges(before, after);

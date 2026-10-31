@@ -23,6 +23,7 @@ import {
   definitionsText,
   resolveContract,
 } from "../src/conformance/contracts.ts";
+import { laneSchema } from "../src/domain/lane.ts";
 import { McpServer } from "../src/mcp/server.ts";
 
 test("every committed current snapshot matches its zod schema", () => {
@@ -49,13 +50,22 @@ test("every committed shared definition matches its key and every snapshot resol
     expect(() => resolveContract(committedContract(file), definitions)).not.toThrow();
 });
 
-test("a removed Lane field in its shared definition fails every lane action using it", () => {
+test("a removed optional Lane field in its shared definition fails every lane action using it", () => {
   const surfaces = contractSurfaces();
   const before = contractSet(surfaces);
-  const laneKeys = Object.entries(before.definitions)
-    .filter(([, value]) => JSON.stringify(value).startsWith('{"type":"object","properties":{"id"'))
-    .filter(([, value]) => JSON.stringify(value).includes('"attentionReason"'))
-    .map(([key]) => key);
+  const fields = Object.keys(laneSchema.shape);
+  const field = Object.entries(laneSchema.shape).find(([, schema]) => schema.isOptional())?.[0];
+  if (!field) throw new Error("Lane has no optional field");
+  const laneKeys = Object.keys(before.definitions).filter((key) => {
+    const resolved = resolveContract({ $ref: `definitions.json#/${key}` }, before.definitions);
+    const properties = z
+      .object({ properties: z.record(z.string(), z.unknown()) })
+      .safeParse(resolved);
+    return (
+      properties.success &&
+      JSON.stringify(Object.keys(properties.data.properties)) === JSON.stringify(fields)
+    );
+  });
   expect(laneKeys).toHaveLength(1);
   const lane = JSON.stringify(
     resolveContract({ $ref: `definitions.json#/${laneKeys[0]}` }, before.definitions),
@@ -65,7 +75,7 @@ test("a removed Lane field in its shared definition fails every lane action usin
     if (typeof node !== "object" || node === null) return node;
     const value = JSON.stringify(node) === lane ? structuredClone(node) : node;
     if (value !== node && "properties" in value && typeof value.properties === "object")
-      Reflect.deleteProperty(value.properties ?? {}, "attentionReason");
+      Reflect.deleteProperty(value.properties ?? {}, field);
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [
         key,
@@ -99,7 +109,9 @@ test("a removed Lane field in its shared definition fails every lane action usin
   );
   expect(failing.map((surface) => surface.name)).toEqual(usingLane.map((surface) => surface.name));
   for (const surface of usingLane)
-    expect(before.texts.get(contractFileName(surface))).not.toContain("attentionReason");
+    expect(
+      JSON.stringify(JSON.parse(before.texts.get(contractFileName(surface)) ?? "")),
+    ).not.toContain(lane.slice(1, -1));
 });
 
 test("unresolved, cyclic and tampered shared definitions fail closed", () => {
@@ -207,6 +219,17 @@ describe("contract classifier", () => {
     expect(
       breakingChanges({ oneOf: [a, b] }, { oneOf: [b, { anyOf: [a] }] }).length,
     ).toBeGreaterThan(0);
+  });
+
+  test("a union branch edit is attributed by the separating discriminator", () => {
+    const branch = (kind: string, value: Record<string, unknown>) =>
+      object({ version: { const: 1 }, kind: { const: kind }, ...value }, ["version", "kind"]);
+    expect(
+      breakingChanges(
+        { oneOf: [branch("a", {}), branch("b", { name })] },
+        { oneOf: [branch("a", {}), branch("b", {})] },
+      ),
+    ).toEqual(["$|1.name: removed"]);
   });
 
   test("a discriminated oneOf compares branches by discriminator", () => {

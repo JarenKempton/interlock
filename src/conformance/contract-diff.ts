@@ -56,9 +56,8 @@ function discriminator(option: unknown, name: string): string | undefined {
     : undefined;
 }
 
-function disjoint(options: unknown[]): boolean {
-  const names = Object.keys(schema(schema(options[0]).properties));
-  return names.some((name) => {
+function separators(options: unknown[]): string[] {
+  return Object.keys(schema(schema(options[0]).properties)).filter((name) => {
     const values = options.map((option) => discriminator(option, name));
     return values.every((value) => value !== undefined) && new Set(values).size === values.length;
   });
@@ -161,7 +160,7 @@ export function breakingChanges(
     if (
       union === "oneOf" &&
       key(old[union]) !== key(next[union]) &&
-      !(disjoint(previous) && disjoint(options))
+      !(separators(previous).length > 0 && separators(options).length > 0)
     ) {
       changes.push(`${path}: unclassified change to oneOf`);
       continue;
@@ -172,7 +171,7 @@ export function breakingChanges(
       )
         continue;
       const counterpart = options.find((candidate) =>
-        Object.keys(schema(schema(option).properties)).some((name) => {
+        separators(previous).some((name) => {
           const value = discriminator(option, name);
           return value !== undefined && value === discriminator(candidate, name);
         }),
