@@ -161,7 +161,7 @@ export class GitHubArtifactHost implements ArtifactHost {
     return mergeProofSchema.parse({
       merged: view.merged,
       url,
-      repository: `github.com/${repository}`,
+      repository: normalizeClaimHome(`https://github.com/${repository}.git`).identity,
       branch: view.head.ref,
       head: view.head.sha,
       base: view.base.ref,
