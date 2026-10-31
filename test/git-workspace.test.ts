@@ -16,13 +16,16 @@ class FakeGit implements GitCommandExecutor {
   readonly calls: { argv: readonly string[]; cwd: string }[] = [];
   worktrees = "";
   branchExists = false;
+  fetchFails = false;
   remote = "git@example.test:team/repo.git";
 
   async run(argv: readonly string[], cwd: string) {
     this.calls.push({ argv, cwd });
     const command = argv.join(" ");
     if (command === "git rev-parse --show-toplevel") return ok(cwd);
-    if (command === "git rev-parse --verify origin/main") return ok("abc");
+    if (command === "git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main")
+      return this.fetchFails ? fail("could not read from remote") : ok("");
+    if (command === "git rev-parse --verify refs/remotes/origin/main^{commit}") return ok("abc");
     if (command === "git remote get-url origin") return ok(this.remote);
     if (command === "git worktree list --porcelain") return ok(this.worktrees);
     if (command.startsWith("git show-ref")) return this.branchExists ? ok("") : fail();
@@ -52,7 +55,7 @@ const repository: RepositorySpec = {
   remote: "git@example.test:team/repo.git",
   path: "/source/repo",
   worktreeRoot: "/worktrees",
-  baseBranch: "origin/main",
+  baseBranch: "main",
 };
 const repositoryPath = resolve(repository.path);
 const ticket: Ticket = {
@@ -182,7 +185,19 @@ describe("Git workspace adapter", () => {
       path: worktreePath,
       branch,
     });
-    expect(created.git.calls.some((call) => call.argv[3] === "-b")).toBeTrue();
+    expect(created.git.calls).toContainEqual({
+      argv: [
+        "git",
+        "worktree",
+        "add",
+        "--no-track",
+        "-b",
+        branch,
+        worktreePath,
+        "refs/remotes/origin/main",
+      ],
+      cwd: repositoryPath,
+    });
 
     const existing = subject();
     existing.git.branchExists = true;
@@ -191,6 +206,21 @@ describe("Git workspace adapter", () => {
       argv: ["git", "worktree", "add", worktreePath, branch],
       cwd: repositoryPath,
     });
+  });
+
+  test("refreshBase fetches the origin base and fails closed before any worktree when it cannot", async () => {
+    const readOnly = subject();
+    await readOnly.workspace.preflight(ticket);
+    expect(readOnly.git.calls.some((call) => call.argv[1] === "fetch")).toBeFalse();
+    const fetched = subject();
+    await fetched.workspace.refreshBase();
+    expect(fetched.git.calls.map((call) => call.argv.join(" "))).toContain(
+      "git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main",
+    );
+    const offline = subject();
+    offline.git.fetchFails = true;
+    await expect(offline.workspace.refreshBase()).rejects.toThrow("Cannot fetch main from origin");
+    expect(offline.git.calls.some((call) => call.argv[1] === "worktree")).toBeFalse();
   });
 
   test("parses CRLF porcelain output and retains prunable metadata", () => {

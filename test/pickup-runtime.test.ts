@@ -1320,3 +1320,85 @@ test(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test(
+  "a stale local base does not leak into the task branch: it starts at the fetched origin tip",
+  async () => {
+    const f = await fixture();
+    const alice = f.remote.alice;
+    const run = async (...argv: string[]) => checkedGit(f.git, argv, alice);
+    const stale = (await run("rev-parse", "HEAD")).trim();
+    await run(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "landed on origin",
+    );
+    await run("push", "--quiet", "origin", "main");
+    const tip = (await run("rev-parse", "HEAD")).trim();
+    await run("reset", "--quiet", "--hard", stale);
+    await run("update-ref", "refs/remotes/origin/main", stale);
+    const result = await createApplication(f.services).pickup.execute(f.input);
+    expect(result.state).toBe("claimed");
+    expect((await checkedGit(f.git, ["rev-parse", "HEAD"], f.worktree)).trim()).toBe(tip);
+    expect((await run("rev-parse", "main")).trim()).toBe(stale);
+    expect(
+      (await f.git.run(["git", "rev-parse", "--abbrev-ref", "task/TEST-492@{upstream}"], alice))
+        .exitCode,
+    ).not.toBe(0);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a failed base fetch refuses pickup before any claim, mirror write or worktree",
+  async () => {
+    const f = await fixture();
+    const git = f.git;
+    f.services.execution = {
+      ...f.services.execution,
+      git: {
+        async run(argv, cwd) {
+          if (argv[1] === "fetch" && argv.at(-1)?.startsWith("+refs/heads/"))
+            return { exitCode: 128, stdout: "", stderr: "fatal: unable to access origin" };
+          return git.run(argv, cwd);
+        },
+      },
+    };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "Cannot fetch main from origin",
+    );
+    expect((await lock(f).read(ref)).version).toBe("absent");
+    expect(f.jira.property).toBeNull();
+    expect(existsSync(f.worktree)).toBe(false);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "dry-run makes no base fetch of its own",
+  async () => {
+    const f = await fixture();
+    const fetches: string[][] = [];
+    const git = f.git;
+    f.services.execution = {
+      ...f.services.execution,
+      git: {
+        async run(argv, cwd) {
+          if (argv[1] === "fetch") fetches.push([...argv]);
+          return git.run(argv, cwd);
+        },
+      },
+    };
+    await createApplication(f.services).pickup.execute({ ...f.input, "dry-run": true });
+    expect(fetches.filter((argv) => argv.at(-1)?.startsWith("+refs/heads/"))).toEqual([]);
+    await createApplication(f.services).pickup.execute(f.input);
+    expect(fetches.filter((argv) => argv.at(-1)?.startsWith("+refs/heads/"))).toHaveLength(1);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
