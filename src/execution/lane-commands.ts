@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
-import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
+import { BunGitCommandExecutor, GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
 import { defineAction } from "../cli/definition.ts";
 import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { ticketRefSchema } from "../domain/identifiers.ts";
@@ -10,6 +10,7 @@ import type { RuntimeServices } from "../runtime-services.ts";
 import { LaneService } from "./lane.ts";
 import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
+import { RecordedRetirementAuthority } from "./retirement-authority.ts";
 import { RecordedSubmissionAuthority } from "./submission.ts";
 
 function exitCode(output: unknown): number {
@@ -24,6 +25,49 @@ export function laneActions(services: RuntimeServices) {
       store,
       tracker: services.lane?.tracker ?? signedInLaneTracker(services),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
+      workspaces: services.lane?.workspaces ?? {
+        prepare: async (identity, proof) => {
+          await (
+            services.lane?.retirementAuthority ??
+            new RecordedRetirementAuthority(
+              store,
+              services.execution?.git ?? new BunGitCommandExecutor(),
+            )
+          ).verify(identity, proof.repository, identity.path);
+          return GitWorkspaceAdapter.prepareRetirement(identity, proof, services.execution?.git);
+        },
+        verify: async (record) => {
+          await (
+            services.lane?.retirementAuthority ??
+            new RecordedRetirementAuthority(
+              store,
+              services.execution?.git ?? new BunGitCommandExecutor(),
+            )
+          ).verify(record.plan, record.plan.proof.repository, record.plan.repositoryPath);
+        },
+        retire: async (record, advance) => {
+          await (
+            services.lane?.retirementAuthority ??
+            new RecordedRetirementAuthority(
+              store,
+              services.execution?.git ?? new BunGitCommandExecutor(),
+            )
+          ).verify(record.plan, record.plan.proof.repository, record.plan.repositoryPath);
+          return GitWorkspaceAdapter.retire(
+            record,
+            advance,
+            () =>
+              (
+                services.lane?.retirementAuthority ??
+                new RecordedRetirementAuthority(
+                  store,
+                  services.execution?.git ?? new BunGitCommandExecutor(),
+                )
+              ).fence(record.plan, record.plan.proof.repository, record.plan.repositoryPath),
+            services.execution?.git,
+          );
+        },
+      },
       submissions:
         services.lane?.submissions ??
         new RecordedSubmissionAuthority(
@@ -164,7 +208,8 @@ export function laneActions(services: RuntimeServices) {
       exitCode,
     }),
     complete: defineAction({
-      description: "Complete a merged lane after tracker readback verifies the ticket is done.",
+      description:
+        "Move a merged lane's ticket to Done, verify it by readback, remove its clean merged worktree and branch, and close the lane.",
       input: { lane, state },
       handler: (input) =>
         apply(input.lane, input.state, { type: "complete", trackerDoneVerified: false }),

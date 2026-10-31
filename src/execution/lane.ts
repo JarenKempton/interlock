@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import {
   AmbiguousTrackerResultError,
   ArtifactLinkConflictError,
@@ -18,6 +20,14 @@ import {
 } from "../domain/lane.ts";
 import type { LaneRef, Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
+import {
+  type LaneWorkspaces,
+  type MergeProof,
+  mergeProofSchema,
+  type RetirementIdentity,
+  RetirementRefusal,
+  retirementIdentitySchema,
+} from "../domain/retirement.ts";
 import {
   type SubmissionAuthority,
   SubmissionRefusal,
@@ -62,7 +72,10 @@ export interface ArtifactHost {
   push(target: ArtifactTarget): Promise<void>;
   pullRequests(target: ArtifactTarget, key?: string): Promise<PullRequest[]>;
   open(target: ArtifactTarget, request: ArtifactRequest): Promise<PullRequest>;
+  merged?(url: string): Promise<MergeProof>;
 }
+
+export type { LaneWorkspaces } from "../domain/retirement.ts";
 
 export interface LaneSubmitInput {
   head: string;
@@ -72,9 +85,21 @@ export interface LaneSubmitInput {
 }
 
 export interface LaneServiceOptions {
-  store: Pick<StateStore, "saveLane" | "findLane" | "listLanes" | "laneForTicket" | "run">;
+  store: Pick<
+    StateStore,
+    | "saveLane"
+    | "findLane"
+    | "listLanes"
+    | "laneForTicket"
+    | "run"
+    | "claim"
+    | "retirement"
+    | "beginRetirement"
+    | "advanceRetirement"
+  >;
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
+  workspaces?: LaneWorkspaces;
   submissions?: SubmissionAuthority;
   clock?: { now(): Date };
   newId?: () => LaneRef;
@@ -99,6 +124,7 @@ export class LaneService {
   readonly #store: LaneServiceOptions["store"];
   readonly #tracker: LaneTrackerPort | undefined;
   readonly #artifacts: ArtifactHost | undefined;
+  readonly #workspaces: LaneWorkspaces | undefined;
   readonly #submissions: SubmissionAuthority | undefined;
   readonly #clock: { now(): Date };
   readonly #newId: () => LaneRef;
@@ -107,6 +133,7 @@ export class LaneService {
     this.#store = options.store;
     this.#tracker = options.tracker;
     this.#artifacts = options.artifacts;
+    this.#workspaces = options.workspaces;
     this.#submissions = options.submissions;
     this.#clock = options.clock ?? { now: () => new Date() };
     this.#newId = options.newId ?? (() => laneRefSchema.parse(`interlock-lane:${randomUUID()}`));
@@ -303,53 +330,196 @@ export class LaneService {
         },
       };
     }
-    let verified = false;
-    if (!lane.ticket) {
-      verified = true;
-    } else {
-      if (!this.#tracker)
-        return fail(
-          "unsupported_capability",
-          "Completing a ticket lane requires a tracker readback",
-        );
-      let readback: TrackerRead;
+    let identity: RetirementIdentity;
+    try {
+      identity = await this.#retirementIdentity(lane);
+    } catch (error) {
+      return fail("workspace_unknown", errorMessage(error, "Lane ownership is not verified"));
+    }
+    if (!this.#artifacts?.merged || !this.#workspaces)
+      return fail(
+        "unsupported_capability",
+        "Completion requires merge readback and recoverable workspace cleanup",
+      );
+    let proof: MergeProof;
+    try {
+      proof = mergeProofSchema.parse(await this.#artifacts.merged(identity.artifact));
+    } catch {
+      return fail("artifact_host_unavailable", `Could not verify ${identity.artifact}`);
+    }
+    if (!proof.merged)
+      return fail(
+        "pull_request_unmerged",
+        `Pull request is not merged; ${identity.path} and ${identity.branch} are left`,
+      );
+    if (
+      proof.head !== identity.head ||
+      proof.branch !== identity.branch ||
+      proof.url !== identity.artifact
+    )
+      return fail(
+        "artifact_mismatch",
+        "Merged pull request does not match the lane's submitted branch and head",
+      );
+    let record = this.#store.retirement(lane.id);
+    try {
+      if (record) {
+        const saved = retirementIdentitySchema.parse(record.plan);
+        if (
+          JSON.stringify({ ...identity, path: resolve(identity.path) }) !==
+            JSON.stringify({ ...saved, path: resolve(saved.path) }) ||
+          JSON.stringify(record.plan.proof) !== JSON.stringify(proof)
+        )
+          return fail(
+            "workspace_unknown",
+            "Retirement identity or merge proof changed; manual recovery required",
+          );
+      } else {
+        const plan = await this.#workspaces.prepare(identity, proof);
+        const done = await this.#verifyDone(lane);
+        if (!done.ok) return done;
+        await this.#retirementIdentity(lane);
+        record = this.#store.beginRetirement(plan);
+      }
+      await this.#workspaces.verify(record);
+      const done = await this.#verifyDone(lane);
+      if (!done.ok) return done;
+      await this.#retirementIdentity(lane);
+      await this.#workspaces.retire(record, (phase) =>
+        this.#store.advanceRetirement(lane.id, phase),
+      );
+    } catch (error) {
+      return fail(
+        error instanceof RetirementRefusal
+          ? error.code
+          : record
+            ? "cleanup_pending"
+            : "workspace_unknown",
+        `${errorMessage(error, "Cleanup failed")}; inspect ${identity.path} and ${identity.branch}; retained commits and retirement intent are preserved`,
+      );
+    }
+    const transition = transitionLane(
+      lane,
+      { type: "complete", trackerDoneVerified: true },
+      this.#clock.now().toISOString(),
+    );
+    this.#store.saveLane(transition.lane);
+    return transition.refusal
+      ? { ok: false, refusal: transition.refusal }
+      : {
+          ok: true,
+          value: transition.lane,
+          retirement: {
+            preservedFiles: join(
+              record.plan.commonDirectory,
+              "interlock-retired",
+              record.plan.retainedRef.split("/").at(-1) ?? "",
+              "files",
+            ),
+            retainedRef: record.plan.retainedRef,
+          },
+        };
+  }
+
+  async #retirementIdentity(lane: Lane): Promise<RetirementIdentity> {
+    const current = this.#store.findLane(lane.id);
+    if (
+      current?.state !== "merged" ||
+      current.run !== lane.run ||
+      current.claim !== lane.claim ||
+      current.head !== lane.head ||
+      current.artifact !== lane.artifact ||
+      current.ticket !== lane.ticket
+    )
+      throw new Error("Lane changed during completion");
+    if (!lane.run || !lane.claim) throw new Error("Lane has no recorded run and claim");
+    const run = this.#store.run(lane.run);
+    const claim = this.#store.claim(lane.claim);
+    if (run.status !== "claimed" || claim.status !== "active")
+      throw new Error(
+        `Run ${run.ref} is ${run.status}, claim ${claim.ref} is ${claim.status}; cleanup refused`,
+      );
+    if (
+      claim.run !== run.ref ||
+      claim.ticket !== run.ticket ||
+      (lane.ticket && lane.ticket !== run.ticket)
+    )
+      throw new Error("Lane, run and claim ticket identities do not match");
+    for (const other of this.#store.listLanes()) {
+      if (other.id === lane.id) continue;
+      if (other.run === lane.run || other.claim === lane.claim)
+        throw new Error(`Run or claim is shared with lane ${other.id}`);
+      if (other.run && other.state !== "done") {
+        const workspace = this.#store.run(other.run).workspace;
+        const canonical = async (path: string) =>
+          realpath(path).catch((error: unknown) => {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT")
+              return resolve(path);
+            throw error;
+          });
+        if ((await canonical(workspace.path)) === (await canonical(run.workspace.path)))
+          throw new Error(`Workspace is owned by lane ${other.id}`);
+      }
+    }
+    return retirementIdentitySchema.parse({
+      lane: lane.id,
+      run: run.ref,
+      claim: claim.ref,
+      ticket: run.ticket,
+      path: run.workspace.path,
+      branch: run.workspace.branch,
+      head: lane.head,
+      artifact: lane.artifact,
+    });
+  }
+
+  async #verifyDone(lane: Lane): Promise<LaneResult<true>> {
+    if (!lane.ticket) return ok(true);
+    const tracker = this.#tracker;
+    if (!tracker)
+      return fail("unsupported_capability", "Completing a ticket lane requires a tracker readback");
+    const ticket = lane.ticket;
+    const read = async (): Promise<LaneResult<boolean>> => {
       try {
-        readback = await this.#tracker.read(lane.ticket);
+        const readback = (await tracker.read(ticket)).ticket;
+        if (readback.ref !== ticket)
+          return fail("tracker_not_done", "Tracker returned another ticket");
+        return ok(trackerTicketIsDone(readback));
       } catch (error) {
         if (error instanceof TrackerUnavailableError)
           return fail("tracker_unavailable", error.message);
         return fail("tracker_not_done", "Tracker readback failed; lane remains merged");
       }
-      if (trackerTicketIsDone(readback.ticket)) {
-        verified = true;
-      } else {
-        if (!this.#tracker.transition)
-          return fail("unsupported_capability", "Tracker cannot mark the ticket done");
-        try {
-          await this.#tracker.transition(lane.ticket, "Done");
-        } catch {
-          return fail("ambiguous_write", "Tracker done transition failed; lane remains merged");
-        }
-        try {
-          readback = await this.#tracker.read(lane.ticket);
-        } catch {
-          return fail(
-            "tracker_not_done",
-            "Tracker readback after done transition failed; lane remains merged",
-          );
-        }
-        if (!trackerTicketIsDone(readback.ticket))
-          return fail("tracker_not_done", "Tracker readback has not verified the ticket is done");
-        verified = true;
-      }
+    };
+    const before = await read();
+    if (!before.ok) return before;
+    if (before.value) return ok(true);
+    if (!tracker.transition)
+      return fail("unsupported_capability", "Tracker cannot mark the ticket done");
+    let failure: unknown;
+    try {
+      await tracker.transition(ticket, "Done");
+    } catch (error) {
+      failure = error ?? new Error("Tracker done transition failed");
     }
-    const transition = transitionLane(
-      lane,
-      { type: "complete", trackerDoneVerified: verified },
-      this.#clock.now().toISOString(),
-    );
-    this.#store.saveLane(transition.lane);
-    return transition.refusal ? { ok: false, refusal: transition.refusal } : ok(transition.lane);
+    const after = await read();
+    if (after.ok && after.value) return ok(true);
+    if (failure instanceof AmbiguousTrackerResultError || (failure && !after.ok))
+      return fail(
+        "ambiguous_write",
+        "Tracker done transition was not verified; lane remains merged",
+      );
+    if (failure)
+      return fail(
+        "tracker_write_failed",
+        errorMessage(failure, "Tracker done transition failed; lane remains merged"),
+      );
+    if (!after.ok)
+      return fail(
+        "tracker_not_done",
+        "Tracker readback after done transition failed; lane remains merged",
+      );
+    return fail("tracker_not_done", "Tracker readback has not verified the ticket is done");
   }
 }
 
