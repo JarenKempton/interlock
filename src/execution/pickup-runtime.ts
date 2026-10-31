@@ -20,7 +20,12 @@ import {
 } from "../configuration/files.ts";
 import { readUserSettings } from "../configuration/local-settings.ts";
 import { resolveSharedConfiguration, sharedConfiguration } from "../configuration/project-files.ts";
-import { type ExecutionConfiguration, reviewChoicesFrom } from "../configuration/schema.ts";
+import {
+  type ExecutionConfiguration,
+  REVIEWER_CHOICE_KEYS,
+  reviewChoicesFrom,
+  type UserSettings,
+} from "../configuration/schema.ts";
 import { RELEASE_BUILD } from "../distribution/version.ts";
 import type { ClaimHome } from "../domain/claim-home.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
@@ -123,6 +128,25 @@ export interface PickupInput {
   state?: string | undefined;
   t3Catalog: string;
   dryRun?: boolean | undefined;
+}
+
+export class PickupRefusal extends Error {
+  constructor(
+    readonly code: "reviewers_unset",
+    message: string,
+  ) {
+    super(`${code}: ${message}`);
+  }
+}
+
+function requireReviewersForReviewerChoices(user: UserSettings) {
+  if (user.reviewers) return;
+  const chosen = REVIEWER_CHOICE_KEYS.filter((key) => user[key] !== undefined);
+  if (chosen.length)
+    throw new PickupRefusal(
+      "reviewers_unset",
+      `${chosen.join(", ")} ${chosen.length > 1 ? "are" : "is"} set but reviewers is empty, so no review would run; set reviewers with interlock config edit --set reviewers LENSES or clear each with --follow KEY`,
+    );
 }
 
 export function executionStatePath(services: RuntimeServices, state?: string): string {
@@ -277,6 +301,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     input.config ?? "interlock.toml",
   );
   const user = readUserSettings(statePath);
+  requireReviewersForReviewerChoices(user);
   const configuration = resolveSharedConfiguration(
     configPath,
     sharedConfiguration(configPath, input.config !== undefined),

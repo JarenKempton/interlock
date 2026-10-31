@@ -1288,6 +1288,25 @@ test(
 );
 
 test(
+  "a reviewer setting without reviewers refuses before any claim, workspace or tracker change",
+  async () => {
+    const f = await fixture();
+    await configurationOperations({ cwd: f.root, statePath: f.state }).edit({
+      set: ["reviewer_model", "review-model"],
+    });
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+      code: "reviewers_unset",
+      message: expect.stringContaining("reviewer_model is set but reviewers is empty"),
+    });
+    expect(f.jira.calls).toEqual([]);
+    expect((await lock(f).read(ref)).version).toBe("absent");
+    expect(existsSync(f.worktree)).toBe(false);
+    expect(inspect(f, (s) => s.listRuns())).toEqual([]);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
   "a relative --state is embedded in the launch commands as the absolute ledger pickup used",
   async () => {
     const f = await fixture();
