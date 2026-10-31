@@ -111,7 +111,27 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   async preflight(ticket: Ticket): Promise<void> {
     workspaceIdentity(ticket.ref);
     await this.preflightRepository();
-    await this.#gitChecked(["git", "rev-parse", "--verify", this.#repository.baseBranch]);
+    const name = this.#baseName();
+    const fetched = await this.#runGit([
+      "git",
+      "fetch",
+      "--no-tags",
+      "origin",
+      `+refs/heads/${name}:${this.#baseRef()}`,
+    ]);
+    if (fetched.exitCode !== 0)
+      throw new WorkspaceConflictError(
+        `Cannot fetch ${name} from origin; new branches start from the current origin base: ${fetched.stderr.trim()}`,
+      );
+    await this.#gitChecked(["git", "rev-parse", "--verify", `${this.#baseRef()}^{commit}`]);
+  }
+
+  #baseName(): string {
+    return this.#repository.baseBranch.replace(/^(?:refs\/heads\/|origin\/)/, "");
+  }
+
+  #baseRef(): string {
+    return `refs/remotes/origin/${this.#baseName()}`;
   }
 
   async preflightRepository(): Promise<void> {
@@ -190,10 +210,11 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
           "git",
           "worktree",
           "add",
+          "--no-track",
           "-b",
           canonical.branch,
           canonical.path,
-          this.#repository.baseBranch,
+          this.#baseRef(),
         ];
     await this.#gitChecked(argv);
 
