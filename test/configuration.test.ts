@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import { describeAction, registeredActions } from "../src/cli/catalog.ts";
 import { run } from "../src/cli.ts";
@@ -648,8 +648,8 @@ test("version 1 receipts retain their historical resolution contract", () => {
   expect(executionTarget(validateExecutionConfiguration(withRepository), "app")).toEqual({
     repository: {
       name: "app",
-      path: "/historical/app",
-      worktreeRoot: "/historical/worktrees",
+      path: resolvePath("/historical/app"),
+      worktreeRoot: resolvePath("/historical/worktrees"),
       baseBranch: "main",
       remote: "https://github.com/o/app.git",
     },
