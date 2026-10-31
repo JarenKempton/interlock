@@ -26,6 +26,7 @@ import {
   type ResolvedConfiguration,
   resolveConfiguration,
   resolvedConfigurationSchema,
+  reviewChoicesFrom,
   type UserSettings,
 } from "./schema.ts";
 
@@ -35,6 +36,15 @@ export const configurationOutputSchema = z.strictObject({
   action: z.enum(["initialized", "configuration", "edited"]),
   path: z.string(),
   configuration: resolvedConfigurationSchema,
+  review: z
+    .strictObject({
+      source: z.literal("user"),
+      lenses: z.array(z.string()),
+      agent: z.string().optional(),
+      model: z.string().optional(),
+      effort: z.string().optional(),
+    })
+    .optional(),
 });
 export type ConfigurationOutput = z.infer<typeof configurationOutputSchema>;
 export interface ConfigurationPlatformOptions {
@@ -72,7 +82,18 @@ export function configurationOperations(options: ConfigurationPlatformOptions) {
     action: ConfigurationOutput["action"],
     path: string,
     configuration: ConfigurationOutput["configuration"],
-  ): ConfigurationOutput => ({ version: 2, action, path, configuration });
+    user = readUserSettings(storePath()),
+  ): ConfigurationOutput => {
+    const review = reviewChoicesFrom(user);
+    const chosen = review.lenses.length > 0 || Object.keys(review).length > 1;
+    return {
+      version: 2,
+      action,
+      path,
+      configuration,
+      ...(chosen ? { review: { source: "user", ...review } } : {}),
+    };
+  };
   return {
     async init(input: InitConfigurationInput) {
       const path = pathFor(input);
@@ -120,7 +141,7 @@ export function configurationOperations(options: ConfigurationPlatformOptions) {
             resolved(path, content, next);
             return next;
           });
-          return output("edited", path, resolved(path, content, user));
+          return output("edited", path, resolved(path, content, user), user);
         } finally {
           store.close();
         }

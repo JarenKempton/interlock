@@ -16,6 +16,6 @@
     "additionalProperties": false
   },
   "output": {
-    "$ref": "definitions.json#/38c8f4acb6d22af0c5c188bd26c7d63fa8241d2151446bfc8dd7d5f5fa3ea81e"
+    "$ref": "definitions.json#/b0389e8b8426e0f21c793d3dcc1d1294a1e30278adecf7d02555858982a9ea52"
   }
 }

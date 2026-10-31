@@ -657,3 +657,23 @@ test("version 1 receipts retain their historical resolution contract", () => {
     claimedStatus: "In Progress",
   });
 });
+
+test("config show and edit report review choices from user settings, and --follow clears them", async () => {
+  const f = fixture();
+  expect((await f.ops.show(input)).review).toBeUndefined();
+  await f.ops.edit({ set: ["reviewers", "correctness, security"] });
+  const edited = await f.ops.edit({ set: ["reviewer_model", "review-model"] });
+  expect(edited.review).toEqual({
+    source: "user",
+    lenses: ["correctness", "security"],
+    model: "review-model",
+  });
+  expect((await f.ops.show(input)).review).toEqual(edited.review);
+  await f.ops.edit({ follow: "reviewers" });
+  expect((await f.ops.show(input)).review).toEqual({
+    source: "user",
+    lenses: [],
+    model: "review-model",
+  });
+  expect((await f.ops.edit({ follow: "all" })).review).toBeUndefined();
+});
