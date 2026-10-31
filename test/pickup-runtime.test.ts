@@ -1090,3 +1090,22 @@ async function configureUserHome(f: Awaited<ReturnType<typeof fixture>>, value: 
     set: ["claim-home", value],
   });
 }
+
+test(
+  "an outward blocks link added during planning does not change pickup",
+  async () => {
+    const f = await fixture();
+    let reads = 0;
+    f.jira.fail = (method, path, after) => {
+      if (!after && method === "GET" && path.includes(`/issue/TEST-492?`) && ++reads === 3)
+        f.jira.issue.fields.issuelinks.push({
+          type: { inward: "is blocked by", outward: "blocks" },
+          outwardIssue: { key: "TEST-493", fields: { status: { name: "To Do" } } },
+        });
+    };
+    const picked = await createApplication(f.services).pickup.execute(f.input);
+    expect(reads).toBeGreaterThan(3);
+    expect(picked).toMatchObject({ state: "claimed" });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);

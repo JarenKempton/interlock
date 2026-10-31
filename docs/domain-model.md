@@ -16,7 +16,8 @@ and the contracts below define the portable contract. Adapters translate vendor 
 | claim | `interlock-claim:<id>` | Ownership held by the claim lock, mirrored by the tracker |
 
 Qualification prevents collisions across tracker installations. A ticket
-belongs to one map; its blockers can sit in other maps.
+belongs to one map; its blockers can sit in other maps. A ticket lists its
+blockers as `dependencies` and the tickets it blocks as `dependents`.
 
 A claim names a human owner and a run, and retains the original tracker snapshot.
 A run never substitutes for its human assignee. See [claim semantics](claim-semantics.md).
@@ -62,7 +63,10 @@ any other head. `lane next` returns exactly one action for the lane's state.
 Lanes persist in the local ledger, with or without a ticket; a one-off lane
 can be promoted to a ticket. Merged lanes complete only after tracker
 readback verifies the ticket is done, marking it done first when the
-tracker's merge automation has not. Core owns the lane's one pull request:
+tracker's merge automation has not. Its result lists `unblocked`: the tickets
+it blocks that pickup's eligibility check now accepts under the run's recorded
+configuration. Computing the list only reads. A failed read reports the list
+as unknown, never as empty, and completion still succeeds. Core owns the lane's one pull request:
 `lane submit` pushes the head to the branch recorded for the lane's run
 workspace through the user's own Git and `gh` auth, opens or adopts the
 branch's pull request with the ticket key in its title, records the URL on
