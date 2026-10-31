@@ -5,6 +5,7 @@ import { parseRef } from "../domain/reference.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { lookupCredentials, savedSite, trackerSignIns } from "../sign-in/credentials.ts";
 import type { LaneTrackerPort } from "./lane.ts";
+import { jiraRankField } from "./pickup-runtime.ts";
 
 export function signedInLaneTracker(services: RuntimeServices): LaneTrackerPort {
   const adapter = async (ticket: TicketRef) => {
@@ -23,17 +24,24 @@ export function signedInLaneTracker(services: RuntimeServices): LaneTrackerPort 
           `Not signed in to Jira at ${site}; run interlock login jira`,
         );
       }));
-    return new JiraTrackerAdapter({ instance: ref.instance, workspace: ref.workspace, transport });
+    return { instance: ref.instance, workspace: ref.workspace, transport };
+  };
+  const jira = async (ticket: TicketRef) => new JiraTrackerAdapter(await adapter(ticket));
+  const reader = async (ticket: TicketRef) => {
+    const options = await adapter(ticket);
+    return new JiraTrackerAdapter({
+      ...options,
+      rankField: await jiraRankField(options.transport),
+    });
   };
   return {
     available: async (ticket) => {
       await adapter(ticket);
     },
-    read: async () => {
-      throw new TrackerUnavailableError("Lane tracker readback is not wired");
-    },
+    read: async (ticket) => (await reader(ticket)).read(ticket),
+    transition: async (ticket, status) => (await jira(ticket)).transition(ticket, status),
     link_artifact: async (ticket, url, title) =>
-      (await adapter(ticket)).link_artifact(ticket, url, title),
+      (await jira(ticket)).link_artifact(ticket, url, title),
   };
 }
 

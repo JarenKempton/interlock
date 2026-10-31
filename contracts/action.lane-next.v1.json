@@ -193,6 +193,22 @@
                 "additionalProperties": false
               }
             ]
+          },
+          "retirement": {
+            "type": "object",
+            "properties": {
+              "preservedFiles": {
+                "type": "string"
+              },
+              "retainedRef": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "preservedFiles",
+              "retainedRef"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -202,7 +218,7 @@
         "additionalProperties": false
       },
       {
-        "$ref": "definitions.json#/62e4a4507141f71f0755075092ba6b9ee9ca8f75f97ebefcf47c94a244fe8321"
+        "$ref": "definitions.json#/5dfdb1a8d17a817f464152783bc2c6e577bc2970bec61a40274e2e657bcc6a89"
       }
     ]
   }

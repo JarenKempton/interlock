@@ -22,6 +22,10 @@ export const laneRefusalCodeSchema = z.enum([
   "duplicate_artifact",
   "tracker_unavailable",
   "tracker_write_failed",
+  "pull_request_unmerged",
+  "workspace_dirty",
+  "branch_unmerged",
+  "cleanup_pending",
 ]);
 export type LaneRefusalCode = z.infer<typeof laneRefusalCodeSchema>;
 
@@ -29,13 +33,19 @@ const laneRefusalSchema = z.strictObject({ code: laneRefusalCodeSchema, message:
 
 export function laneResultSchema<T extends z.ZodType>(value: T) {
   return z.discriminatedUnion("ok", [
-    z.strictObject({ ok: z.literal(true), value }),
+    z.strictObject({
+      ok: z.literal(true),
+      value,
+      retirement: z
+        .strictObject({ preservedFiles: z.string(), retainedRef: z.string() })
+        .optional(),
+    }),
     z.strictObject({ ok: z.literal(false), refusal: laneRefusalSchema }),
   ]);
 }
 
 export type LaneResult<T> =
-  | { ok: true; value: T }
+  | { ok: true; value: T; retirement?: { preservedFiles: string; retainedRef: string } }
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
 
 export interface LaneIdentity {

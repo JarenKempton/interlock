@@ -152,6 +152,31 @@ export function repositorySpec(configuration: ResolvedConfiguration, name: strin
   };
 }
 
+async function jiraRead<T>(transport: JiraTransport, path: string, schema: z.ZodType<T>) {
+  const result = await transport.request("GET", `/rest/api/3/${path}`);
+  const parsed = schema.safeParse(result.body);
+  if (result.status !== 200 || !parsed.success) throw new Error(`Jira ${path} discovery failed`);
+  return parsed.data;
+}
+
+export async function jiraRankField(transport: JiraTransport): Promise<string> {
+  const fields = await jiraRead(
+    transport,
+    "field",
+    z.array(
+      z.object({
+        id: z.string(),
+        schema: z.object({ custom: z.string().optional() }).optional(),
+      }),
+    ),
+  );
+  const ranks = fields.filter(
+    (f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-lexo-rank",
+  );
+  if (ranks.length !== 1 || !ranks[0]) throw new Error("Jira Rank field is missing or ambiguous");
+  return ranks[0].id;
+}
+
 export async function executionTracker(
   configuration: ResolvedConfiguration,
   workspace: string,
@@ -172,30 +197,8 @@ export async function executionTracker(
       { site: site.origin, ...(await requireCredentials(services, "jira", adapter, site.origin)) },
       services.signIn?.http,
     );
-  const read = async <T>(path: string, schema: z.ZodType<T>): Promise<T> => {
-    const result = await transport.request("GET", `/rest/api/3/${path}`);
-    const parsed = schema.safeParse(result.body);
-    if (result.status !== 200 || !parsed.success) throw new Error(`Jira ${path} discovery failed`);
-    return parsed.data;
-  };
-  const discovery = async () => {
-    const fields = await read(
-      "field",
-      z.array(
-        z.object({
-          id: z.string(),
-          schema: z.object({ custom: z.string().optional() }).optional(),
-        }),
-      ),
-    );
-    const ranks = fields.filter(
-      (f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-lexo-rank",
-    );
-    if (ranks.length !== 1 || !ranks[0]) throw new Error("Jira Rank field is missing or ambiguous");
-    return { rankField: ranks[0].id };
-  };
-  const metadata = purpose === "pickup" ? await discovery() : {};
-  const myself = await read("myself", z.object({ accountId: actorRefSchema }));
+  const metadata = purpose === "pickup" ? { rankField: await jiraRankField(transport) } : {};
+  const myself = await jiraRead(transport, "myself", z.object({ accountId: actorRefSchema }));
   const instance = site.hostname.replace(/\.atlassian\.net$/, "");
   const options = {
     instance,

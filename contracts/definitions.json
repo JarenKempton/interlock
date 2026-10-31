@@ -182,6 +182,60 @@
     ],
     "additionalProperties": false
   },
+  "5dfdb1a8d17a817f464152783bc2c6e577bc2970bec61a40274e2e657bcc6a89": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean",
+        "const": false
+      },
+      "refusal": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "claim_collision",
+              "stale_version",
+              "unsupported_capability",
+              "ambiguous_write",
+              "invalid_transition",
+              "stale_evidence",
+              "recovery_required",
+              "gates_unmet",
+              "artifact_required",
+              "artifact_mismatch",
+              "tracker_not_done",
+              "lane_not_found",
+              "workspace_unknown",
+              "push_failed",
+              "artifact_host_unavailable",
+              "duplicate_artifact",
+              "tracker_unavailable",
+              "tracker_write_failed",
+              "pull_request_unmerged",
+              "workspace_dirty",
+              "branch_unmerged",
+              "cleanup_pending"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "ok",
+      "refusal"
+    ],
+    "additionalProperties": false
+  },
   "5e6b2e86ea878bcc578192dc63d11676606ed2967fc1e71629e428dc08065208": {
     "version": {
       "type": "number",
@@ -456,57 +510,7 @@
       "additionalProperties": false
     }
   },
-  "62e4a4507141f71f0755075092ba6b9ee9ca8f75f97ebefcf47c94a244fe8321": {
-    "type": "object",
-    "properties": {
-      "ok": {
-        "type": "boolean",
-        "const": false
-      },
-      "refusal": {
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "string",
-            "enum": [
-              "claim_collision",
-              "stale_version",
-              "unsupported_capability",
-              "ambiguous_write",
-              "invalid_transition",
-              "stale_evidence",
-              "recovery_required",
-              "gates_unmet",
-              "artifact_required",
-              "artifact_mismatch",
-              "tracker_not_done",
-              "lane_not_found",
-              "workspace_unknown",
-              "push_failed",
-              "artifact_host_unavailable",
-              "duplicate_artifact",
-              "tracker_unavailable",
-              "tracker_write_failed"
-            ]
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "message"
-        ],
-        "additionalProperties": false
-      }
-    },
-    "required": [
-      "ok",
-      "refusal"
-    ],
-    "additionalProperties": false
-  },
-  "79a42445b1d020fe30657230e6eacbdc2dea9d06a4008f8c8612829e7cf02bd8": {
+  "861048456ad2d99c384627b2c103188fd4ba61fd845cb7bc548ce36d5a956f65": {
     "oneOf": [
       {
         "type": "object",
@@ -517,6 +521,22 @@
           },
           "value": {
             "$ref": "definitions.json#/c778cd108d2d5c437976da93ed47d251b1be51fc371acd210d1ba1f349c33f7e"
+          },
+          "retirement": {
+            "type": "object",
+            "properties": {
+              "preservedFiles": {
+                "type": "string"
+              },
+              "retainedRef": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "preservedFiles",
+              "retainedRef"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -526,7 +546,7 @@
         "additionalProperties": false
       },
       {
-        "$ref": "definitions.json#/62e4a4507141f71f0755075092ba6b9ee9ca8f75f97ebefcf47c94a244fe8321"
+        "$ref": "definitions.json#/5dfdb1a8d17a817f464152783bc2c6e577bc2970bec61a40274e2e657bcc6a89"
       }
     ]
   },
