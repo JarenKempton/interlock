@@ -111,7 +111,10 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   async preflight(ticket: Ticket): Promise<void> {
     workspaceIdentity(ticket.ref);
     await this.preflightRepository();
-    const name = this.#baseName();
+  }
+
+  async refreshBase(): Promise<void> {
+    const name = this.#repository.baseBranch;
     const fetched = await this.#runGit([
       "git",
       "fetch",
@@ -126,12 +129,8 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
     await this.#gitChecked(["git", "rev-parse", "--verify", `${this.#baseRef()}^{commit}`]);
   }
 
-  #baseName(): string {
-    return this.#repository.baseBranch.replace(/^(?:refs\/heads\/|origin\/)/, "");
-  }
-
   #baseRef(): string {
-    return `refs/remotes/origin/${this.#baseName()}`;
+    return `refs/remotes/origin/${this.#repository.baseBranch}`;
   }
 
   async preflightRepository(): Promise<void> {

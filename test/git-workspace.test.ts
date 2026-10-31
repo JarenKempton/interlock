@@ -55,7 +55,7 @@ const repository: RepositorySpec = {
   remote: "git@example.test:team/repo.git",
   path: "/source/repo",
   worktreeRoot: "/worktrees",
-  baseBranch: "origin/main",
+  baseBranch: "main",
 };
 const repositoryPath = resolve(repository.path);
 const ticket: Ticket = {
@@ -208,17 +208,18 @@ describe("Git workspace adapter", () => {
     });
   });
 
-  test("preflight fetches the origin base and fails closed before any worktree when it cannot", async () => {
+  test("refreshBase fetches the origin base and fails closed before any worktree when it cannot", async () => {
+    const readOnly = subject();
+    await readOnly.workspace.preflight(ticket);
+    expect(readOnly.git.calls.some((call) => call.argv[1] === "fetch")).toBeFalse();
     const fetched = subject();
-    await fetched.workspace.preflight(ticket);
+    await fetched.workspace.refreshBase();
     expect(fetched.git.calls.map((call) => call.argv.join(" "))).toContain(
       "git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main",
     );
     const offline = subject();
     offline.git.fetchFails = true;
-    await expect(offline.workspace.preflight(ticket)).rejects.toThrow(
-      "Cannot fetch main from origin",
-    );
+    await expect(offline.workspace.refreshBase()).rejects.toThrow("Cannot fetch main from origin");
     expect(offline.git.calls.some((call) => call.argv[1] === "worktree")).toBeFalse();
   });
 

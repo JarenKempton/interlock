@@ -402,6 +402,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   };
   validateT3Catalog(catalog, clock.now());
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" } satisfies PickupResult;
+  await workspace.refreshBase();
   return withExecutionStore(services, statePath, async (store) => {
     let journalRun: RunRef | undefined;
     const mirror = new JiraTrackerAdapter({

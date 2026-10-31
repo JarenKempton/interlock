@@ -1360,3 +1360,26 @@ test(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test(
+  "dry-run makes no base fetch of its own",
+  async () => {
+    const f = await fixture();
+    const fetches: string[][] = [];
+    const git = f.git;
+    f.services.execution = {
+      ...f.services.execution,
+      git: {
+        async run(argv, cwd) {
+          if (argv[1] === "fetch") fetches.push([...argv]);
+          return git.run(argv, cwd);
+        },
+      },
+    };
+    await createApplication(f.services).pickup.execute({ ...f.input, "dry-run": true });
+    expect(fetches.filter((argv) => argv.at(-1)?.startsWith("+refs/heads/"))).toEqual([]);
+    await createApplication(f.services).pickup.execute(f.input);
+    expect(fetches.filter((argv) => argv.at(-1)?.startsWith("+refs/heads/"))).toHaveLength(1);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
