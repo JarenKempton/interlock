@@ -31,6 +31,12 @@ export type LaneRefusalCode = z.infer<typeof laneRefusalCodeSchema>;
 
 const laneRefusalSchema = z.strictObject({ code: laneRefusalCodeSchema, message: z.string() });
 
+const unblockedSchema = z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("known"), tickets: z.array(ticketRefSchema) }),
+  z.strictObject({ state: z.literal("unknown"), reason: z.string() }),
+]);
+export type Unblocked = z.infer<typeof unblockedSchema>;
+
 export function laneResultSchema<T extends z.ZodType>(value: T) {
   return z.discriminatedUnion("ok", [
     z.strictObject({
@@ -39,14 +45,11 @@ export function laneResultSchema<T extends z.ZodType>(value: T) {
       retirement: z
         .strictObject({ preservedFiles: z.string(), retainedRef: z.string() })
         .optional(),
+      unblocked: unblockedSchema.optional(),
     }),
     z.strictObject({ ok: z.literal(false), refusal: laneRefusalSchema }),
   ]);
 }
-
-export type Unblocked =
-  | { state: "known"; tickets: TicketRef[] }
-  | { state: "unknown"; reason: string };
 
 export type LaneResult<T> =
   | {

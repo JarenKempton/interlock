@@ -209,6 +209,47 @@
               "retainedRef"
             ],
             "additionalProperties": false
+          },
+          "unblocked": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "known"
+                  },
+                  "tickets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "state",
+                  "tickets"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "unknown"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            ]
           }
         },
         "required": [
