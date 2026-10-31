@@ -118,6 +118,17 @@ export class GitClaimLock implements RecoverableClaimLock {
     });
   }
 
+  async fenceRetirement(request: ClaimRequest, fencedClaim: ClaimRef): Promise<void> {
+    const state = await this.read(request.ticket);
+    const held = heldClaim(state);
+    if (!held || held.run !== request.run || held.owner !== request.owner)
+      throw new ClaimCollisionError("Retirement owner changed");
+    if (held.claim === fencedClaim) return;
+    if (held.claim !== request.claim || state.version !== request.expectedVersion)
+      throw new ClaimCollisionError("Retirement claim changed");
+    await this.#append(request.ticket, state, { ...held, claim: fencedClaim });
+  }
+
   async releasable(request: ReleaseClaimRequest): Promise<ClaimLockState> {
     const state = await this.#expect(request.ticket, request.expectedVersion);
     if (heldBy(state, request.claim).owner !== request.authorizedBy)

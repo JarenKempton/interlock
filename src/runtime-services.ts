@@ -1,7 +1,8 @@
 import type { ConfigurationPlatformOptions } from "./configuration/project-files.ts";
 import type { SubmissionAuthority } from "./domain/submission.ts";
-import type { ArtifactHost, LaneTrackerPort } from "./execution/lane.ts";
+import type { ArtifactHost, LaneTrackerPort, LaneWorkspaces } from "./execution/lane.ts";
 import type { ExecutionPlatform } from "./execution/pickup-runtime.ts";
+import type { RetirementAuthority } from "./execution/retirement-authority.ts";
 import type { SignInPlatform } from "./sign-in/credentials.ts";
 
 export interface RuntimeServices {
@@ -9,5 +10,11 @@ export interface RuntimeServices {
   statePath?: string;
   execution?: ExecutionPlatform;
   signIn?: SignInPlatform;
-  lane?: { tracker?: LaneTrackerPort; artifacts?: ArtifactHost; submissions?: SubmissionAuthority };
+  lane?: {
+    tracker?: LaneTrackerPort;
+    artifacts?: ArtifactHost;
+    workspaces?: LaneWorkspaces;
+    submissions?: SubmissionAuthority;
+    retirementAuthority?: RetirementAuthority;
+  };
 }

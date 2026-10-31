@@ -37,6 +37,9 @@ class FakeGit implements GitCommandExecutor {
 }
 
 class FakeFileSystem implements WorkspaceFileSystem {
+  async lock() {
+    return () => {};
+  }
   existing = new Set<string>();
 
   async exists(path: string) {

@@ -773,7 +773,7 @@ test("Jira mirror without read configuration cannot advertise or perform normali
     transport: api,
     claimHome: "github.com/jarenkempton/interlock",
   });
-  expect(await subject.describe()).toEqual({ link_artifact: true });
+  expect(await subject.describe()).toEqual({ link_artifact: true, transition: true });
   await expect(subject.read(ticket)).rejects.toThrow("normalized reads require");
   await expect(subject.list_work(map)).rejects.toThrow("normalized reads require");
   expect(api.requests).toEqual([]);
