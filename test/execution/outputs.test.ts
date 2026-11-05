@@ -18,15 +18,24 @@ function normalize(value: unknown, replacements: [string, string][]): unknown {
   return JSON.parse(
     JSON.stringify(value, (_key, item: unknown) => {
       if (typeof item !== "string") return item;
-      let text = item;
+      let text = item.replaceAll("\\", "/");
       for (const [from, to] of replacements) {
-        text = text.replaceAll(shellWord(from), to).replaceAll(from, to);
-        text = text.replaceAll(from.replaceAll("\\", "/"), to);
+        text = text
+          .replaceAll(shellWord(from).replaceAll("\\", "/"), to)
+          .replaceAll(from.replaceAll("\\", "/"), to);
       }
-      return text.replaceAll("\\", "/");
+      return text;
     }),
   );
 }
+
+test("snapshot paths normalize mixed Windows separators", () => {
+  expect(
+    normalize({ path: "C:\\Users\\runneradmin\\Temp\\fixture\\main\\.git\\files" }, [
+      ["C:\\Users\\runneradmin\\Temp/fixture", "<root>"],
+    ]),
+  ).toEqual({ path: "<root>/main/.git/files" });
+});
 
 async function command(services: RuntimeServices, args: string[]) {
   const lines: string[] = [];
