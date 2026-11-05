@@ -56,7 +56,7 @@ export const hero = {
   },
 };
 
-const release = "0.1.0-alpha.4";
+const release = "0.1.0-alpha.6";
 const releaseUrl = `https://github.com/JarenKempton/interlock/releases/download/v${release}`;
 
 export const install = {
