@@ -19,22 +19,123 @@ case "$ARCH" in
   *) echo "interlock: unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
 
-asset="interlock-$platform-$machine"
-if [ -n "${INTERLOCK_BASE_URL:-}" ]; then
-  base=${INTERLOCK_BASE_URL%/}
-else
-  if [ -z "$VERSION" ] || [ "$VERSION" = latest ]; then
-    echo "interlock: INTERLOCK_VERSION is required for prerelease installation" >&2
-    exit 1
-  fi
-  case "$VERSION" in v*) tag=$VERSION ;; *) tag="v$VERSION" ;; esac
-  base="https://github.com/$REPOSITORY/releases/download/$tag"
-fi
-
 command -v curl >/dev/null 2>&1 || {
   echo "interlock: curl is required" >&2
   exit 1
 }
+
+release_tag() {
+  awk -v prerelease="$1" '
+    function fail() { invalid = 1; exit 1 }
+    function token(    c) {
+      sub(/^[ \t\r\n]+/, "", json)
+      c = substr(json, 1, 1)
+      if (c == "") { token_value = ""; return }
+      if (c == "\"") {
+        if (!match(json, /^"([^"\\\001-\037]|\\(["\\\/bfnrt]|u[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]))*"/)) fail()
+      } else if (c ~ /[{}\[\],:]/ && c != "") {
+        token_value = c; json = substr(json, 2); return
+      } else if (!match(json, /^(true|false|null|-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)/)) fail()
+      token_value = substr(json, 1, RLENGTH)
+      json = substr(json, RLENGTH + 1)
+    }
+    function value(    opening, key, field, tag, draft, pre, seen) {
+      opening = token_value
+      if (opening == "{") {
+        token()
+        if (token_value != "}") {
+          while (1) {
+            key = token_value
+            if (substr(key, 1, 1) != "\"") fail()
+            token(); if (token_value != ":") fail()
+            token(); field = token_value
+            depth++; value(); depth--
+            if (depth == release_depth) {
+              if (key == "\"tag_name\"") { if (seen ~ /t/) fail(); seen = seen "t"; tag = field }
+              if (key == "\"draft\"") { if (seen ~ /d/) fail(); seen = seen "d"; draft = field }
+              if (key == "\"prerelease\"") { if (seen ~ /p/) fail(); seen = seen "p"; pre = field }
+            }
+            if (token_value == "}") break
+            if (token_value != ",") fail()
+            token()
+          }
+        }
+        if (depth == release_depth && draft == "false" && pre == prerelease && selected == "") {
+          if (tag !~ /^"v?[0-9][A-Za-z0-9.+-]*"$/) fail()
+          selected = substr(tag, 2, length(tag) - 2)
+        }
+        token()
+      } else if (opening == "[") {
+        token()
+        if (token_value != "]") {
+          while (1) {
+            depth++; value(); depth--
+            if (token_value == "]") break
+            if (token_value != ",") fail()
+            token()
+          }
+        }
+        token()
+      } else {
+        if (opening == "" || opening ~ /^[}\],:]$/) fail()
+        token()
+      }
+    }
+    { json = json $0 "\n" }
+    END {
+      if (invalid) exit 1
+      token()
+      if (prerelease == "true") { if (token_value != "[") fail(); release_depth = 1 }
+      else { if (token_value != "{") fail(); release_depth = 0 }
+      value()
+      if (token_value != "" || selected == "") exit 1
+      print selected
+    }
+  '
+}
+
+asset="interlock-$platform-$machine"
+if [ -n "${INTERLOCK_BASE_URL:-}" ]; then
+  base=${INTERLOCK_BASE_URL%/}
+else
+  if [ -z "$VERSION" ]; then
+    api_response=$(mktemp "${TMPDIR:-/tmp}/interlock-release.XXXXXX")
+    trap 'rm -f "$api_response"' EXIT HUP INT TERM
+    api="https://api.github.com/repos/$REPOSITORY/releases"
+    if ! status=$(curl --location --silent --show-error --write-out '%{http_code}' "$api/latest" --output "$api_response"); then
+      echo "interlock: GitHub releases API request failed" >&2; exit 1
+    fi
+    prerelease=false
+    case "$status" in
+      200) ;;
+      404)
+        prerelease=true
+        if ! status=$(curl --location --silent --show-error --write-out '%{http_code}' "$api?per_page=100" --output "$api_response"); then
+          echo "interlock: GitHub releases API request failed" >&2; exit 1
+        fi
+        ;;
+      *) echo "interlock: GitHub releases API returned HTTP $status" >&2; exit 1 ;;
+    esac
+    if [ "$status" != 200 ]; then
+      echo "interlock: GitHub releases API returned HTTP $status" >&2; exit 1
+    fi
+    if ! VERSION=$(release_tag "$prerelease" < "$api_response"); then
+      echo "interlock: GitHub releases API returned no valid installable release" >&2; exit 1
+    fi
+    rm -f "$api_response"
+    trap - EXIT HUP INT TERM
+    if [ "$prerelease" = true ]; then
+      printf 'Installing Interlock %s (pre-release)\n' "$VERSION" >&2
+    fi
+    tag=$VERSION
+  elif [ "$VERSION" = latest ]; then
+    echo "interlock: INTERLOCK_VERSION is required for prerelease installation" >&2
+    exit 1
+  else
+    case "$VERSION" in v*) tag=$VERSION ;; *) tag="v$VERSION" ;; esac
+  fi
+  base="https://github.com/$REPOSITORY/releases/download/$tag"
+fi
 
 mkdir -p "$INSTALL_DIR"
 tmp_binary=$(mktemp "$INSTALL_DIR/.interlock.XXXXXX")

@@ -60,16 +60,17 @@ const release = "0.1.0-alpha.6";
 const installerUrl = "https://interlock.build";
 
 export const install = {
+  notice: `Pre-release · v${release}`,
   platforms: [
     {
       id: "unix",
       label: "macOS / Linux",
-      command: `curl --proto '=https' --tlsv1.2 -fsSL ${installerUrl}/install.sh | INTERLOCK_VERSION=${release} sh`,
+      command: `curl -fsSL ${installerUrl}/install.sh | sh`,
     },
     {
       id: "windows",
       label: "Windows PowerShell",
-      command: `$env:INTERLOCK_VERSION = '${release}'; irm ${installerUrl}/install.ps1 | iex`,
+      command: `irm ${installerUrl}/install.ps1 | iex`,
     },
   ],
 };
@@ -115,7 +116,7 @@ export const steps = [
 ] as const;
 
 export const sections = {
-  install: "Install",
+  install: "In development",
   soon: "Soon",
 };
 

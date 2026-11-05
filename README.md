@@ -11,11 +11,10 @@ and returns the arguments a T3 Code thread uses to launch the lane.
 ## Install
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://interlock.build/install.sh | INTERLOCK_VERSION=0.1.0-alpha.6 sh
+curl -fsSL https://interlock.build/install.sh | sh
 ```
 
 ```powershell
-$env:INTERLOCK_VERSION = '0.1.0-alpha.6'
 irm https://interlock.build/install.ps1 | iex
 ```
 

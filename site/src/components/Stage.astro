@@ -35,7 +35,7 @@ function keyframes() {
   }
   cols.forEach(([a, b], i) => {
     const idle = "border-color:var(--line);background-color:var(--col-bg);box-shadow:none";
-    const act = "border-color:var(--accent-line);background-color:var(--col-on);box-shadow:0 0 0 4px var(--accent-tint)";
+    const act = "border-color:var(--line);background-color:var(--col-on);box-shadow:none";
     const k = a === 0 ? `0%,${b}%{${act}}${b + 0.8}%,99.2%{${idle}}100%{${act}}` : `0%,${a}%{${idle}}${a + 0.8}%,${b}%{${act}}${b + 0.8}%,100%{${idle}}`;
     out.push(`@keyframes icol-${i}{${k}}`);
     const tone = (on: boolean) => (on ? "opacity:1" : "opacity:0.4");
@@ -45,11 +45,11 @@ function keyframes() {
     const lbl = a === 0 ? `0%,${b}%{${ink(true)}}${b + 0.8}%,99.2%{${ink(false)}}100%{${ink(true)}}` : `0%,${a}%{${ink(false)}}${a + 0.8}%,${b}%{${ink(true)}}${b + 0.8}%,100%{${ink(false)}}`;
     out.push(`@keyframes ilbl-${i}{${lbl}}`);
   });
-  const xs = [11.7, 33.5, 53.3, 72, 90.7];
+  const xs = [0, 1, 2, 3, 4].map((i) => `var(--x${i})`);
   const seq = (f: (i: number) => string, last: string) =>
     P.slice(0, 5).map((a, i) => `${i === 0 ? "0%" : `${a + 1}%`},${i === 4 ? 98 : P[i + 1]! - 0.2}%{${f(i)}}`).join("") + last;
-  out.push(`@keyframes itoken{${seq((i) => `transform:translateX(${xs[i]}%);opacity:1`, `98.8%{transform:translateX(${xs[4]}%);opacity:0}99.2%{transform:translateX(${xs[0]}%);opacity:0}100%{transform:translateX(${xs[0]}%);opacity:1}`)}}`);
-  out.push(`@keyframes irail{${seq((i) => `transform:scaleX(${xs[i]! / 100})`, `99.5%,100%{transform:scaleX(${xs[0]! / 100})}`)}}`);
+  out.push(`@keyframes itoken{${seq((i) => `transform:translateX(${xs[i]});opacity:1`, `98.8%{transform:translateX(${xs[4]});opacity:0}99.2%{transform:translateX(${xs[0]});opacity:0}100%{transform:translateX(${xs[0]});opacity:1}`)}}`);
+  out.push(`@keyframes irail{${seq((i) => `width:${xs[i]}`, `99.5%,100%{width:${xs[0]}}`)}}`);
   out.push(`@keyframes islide{${seq((i) => `transform:translateX(${8 - 87 * i}%)`, `99.5%,100%{transform:translateX(8%)}`)}}`);
   out.push(`@keyframes idraw-a{0%,${P[1]}%{stroke-dashoffset:1}${P[1]! + 2.5}%,98%{stroke-dashoffset:0}99.5%,100%{stroke-dashoffset:1}}`);
   out.push(`@keyframes idraw-b{0%,${P[4]}%{stroke-dashoffset:1}${P[4]! + 2}%,98%{stroke-dashoffset:0}99.5%,100%{stroke-dashoffset:1}}`);
@@ -178,6 +178,15 @@ const style = `--at:${at}s;--play:${live ? "running" : "paused"}`;
 
 <style>
   .stage {
+    --line: var(--hero-line);
+    --line-2: var(--hero-line);
+    --gap: 0.75rem;
+    --column-unit: calc((100% - 4 * var(--gap)) / 5.35);
+    --x0: calc(0.625 * var(--column-unit) + 0 * var(--gap));
+    --x1: calc(1.8 * var(--column-unit) + 1 * var(--gap));
+    --x2: calc(2.85 * var(--column-unit) + 2 * var(--gap));
+    --x3: calc(3.85 * var(--column-unit) + 3 * var(--gap));
+    --x4: calc(4.85 * var(--column-unit) + 4 * var(--gap));
     --ease: cubic-bezier(0.65, 0, 0.35, 1);
     --tcols: minmax(0, 1.25fr) minmax(0, 1.1fr) repeat(3, minmax(0, 1fr));
     position: relative;
@@ -227,13 +236,13 @@ const style = `--at:${at}s;--play:${live ? "running" : "paused"}`;
     top: 50%;
     transform: translate(-50%, -50%);
     padding: 0.3rem 0.6rem;
-    border: 1px solid var(--accent-line);
+    border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--bg);
     color: var(--accent);
     font: 600 0.6875rem/1 var(--mono);
     letter-spacing: 0.04em;
-    box-shadow: 0 0 0 4px var(--bg), 0 0 24px var(--accent-tint);
+    box-shadow: none;
     white-space: nowrap;
   }
 
@@ -245,7 +254,7 @@ const style = `--at:${at}s;--play:${live ? "running" : "paused"}`;
   .track {
     display: grid;
     grid-template-columns: var(--tcols);
-    gap: 0.75rem;
+    gap: var(--gap);
   }
   .col {
     display: flex;
@@ -653,6 +662,13 @@ const style = `--at:${at}s;--play:${live ? "running" : "paused"}`;
   }
 
   @media (max-width: 860px) {
+    .stage {
+      --x0: 50%;
+      --x1: 50%;
+      --x2: 50%;
+      --x3: 50%;
+      --x4: 50%;
+    }
     .rail {
       height: 1.25rem;
       margin-bottom: 0.4rem;

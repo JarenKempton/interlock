@@ -19,10 +19,43 @@ switch ($architecture.ToLowerInvariant()) {
 
 $asset = "interlock-windows-$machine.exe"
 if (-not $BaseUrl) {
-    if ((-not $Version) -or ($Version -eq 'latest')) {
+    if (-not $Version) {
+        $api = "https://api.github.com/repos/$Repository/releases"
+        $prerelease = $false
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri "$api/latest"
+        } catch {
+            if ($_.Exception.Response -and ([int]$_.Exception.Response.StatusCode -eq 404)) {
+                $prerelease = $true
+                try {
+                    $response = Invoke-WebRequest -UseBasicParsing -Uri "${api}?per_page=100"
+                } catch {
+                    throw 'interlock: GitHub releases API request failed'
+                }
+            } else {
+                throw 'interlock: GitHub releases API request failed'
+            }
+        }
+        try {
+            $releases = ConvertFrom-Json -InputObject $response.Content
+            if ($prerelease -and -not $response.Content.TrimStart().StartsWith('[')) { throw 'Expected releases array' }
+            if (-not $prerelease -and -not $response.Content.TrimStart().StartsWith('{')) { throw 'Expected release object' }
+            $release = $releases | Where-Object {
+                ($_.draft -is [bool]) -and (-not $_.draft) -and
+                ($_.prerelease -is [bool]) -and ($_.prerelease -eq $prerelease)
+            } | Select-Object -First 1
+            if (-not $release -or $release.tag_name -cnotmatch '^v?[0-9][A-Za-z0-9.+-]*$') { throw 'Missing release tag' }
+            $Version = $release.tag_name
+        } catch {
+            throw 'interlock: GitHub releases API returned no valid installable release'
+        }
+        if ($prerelease) { [Console]::Error.WriteLine("Installing Interlock $Version (pre-release)") }
+        $tag = $Version
+    } elseif ($Version -eq 'latest') {
         throw 'interlock: INTERLOCK_VERSION is required for prerelease installation'
+    } else {
+        $tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
     }
-    $tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
     $BaseUrl = "https://github.com/$Repository/releases/download/$tag"
 }
 $BaseUrl = $BaseUrl.TrimEnd('/')
