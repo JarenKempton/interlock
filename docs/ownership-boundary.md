@@ -115,8 +115,12 @@ Pickup takes exactly one ticket key. Secrets
 cross through credential handles or scoped secure channels, never
 ordinary configuration, process arguments, logs, or receipts.
 
-Public protocol changes remain backward compatible within a major. Consumers
-must tolerate additive fields and handle unknown capabilities explicitly.
+Action surfaces are unstable before 1.0: commands, JSON results, settings and
+TOML may change without a protocol-major bump. Pickup and lane JSON snapshots
+protect the current T3 skill handoff, not historical compatibility. Every action
+still validates its result with zod before returning it. Only claim-record v2
+is frozen, including its schema and reader fixtures; it coordinates ownership
+across machines. Consumers must handle unknown capabilities explicitly.
 Unsupported operations and ambiguous outcomes must remain visible to the caller.
 A client cannot synthesize a successful receipt or bypass recovery by directly
 mutating the tracker.

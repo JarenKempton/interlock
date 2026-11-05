@@ -25,7 +25,6 @@
       "src/persistence/state.ts"
     ],
     "boundaries/no-unknown-dependencies": [
-      "src/conformance/contracts.ts",
       "src/execution/commands.ts",
       "src/execution/lane-commands.ts",
       "src/execution/lane-tracker.ts",
@@ -73,9 +72,7 @@
     "typescript/no-misused-spread": ["src/cli/schema.ts", "src/configuration/schema.ts"],
     "typescript/no-useless-default-assignment": ["src/cli/completions.ts"],
     "typescript/restrict-template-expressions": [
-      "scripts/check-contracts.ts",
       "src/adapters/trackers/jira-sign-in.ts",
-      "src/conformance/contracts.ts",
       "test/fixtures/lane-complete.ts",
       "test/lane-attach.test.ts",
       "test/migration-hashes.test.ts"
@@ -116,7 +113,6 @@
       "claim-record-contract.test.ts",
       "configuration.test.ts",
       "conformance.test.ts",
-      "contracts.test.ts",
       "distribution.test.ts",
       "eligibility.test.ts",
       "git-claim-lock.test.ts",

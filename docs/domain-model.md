@@ -140,6 +140,41 @@ The lane agent needs no GitHub write credential for submission; removing
 ambient credentials from the lane environment remains the host's job. The `lane` actions and
 [`LaneService`](../src/execution/lane.ts) expose the state machine as commands.
 
+## Engine-ready contracts
+
+These are domain types for a future durable-execution engine (such as Restate or
+Temporal), not an implemented engine or supervisor. JWB-950 supplies the host
+port and JWB-951 the supervisor. No existing action gains a capability by the
+presence of these types.
+
+- **Operation identity** ([type](../src/domain/operation/identity.ts)): a stable
+  side-effect key, represented by the readonly pair `[lane, step]`. Its canonical
+  string key is `JSON.stringify([lane, step])`, so delimiters in either component
+  cannot collide. Replay uses the same lane and logical step, never a new run,
+  timestamp or attempt ID. Distinct effects (including messages and review
+  rounds) have distinct step names. A future engine records intent and result
+  under that key and recovers an ambiguous effect before retrying; the key alone
+  does not make an external write idempotent.
+- **Gate evidence** ([type](../src/domain/gate/evidence.ts)): which fact satisfied
+  a named gate, the source system and source reference read, when it was
+  observed, and its observed value or ref. For example, a review gate names the
+  approval fact from a PR's review system and the observed head SHA. Evidence
+  for another head does not satisfy the current gate. Tracker evidence retains
+  the ticket's qualified namespace reference; a host session's completion is
+  not evidence that the PR merged or the tracker reached Done. Existing
+  `LaneEvidence` is submission evidence, not a rename of this richer contract.
+- **Host capability** ([type](../src/domain/host/capability.ts)): launch a harness
+  session from a pickup plan, find sessions by lane or ticket, steer a session
+  by sending a message, and recover after an ambiguous launch. The generic
+  plan keeps vendor launch arguments outside the domain. Session identity
+  includes its environment, host and harness; the environment's supervisor
+  coordinates it. Launch and steer carry operation identity; recovery reuses
+  the launch's identity and plan. Find returns all matches, and an empty search
+  is not proof that launch failed. Recovery distinguishes a found session,
+  proven non-launch and an unresolved outcome; only proven non-launch permits
+  another launch attempt. Adapters must prove these semantics before advertising
+  support.
+
 ## Conformance
 
 [Tracker](../src/conformance/tracker.ts) and
