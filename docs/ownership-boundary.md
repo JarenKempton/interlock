@@ -61,7 +61,7 @@ when unset, checked against exact harness instance/model IDs and advertised
 option values. Inherited T3 model options apply only to the same harness
 instance and model; `effort` and `context_window` override them. The plan's
 `reviewers` object has one checked selection per lens in the user's
-`reviewers` setting, using the implementer's selection unless `reviewer_agent`,
+`reviewers` setting, using the implementer's selection unless `reviewer_harness`,
 `reviewer_model` or `reviewer_effort` is set; with no lenses it is empty.
 Pickup starts no reviewer.
 

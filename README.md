@@ -55,7 +55,7 @@ vp run dev config edit --follow model
 
 `reviewers` takes a comma-separated list of review lenses (for example
 `correctness, security`); each runs as a review subagent in the lane, on the
-implementer's model unless `reviewer_agent`, `reviewer_model` or
+implementer's model unless `reviewer_harness`, `reviewer_model` or
 `reviewer_effort` is set. With no lenses, review goes to a person. `config show`
 lists them under `review`; pickup's plan shows the checked reviewers.
 
