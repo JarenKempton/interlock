@@ -22,7 +22,7 @@ executable behavior stays at platform boundaries.
 
 Actions declare their inputs, description, and handler together.
 Invocation, help, completion, and the manual derive from those registrations.
-Use `--help` for the available command surface. An adapter class or configuration
+Use `--help` for the available commands. An adapter class or configuration
 field alone does not establish an executable user workflow.
 
 ## Target tree and naming
@@ -117,7 +117,7 @@ Interlock never deletes a workspace. See the [Git adapter](../src/adapters/works
 Tracker, claim-lock and lane contracts are plain TypeScript interfaces;
 see the [domain model](domain-model.md#tracker).
 
-Public surfaces are frozen as JSON Schema under [`contracts/`](../contracts/):
+Public contracts are recorded as JSON Schema under [`contracts/`](../contracts/):
 each action's input and output (one snapshot covers its MCP tool and CLI
 `--json`), `interlock.toml`, user and personal settings, and the claim record.
 Every action declares a zod `result`; a result that does not match fails the
@@ -126,11 +126,11 @@ regenerates the current major's snapshot from zod and hashes it in
 `contracts/hashes.json`. Schemas repeated across snapshots live once in
 `contracts/definitions.json`, keyed by the SHA-256 of their resolved content
 and referenced by `$ref`; comparisons resolve them first, so a change to a
-shared schema is reported for every surface that uses it. The writer refuses a
+shared schema is reported for every contract that uses it. The writer refuses a
 breaking change, and so does
 `vp run contracts:check <base-ref>` in CI: a removed or renamed field, a newly
 required field, a narrowed type or a removed enum value needs a new major
-(`version` on the action, or the surface's version constant), and every earlier
+(`version` on the action, or the contract's version constant), and every earlier
 snapshot stays hash-locked. Additive optional changes rewrite the current
 major. The rules are in the [classifier](../src/conformance/contract-diff.ts).
 `vp run db:hash` likewise only adds hashes for new migrations.

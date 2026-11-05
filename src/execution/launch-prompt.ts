@@ -45,15 +45,10 @@ export function acceptanceCriteria(description: string): string | undefined {
       .trim() || undefined
   );
 }
-export interface ReviewerTarget {
-  instanceId: string;
-  model: string;
-  options: Record<string, string | boolean>;
-}
 export interface LaneProcedure {
   command: readonly string[];
   state?: string;
-  reviewers: Record<string, ReviewerTarget>;
+  reviewers: Record<string, unknown>;
 }
 export interface LaunchPromptOptions {
   roleTemplate?: string;
@@ -73,10 +68,7 @@ export function laneProcedure(ticket: Ticket, lane: LaneProcedure): string {
   const review = lenses.length
     ? [
         `5. Run ${run("lane", "review", "LANE", "--json")}. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.`,
-        ...lenses.map(
-          ([lens, target]) =>
-            `   - ${lens}: target ${JSON.stringify({ providerInstanceId: target.instanceId, model: target.model, options: target.options })}`,
-        ),
+        ...lenses.map(([lens, target]) => `   - ${lens}: target ${JSON.stringify(target)}`),
         `6. Record one verdict for that head: ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")} only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.`,
       ]
     : [

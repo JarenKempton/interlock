@@ -12,7 +12,7 @@ import {
   contentHash,
   contractFileName,
   contractSet,
-  contractSurfaces,
+  registeredContracts,
   contractVersionFailures,
   definitionsText,
   resolveContract,
@@ -20,15 +20,15 @@ import {
 
 const hashes = committedContractHashes();
 const committed = committedDefinitions();
-const surfaces = contractSurfaces();
-const refused = contractVersionFailures(surfaces, [
+const contracts = registeredContracts();
+const refused = contractVersionFailures(contracts, [
   ...committedContractFiles(),
   ...Object.keys(hashes),
 ]);
 if (refused.length > 0) throw new Error(refused.join("\n"));
-const { texts, definitions } = contractSet(surfaces);
-for (const surface of surfaces) {
-  const file = contractFileName(surface);
+const { texts, definitions } = contractSet(contracts);
+for (const contract of contracts) {
+  const file = contractFileName(contract);
   const path = join(CONTRACTS_DIRECTORY, file);
   const next = texts.get(file);
   if (next === undefined) throw new Error(`${file}: not generated`);
@@ -39,9 +39,9 @@ for (const surface of surfaces) {
       resolveContract(JSON.parse(current), committed),
       resolveContract(JSON.parse(next), definitions),
     );
-    if (surface.frozen || breaking.length > 0) {
+    if (contract.frozen || breaking.length > 0) {
       refused.push(
-        `${file}: ${surface.frozen ? "frozen; bump its version" : `breaking without a major bump: ${breaking.join("; ")}`}`,
+        `${file}: ${contract.frozen ? "frozen; bump its version" : `breaking without a major bump: ${breaking.join("; ")}`}`,
       );
       continue;
     }

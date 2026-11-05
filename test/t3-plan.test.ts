@@ -18,7 +18,7 @@ function review(user: UserSettings, raw = catalogEnvelope()) {
 
 test("with no user choices the implementer inherits the calling thread's provider, model and options", () => {
   expect(planT3Models(configuration(), validateT3Catalog(catalogEnvelope())).implementer).toEqual({
-    provider: "codex",
+    harness: "codex",
     instanceId: "codex",
     model: "test-model",
     options: { reasoningEffort: "high" },
@@ -36,7 +36,7 @@ test("a user-chosen model other than the inherited one starts without inherited 
   const raw = catalogEnvelope();
   raw.catalog.providers[0]?.models.push({ id: "other-model", options: [] });
   expect(
-    planT3Models(configuration({ agent: "codex", model: "other-model" }), validateT3Catalog(raw))
+    planT3Models(configuration({ harness: "codex", model: "other-model" }), validateT3Catalog(raw))
       .implementer,
   ).toMatchObject({ model: "other-model", options: {} });
 });
@@ -59,20 +59,20 @@ test("requested context and permission expansion fail when the host cannot verif
   raw.catalog.runtimeMode = "approval-required";
   expect(() =>
     planT3Models(configuration({ runtime_mode: "full-access" }), validateT3Catalog(raw)),
-  ).toThrow("exceed the calling thread");
+  ).toThrow("exceed the calling session");
 });
 
 test("each configured review lens gets the implementer selection unless reviewer choices are set", () => {
   const raw = catalogEnvelope();
   expect(review({ reviewers: "correctness, security" }, raw)).toEqual({
     correctness: {
-      provider: "codex",
+      harness: "codex",
       instanceId: "codex",
       model: "test-model",
       options: { reasoningEffort: "high" },
     },
     security: {
-      provider: "codex",
+      harness: "codex",
       instanceId: "codex",
       model: "test-model",
       options: { reasoningEffort: "high" },
@@ -89,7 +89,7 @@ test("each configured review lens gets the implementer selection unless reviewer
     review(
       {
         reviewers: "correctness",
-        reviewer_agent: "claudeAgent",
+        reviewer_harness: "claudeAgent",
         reviewer_model: "review-model",
         reviewer_effort: "high",
       },
@@ -97,7 +97,7 @@ test("each configured review lens gets the implementer selection unless reviewer
     ),
   ).toEqual({
     correctness: {
-      provider: "claudeAgent",
+      harness: "claude",
       instanceId: "claudeAgent",
       model: "review-model",
       options: { effort: "high" },

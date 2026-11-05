@@ -153,6 +153,203 @@
     ],
     "additionalProperties": false
   },
+  "209f75fcdd703bd84dce47e81041f157d5edadd73f6af560769b3eab957dcb72": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "number",
+        "const": 2
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "initialized",
+          "configuration",
+          "edited"
+        ]
+      },
+      "path": {
+        "type": "string"
+      },
+      "configuration": {
+        "$ref": "definitions.json#/29c82489fc3bf1b658cf8d11e02008ba7826c0661828bc85191707566dde00f1"
+      },
+      "review": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "const": "user"
+          },
+          "lenses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "harness": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "lenses"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "version",
+      "action",
+      "path",
+      "configuration"
+    ],
+    "additionalProperties": false
+  },
+  "29c82489fc3bf1b658cf8d11e02008ba7826c0661828bc85191707566dde00f1": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "number",
+        "const": 2
+      },
+      "source": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "project": {
+        "$ref": "definitions.json#/d6d7fcf2b13945fe8fcaf60bd8aebd8afaab331c14a2fef327142a04c88e64d3"
+      },
+      "settings": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "context_window": {
+            "type": "string"
+          },
+          "runtime_mode": {
+            "type": "string"
+          },
+          "interaction_mode": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "pickable_statuses": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "claimed_status": {
+            "type": "string"
+          },
+          "jira_site": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "branch",
+          "pickable_statuses",
+          "claimed_status"
+        ],
+        "additionalProperties": false
+      },
+      "sources": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string",
+          "enum": [
+            "host",
+            "harness",
+            "model",
+            "effort",
+            "context_window",
+            "runtime_mode",
+            "interaction_mode",
+            "branch",
+            "pickable_statuses",
+            "claimed_status",
+            "jira_site"
+          ]
+        },
+        "additionalProperties": {
+          "type": "string",
+          "enum": [
+            "default",
+            "user",
+            "shared"
+          ]
+        }
+      },
+      "repository": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "remote": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "worktreeRoot": {
+            "type": "string"
+          },
+          "baseBranch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "remote",
+          "path",
+          "worktreeRoot",
+          "baseBranch"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "version",
+      "settings",
+      "sources"
+    ],
+    "additionalProperties": false
+  },
   "43052e5eb8df1bca2c212d76fc3f227dd6dfcc87509323124675d89aec6f57ab": {
     "type": "object",
     "properties": {
@@ -591,6 +788,86 @@
       "additionalProperties": false
     }
   },
+  "9a2158684ed798a36f9fd9e605fbae13b6ebeb67fed9ad67073218e06b081182": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      },
+      "modelSelection": {
+        "type": "object",
+        "properties": {
+          "harness": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "boolean"
+              ]
+            }
+          }
+        },
+        "required": [
+          "harness",
+          "instanceId",
+          "model",
+          "options"
+        ],
+        "additionalProperties": false
+      },
+      "runtimeMode": {
+        "type": "string"
+      },
+      "interactionMode": {
+        "type": "string"
+      },
+      "workspaceStrategy": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "existing_worktree"
+          },
+          "worktreePath": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "worktreePath",
+          "branch"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "title",
+      "message",
+      "modelSelection",
+      "runtimeMode",
+      "interactionMode",
+      "workspaceStrategy"
+    ],
+    "additionalProperties": false
+  },
   "9c6d6311a58f714eab4a4f1a1e1882ae5e02ca193006b87e7fbcf255fdaf2a4b": {
     "type": "object",
     "properties": {
@@ -822,6 +1099,86 @@
       "action",
       "path",
       "configuration"
+    ],
+    "additionalProperties": false
+  },
+  "bc39ab3146b8b7027090bef99b4d45f671ee15ca94f1879cbbafaf5d7aa55098": {
+    "type": "object",
+    "properties": {
+      "ref": {
+        "type": "string"
+      },
+      "ticket": {
+        "type": "string"
+      },
+      "host": {
+        "type": "string"
+      },
+      "harness": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "workspace": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "capabilities": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string",
+          "enum": [
+            "conditional_update"
+          ]
+        },
+        "additionalProperties": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "planning",
+          "claimed",
+          "compensated",
+          "collision",
+          "released",
+          "recovery_required"
+        ]
+      },
+      "createdAt": {
+        "type": "string"
+      },
+      "updatedAt": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref",
+      "ticket",
+      "host",
+      "harness",
+      "workspace",
+      "capabilities",
+      "status",
+      "createdAt",
+      "updatedAt"
     ],
     "additionalProperties": false
   },

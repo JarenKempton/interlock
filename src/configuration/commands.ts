@@ -13,7 +13,7 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
       description:
         "Create a shared interlock.toml without overwriting a file; show the resolved settings.",
       input: initInput,
-      version: 2,
+      version: 3,
       result: configurationOutputSchema,
       handler: operations.init,
     }),
@@ -21,7 +21,7 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
       show: defineAction({
         description: "Show resolved settings and their sources without changing durable state.",
         input: showInput,
-        version: 2,
+        version: 3,
         result: configurationOutputSchema,
         handler: operations.show,
       }),
@@ -36,7 +36,7 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
           )
             throw new Error("Choose one of --editor, --set, or --follow");
         },
-        version: 2,
+        version: 3,
         result: configurationOutputSchema,
         handler: operations.edit,
       }),

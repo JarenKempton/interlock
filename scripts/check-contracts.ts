@@ -6,7 +6,7 @@ import {
   committedDefinitions,
   contractFileName,
   contractHash,
-  contractSurfaces,
+  registeredContracts,
   contractVersionFailures,
   type Definitions,
   definitionFailures,
@@ -34,10 +34,10 @@ const baseDefinitions = baseDefinitionsText
   : {};
 const headHashes = committedContractHashes();
 const headDefinitions = committedDefinitions();
-const surfaces = contractSurfaces();
-const current = new Map(surfaces.map((surface) => [contractFileName(surface), surface]));
-const names = new Set(surfaces.map((surface) => surface.name));
-const failures = contractVersionFailures(surfaces, [
+const contracts = registeredContracts();
+const current = new Map(contracts.map((contract) => [contractFileName(contract), contract]));
+const names = new Set(contracts.map((contract) => contract.name));
+const failures = contractVersionFailures(contracts, [
   ...Object.keys(baseHashes),
   ...Object.keys(headHashes),
   ...committedContractFiles(),
@@ -59,7 +59,7 @@ for (const file of committedContractFiles())
 
 for (const [file, hash] of Object.entries(baseHashes)) {
   const name = parseContractFileName(file)?.name;
-  if (name && !names.has(name)) failures.push(`${file}: surface removed`);
+  if (name && !names.has(name)) failures.push(`${file}: contract removed`);
   if (headHashes[file] === undefined) {
     failures.push(`${file}: released snapshot removed`);
     continue;
@@ -73,8 +73,8 @@ for (const [file, hash] of Object.entries(baseHashes)) {
   }
   if (headHash !== headHashes[file]) failures.push(`${file}: does not match contracts/hashes.json`);
   if (headHash === hash) continue;
-  const surface = current.get(file);
-  if (!surface || surface.frozen) {
+  const contract = current.get(file);
+  if (!contract || contract.frozen) {
     failures.push(`${file}: hash-locked snapshot changed`);
     continue;
   }

@@ -40,7 +40,7 @@ export const configurationOutputSchema = z.strictObject({
     .strictObject({
       source: z.literal("user"),
       lenses: z.array(z.string()),
-      agent: z.string().optional(),
+      harness: z.string().optional(),
       model: z.string().optional(),
       effort: z.string().optional(),
     })

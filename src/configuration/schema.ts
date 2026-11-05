@@ -15,7 +15,7 @@ const runtimeMode = configText.refine((value) =>
 const interactionMode = configText.refine((value) => ["default", "plan"].includes(value));
 const personalChoices = {
   host: configText,
-  agent: configText,
+  harness: configText,
   model: configText,
   effort: configText,
   context_window: configText,
@@ -52,14 +52,14 @@ const lensList = configText.refine(
     new Set(statuses(value)).size === statuses(value).length,
 );
 const reviewChoices = {
-  reviewer_agent: configText,
+  reviewer_harness: configText,
   reviewer_model: configText,
   reviewer_effort: configText,
 };
 export const REVIEWER_CHOICE_KEYS = z.object(reviewChoices).keyof().options;
 export interface ReviewChoices {
   lenses: string[];
-  agent?: string;
+  harness?: string;
   model?: string;
   effort?: string;
 }
@@ -67,7 +67,7 @@ export function reviewChoicesFrom(user: UserSettings): ReviewChoices {
   const settings = validateUserSettings(user);
   return {
     lenses: settings.reviewers ? statuses(settings.reviewers) : [],
-    ...(settings.reviewer_agent ? { agent: settings.reviewer_agent } : {}),
+    ...(settings.reviewer_harness ? { harness: settings.reviewer_harness } : {}),
     ...(settings.reviewer_model ? { model: settings.reviewer_model } : {}),
     ...(settings.reviewer_effort ? { effort: settings.reviewer_effort } : {}),
   };
@@ -89,7 +89,7 @@ export type UserSettingKey = keyof UserSettings;
 export const CHOICE_KEYS = [
   ...SETTING_KEYS,
   "reviewers",
-  "reviewer_agent",
+  "reviewer_harness",
   "reviewer_model",
   "reviewer_effort",
   "branch",
@@ -118,7 +118,7 @@ const instructionsSchema = z.strictObject({
 const trackerSchema = z.strictObject({ jira: z.strictObject({ site: jiraSite }) });
 
 const PERSONAL_REPLACEMENT =
-  "host, agent, model, effort, context_window, runtime_mode and interaction_mode are user settings; run interlock config edit --set KEY VALUE";
+  "host, harness, model, effort, context_window, runtime_mode and interaction_mode are user settings; run interlock config edit --set KEY VALUE";
 export const REMOVED_SECTIONS: Readonly<Record<string, string>> = {
   repositories:
     "pickup uses the current Git repo or --repo PATH; the worktree root and base branch come from the repo and its origin's default branch",
@@ -179,7 +179,7 @@ const repositoryV1Schema = z.strictObject({
   base_branch: configText,
 });
 const roleModelV1Schema = z.strictObject({
-  provider: configText,
+  harness: configText,
   model: configText,
   options: z.record(configText, z.union([configText, z.boolean()])).optional(),
 });
@@ -199,7 +199,7 @@ const projectConfigurationV1Schema = z
     tracker: trackerSchema,
     t3: z
       .strictObject({
-        provider: configText.optional(),
+        harness: configText.optional(),
         model: configText.optional(),
         thinking_effort: configText.optional(),
         context_window: configText.optional(),
@@ -316,7 +316,7 @@ function userChoices(user: UserSettings): SettingsLayer {
     claim_home: _claimHome,
     pickable_statuses,
     reviewers: _reviewers,
-    reviewer_agent: _agent,
+    reviewer_harness: _harness,
     reviewer_model: _model,
     reviewer_effort: _effort,
     ...choices
@@ -375,7 +375,7 @@ function resolveConfigurationV2(
 function t3DefaultsV1(project: ProjectConfigurationV1): PersonalSettings {
   const defaults: PersonalSettings = { host: "t3" };
   const entries = [
-    ["agent", project.t3.provider],
+    ["harness", project.t3.harness],
     ["model", project.t3.model],
     ["effort", project.t3.thinking_effort],
     ["context_window", project.t3.context_window],

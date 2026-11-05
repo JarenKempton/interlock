@@ -1,3 +1,4 @@
+import { t3Target } from "../adapters/hosts/t3.ts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -53,7 +54,7 @@ import { PickupCoordinator } from "./pickup.ts";
 import { planT3Models, validateT3Catalog } from "./t3-plan.ts";
 
 const modelSelectionSchema = z.strictObject({
-  provider: z.string(),
+  harness: z.string(),
   instanceId: z.string(),
   model: z.string(),
   options: z.record(z.string(), z.union([z.string(), z.boolean()])),
@@ -72,7 +73,7 @@ const pickupPlanSchema = z.strictObject({
   hostVerification: z.strictObject({
     source: z.literal("caller-supplied-t3-catalog"),
     observedAt: z.string(),
-    threadId: z.string(),
+    sessionId: z.string(),
   }),
   instructions: z.array(
     z.strictObject({ path: z.string(), resolvedPath: z.string(), version: z.string() }),
@@ -242,7 +243,7 @@ export async function jiraRankField(transport: JiraTransport): Promise<string> {
 
 export async function executionTracker(
   jiraSite: string,
-  workspace: string,
+  namespace: string,
   services: RuntimeServices,
   purpose: "pickup" | "release" = "pickup",
 ) {
@@ -265,7 +266,7 @@ export async function executionTracker(
   const instance = site.hostname.replace(/\.atlassian\.net$/, "");
   const options = {
     instance,
-    workspace,
+    namespace,
     transport,
     ...metadata,
   };
@@ -384,7 +385,9 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     lane: {
       command: RELEASE_BUILD ? ["interlock"] : ["bun", resolve(import.meta.dir, "../cli.ts")],
       ...(input.state ? { state: resolve(statePath) } : {}),
-      reviewers: models.reviewers,
+      reviewers: Object.fromEntries(
+        Object.entries(models.reviewers).map(([lens, target]) => [lens, t3Target(target)]),
+      ),
     },
   });
   const plan: PickupPlan = {
@@ -400,7 +403,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     hostVerification: {
       source: "caller-supplied-t3-catalog",
       observedAt: catalog.observedAt,
-      threadId: catalog.catalog.parentThreadId,
+      sessionId: catalog.catalog.parentSessionId,
     },
     instructions: Object.values(instructions).map(({ content: _content, ...source }) => source),
     claimHome: {
@@ -425,7 +428,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       },
     },
   };
-  validateT3Catalog(catalog, clock.now());
+  validateT3Catalog(rawCatalog, clock.now());
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" } satisfies PickupResult;
   await workspace.refreshBase();
   return withExecutionStore(services, statePath, async (store) => {
@@ -441,11 +444,11 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       },
     });
     const { claimLock } = claimCoordination(repository, mirror, services, claimHome.home, () => {
-      validateT3Catalog(catalog, clock.now());
+      validateT3Catalog(rawCatalog, clock.now());
     });
     const validateTicket = async (current: Ticket) => {
       await eligible(current);
-      validateT3Catalog(catalog, clock.now());
+      validateT3Catalog(rawCatalog, clock.now());
     };
     const ledger: Ledger = {
       saveRun(run) {
@@ -482,7 +485,8 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     }).prepare({
       ticket: ref,
       owner: jira.owner,
-      harness: adapterRefSchema.parse("t3"),
+      host: adapterRefSchema.parse("t3"),
+      harness: adapterRefSchema.parse(models.implementer.harness),
       model: models.implementer.model,
     });
     const claimHomeSaved = store.saveClaimHomeIfAbsent(claimHome.home.url);

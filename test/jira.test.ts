@@ -130,7 +130,7 @@ const TRANSITIONS = [
 function adapter(api: FakeJira, validateClaim?: JiraTrackerOptions["validateClaim"]) {
   return new JiraTrackerAdapter({
     instance: "responsibid",
-    workspace: "JWB",
+    namespace: "JWB",
     transport: api,
     ...(validateClaim ? { validateClaim } : {}),
     rankField: "customfield_rank",
@@ -564,7 +564,7 @@ describe("Jira basic-auth transport", () => {
     const calls: Array<{ url: string; request: HttpRequest }> = [];
     const subject = new JiraTrackerAdapter({
       instance: "responsibid",
-      workspace: "JWB",
+      namespace: "JWB",
       transport: jiraBasicAuthTransport(jiraCredentials, recordingHttp(api, calls)),
       rankField: "customfield_rank",
     });
@@ -778,7 +778,7 @@ test("Jira mirror without read configuration cannot advertise or perform normali
   const api = new FakeJira();
   const subject = new JiraTrackerAdapter({
     instance: "responsibid",
-    workspace: "JWB",
+    namespace: "JWB",
     transport: api,
     claimHome: "github.com/jarenkempton/interlock",
   });
@@ -872,7 +872,7 @@ describe("Jira link_artifact", () => {
   const pr = "https://github.com/o/r/pull/7";
   const linkTicket = ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-1");
   const linker = (api: FakeRemoteLinks) =>
-    new JiraTrackerAdapter({ instance: "responsibid", workspace: "JWB", transport: api });
+    new JiraTrackerAdapter({ instance: "responsibid", namespace: "JWB", transport: api });
 
   test("writes one remote link keyed by the PR URL and reads it back", async () => {
     const api = new FakeRemoteLinks();

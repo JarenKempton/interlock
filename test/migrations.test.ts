@@ -23,6 +23,7 @@ function sampleRun(ref = "interlock-run:migration-test") {
   return {
     ref: runRefSchema.parse(ref),
     ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
     capabilities: capabilities(),
@@ -176,7 +177,7 @@ test("table rebuild migration preserves rows and foreign keys", () => {
         sql: [
           "PRAGMA legacy_alter_table=ON",
           "ALTER TABLE runs RENAME TO runs_old",
-          "CREATE TABLE runs (ref TEXT PRIMARY KEY, ticket TEXT NOT NULL, harness TEXT NOT NULL, model TEXT, effort TEXT, context TEXT, workspace_json TEXT NOT NULL, capabilities_json TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, execution_json TEXT)",
+          "CREATE TABLE runs (ref TEXT PRIMARY KEY, ticket TEXT NOT NULL, harness TEXT NOT NULL, model TEXT, effort TEXT, context TEXT, workspace_json TEXT NOT NULL, capabilities_json TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, execution_json TEXT, host TEXT NOT NULL DEFAULT 'unknown')",
           "INSERT INTO runs SELECT * FROM runs_old",
           "DROP TABLE runs_old",
         ].join(";--> statement-breakpoint\n"),

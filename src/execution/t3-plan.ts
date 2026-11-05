@@ -1,46 +1,6 @@
-import { z } from "zod";
+import { type T3Catalog } from "../adapters/hosts/t3.ts";
 import type { ResolvedConfiguration, ReviewChoices } from "../configuration/schema.ts";
-
-const optionValue = z.union([z.string(), z.boolean()]);
-const catalogSchema = z.object({
-  host: z.literal("t3"),
-  observedAt: z.iso.datetime(),
-  catalog: z.object({
-    parentThreadId: z.string().min(1),
-    inheritedProviderInstanceId: z.string().nullable(),
-    inheritedModel: z.string().nullable(),
-    inheritedOptions: z.array(z.object({ id: z.string(), value: optionValue })).optional(),
-    runtimeMode: z.enum(["approval-required", "auto-accept-edits", "auto", "full-access"]),
-    interactionMode: z.enum(["default", "plan"]),
-    features: z.object({ threadManagement: z.literal(true) }),
-    providers: z.array(
-      z.object({
-        providerInstanceId: z.string(),
-        driverKind: z.string(),
-        canRunChildTask: z.boolean(),
-        constraints: z.array(z.string()),
-        runtimeModes: z.array(z.string()).optional(),
-        models: z.array(
-          z.object({
-            id: z.string(),
-            options: z.array(z.object({ id: z.string(), values: z.array(optionValue) })).nullish(),
-          }),
-        ),
-      }),
-    ),
-  }),
-});
-
-export type T3Catalog = z.infer<typeof catalogSchema>;
-
-export function validateT3Catalog(value: unknown, now = new Date()): T3Catalog {
-  const parsed = catalogSchema.safeParse(value);
-  if (!parsed.success) throw new Error("A fresh in-thread T3 catalog is required");
-  const age = now.getTime() - Date.parse(parsed.data.observedAt);
-  if (age < 0 || age > 60_000)
-    throw new Error("T3 catalog is stale or future-dated; query the host again");
-  return parsed.data;
-}
+export { validateT3Catalog } from "../adapters/hosts/t3.ts";
 
 export function planT3Models(
   configuration: ResolvedConfiguration,
@@ -57,9 +17,9 @@ export function planT3Models(
     permissions.indexOf(runtimeMode) > permissions.indexOf(catalog.runtimeMode) ||
     (catalog.interactionMode === "plan" && interactionMode !== "plan")
   )
-    throw new Error("Requested T3 modes exceed the calling thread's modes");
+    throw new Error("Requested T3 modes exceed the calling session's modes");
   const implementer = selectModel(catalog, runtimeMode, "implementer", {
-    agent: settings.agent ?? catalog.inheritedProviderInstanceId,
+    harness: settings.harness ?? catalog.inheritedHarnessInstanceId,
     model: settings.model ?? catalog.inheritedModel,
     effort: settings.effort,
     context_window: settings.context_window,
@@ -67,10 +27,10 @@ export function planT3Models(
   const lenses = review.lenses;
   const reviewer =
     lenses.length === 0 ||
-    (review.agent === undefined && review.model === undefined && review.effort === undefined)
+    (review.harness === undefined && review.model === undefined && review.effort === undefined)
       ? implementer
       : selectModel(catalog, runtimeMode, "reviewer", {
-          agent: review.agent ?? implementer.instanceId,
+          harness: review.harness ?? implementer.instanceId,
           model: review.model ?? implementer.model,
           effort: review.effort,
           context_window: undefined,
@@ -84,26 +44,30 @@ function selectModel(
   runtimeMode: string,
   role: "implementer" | "reviewer",
   choice: {
-    agent: string | null;
+    harness: string | null;
     model: string | null;
     effort: string | undefined;
     context_window: string | undefined;
   },
 ) {
-  const providers = catalog.providers.filter((p) => p.providerInstanceId === choice.agent);
-  const provider = providers[0];
-  if (providers.length !== 1 || !provider?.canRunChildTask || provider.constraints.length)
-    throw new Error(`T3 provider is missing, ambiguous, or unavailable for ${role}`);
-  const models = provider.models.filter((m) => m.id === choice.model);
+  const harnesses = catalog.harnesses.filter((p) => p.instanceId === choice.harness);
+  const selectedHarness = harnesses[0];
+  if (
+    harnesses.length !== 1 ||
+    !selectedHarness?.canRunChildTask ||
+    selectedHarness.constraints.length
+  )
+    throw new Error(`T3 harness is missing, ambiguous, or unavailable for ${role}`);
+  const models = selectedHarness.models.filter((m) => m.id === choice.model);
   const model = models[0];
   if (models.length !== 1 || !model)
     throw new Error(
       `T3 model is missing or ambiguous for ${role}; query the live catalog with search`,
     );
-  if (provider.runtimeModes && !provider.runtimeModes.includes(runtimeMode))
+  if (selectedHarness.runtimeModes && !selectedHarness.runtimeModes.includes(runtimeMode))
     throw new Error(`T3 runtime mode is unsupported for ${role}`);
   const options: Record<string, string | boolean> =
-    choice.agent === catalog.inheritedProviderInstanceId && model.id === catalog.inheritedModel
+    choice.harness === catalog.inheritedHarnessInstanceId && model.id === catalog.inheritedModel
       ? Object.fromEntries((catalog.inheritedOptions ?? []).map((o) => [o.id, o.value]))
       : {};
   for (const [setting, names] of [
@@ -124,8 +88,8 @@ function selectModel(
       throw new Error(`T3 model option is unavailable for ${role}`);
   }
   return {
-    provider: provider.driverKind,
-    instanceId: provider.providerInstanceId,
+    harness: selectedHarness.harness,
+    instanceId: selectedHarness.instanceId,
     model: model.id,
     options,
   };

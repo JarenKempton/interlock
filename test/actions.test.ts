@@ -121,14 +121,14 @@ test("Optique completes schema enum values through the real shell transport with
   );
   expect(output.join("").split("\n").filter(Boolean)).toEqual([
     "host",
-    "agent",
+    "harness",
     "model",
     "effort",
     "context_window",
     "runtime_mode",
     "interaction_mode",
     "reviewers",
-    "reviewer_agent",
+    "reviewer_harness",
     "reviewer_model",
     "reviewer_effort",
     "branch",

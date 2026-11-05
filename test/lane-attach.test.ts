@@ -59,6 +59,7 @@ async function claimedRun(options: { lock?: "held" | "absent" | "other" | "owner
   store.saveRun({
     ref: runRef,
     ticket,
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: worktree, branch },
     capabilities: {},

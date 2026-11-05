@@ -10,7 +10,7 @@ import { jiraRankField } from "./pickup-runtime.ts";
 export function signedInLaneTracker(services: RuntimeServices): LaneTrackerPort {
   const adapter = async (ticket: TicketRef) => {
     const ref = parseRef(ticket);
-    if (ref.adapter !== "jira" || !ref.instance || !ref.workspace)
+    if (ref.adapter !== "jira" || !ref.instance || !ref.namespace)
       throw new TrackerUnavailableError(`No signed-in tracker serves ${ticket}`);
     const site = savedSite(services, "jira");
     if (!site || new URL(site).hostname.replace(/\.atlassian\.net$/, "") !== ref.instance)
@@ -24,7 +24,7 @@ export function signedInLaneTracker(services: RuntimeServices): LaneTrackerPort 
           `Not signed in to Jira at ${site}; run interlock login jira`,
         );
       }));
-    return { instance: ref.instance, workspace: ref.workspace, transport };
+    return { instance: ref.instance, namespace: ref.namespace, transport };
   };
   const jira = async (ticket: TicketRef) => new JiraTrackerAdapter(await adapter(ticket));
   const reader = async (ticket: TicketRef) => {

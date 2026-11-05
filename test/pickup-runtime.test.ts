@@ -74,6 +74,8 @@ test(
     expect(result.state).toBe("claimed");
     expect(existsSync(f.worktree)).toBe(true);
     expect(inspect(f, (s) => s.run(result.run))).toMatchObject({
+      host: "t3",
+      harness: "codex",
       status: "claimed",
       workspace: { path: f.worktree, branch: "task/TEST-492" },
     });

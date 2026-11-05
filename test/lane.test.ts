@@ -455,6 +455,7 @@ test("CLI runs a one-off lane and refuses completion without an owned claim", as
   seed.saveRun({
     ref: runRefSchema.parse("interlock-run:cli"),
     ticket: ticketRef,
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch: "local/cli" },
     capabilities: {},

@@ -102,6 +102,7 @@ export type PreparedWorkspace = z.infer<typeof preparedWorkspaceSchema>;
 export const runSchema = z.strictObject({
   ref: runRefSchema,
   ticket: ticketRefSchema,
+  host: adapterRefSchema,
   harness: adapterRefSchema,
   model: z.string().optional(),
   workspace: preparedWorkspaceSchema,

@@ -3,15 +3,54 @@
 [Domain types](../src/domain/model.ts), [reference validation](../src/domain/reference.ts),
 and the contracts below define the portable contract. Adapters translate vendor objects into these terms.
 
+## Glossary
+
+| Term        | Meaning                                                                                                                                                              |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tracker     | The system of record for tickets (Jira, GitHub Issues, Linear, beads).                                                                                               |
+| Namespace   | The tracker's dependency and policy boundary: a Jira project, GitHub owner/repository, or Linear team.                                                               |
+| Map         | Tickets linked by blockers.                                                                                                                                          |
+| Frontier    | The unclaimed tickets in a map whose blockers are all done.                                                                                                          |
+| Claim       | Exclusive ownership of one ticket, held in a git ref in the claim home. The tracker only mirrors it.                                                                 |
+| Claim home  | The git remote that holds the claim refs.                                                                                                                            |
+| Project     | One repository plus where its work runs.                                                                                                                             |
+| Machine     | A computer that work runs on, local or reached over the network (a laptop, SB1, a VPS).                                                                              |
+| Isolation   | The boundary inside a machine where the agent executes (none, container, microVM).                                                                                   |
+| Environment | Machine + isolation, the exact place a lane's processes run.                                                                                                         |
+| Host        | Runs harness sessions and lets a person watch, steer or take over (the T3 Code server; tmux and headless are other hosts). T3 is always the host, never the harness. |
+| Harness     | The agent program the host launches (Claude Code, Codex, Pi).                                                                                                        |
+| Model       | The LLM a harness uses, with its options (for example, effort).                                                                                                      |
+| Session     | One running harness conversation inside a host (a T3 thread).                                                                                                        |
+| Workspace   | The checkout for one ticket inside the environment (a git worktree on task/KEY).                                                                                     |
+| Lane        | Interlock's record that ties one ticket, claim, workspace, session and pull request together through their lifecycle.                                                |
+| Gate        | A lane step that waits on an external fact (PR merged, review verdict on the head, tracker Done).                                                                    |
+| Supervisor  | The long-running Interlock process, one per environment.                                                                                                             |
+| Client      | Where a person or another program talks to Interlock (CLI, MCP, skills).                                                                                             |
+
+“Agent” is informal prose for a harness session, never a configuration key or schema field.
+
+## Placement
+
+A project is placed in exactly one environment. Its lane's host, harness session,
+workspace and supervisor all run in that environment. There is one supervisor
+per environment, serving the projects placed there. A machine without isolation
+is one environment, so it runs one supervisor. Each isolated environment on a
+machine runs its own supervisor and host inside it; a containerised project's
+processes all stay inside that container. Claims coordinate across machines
+through the claim home, independently of supervisor lifetime.
+
+The supervisor is the planned long-running `interlock run` process (JWB-951);
+this vocabulary does not advertise an implemented command or remote placement.
+
 ## Identity
 
 | Kind      | Form                                 | Meaning                                                   |
 | --------- | ------------------------------------ | --------------------------------------------------------- |
 | tracker   | `<adapter>:<instance>`               | One configured tracker installation                       |
-| workspace | `<tracker-ref>:<workspace-id>`       | Dependency and policy boundary                            |
-| group     | `<workspace-ref>:group:<native-id>`  | Optional container of maps                                |
-| map       | `<workspace-ref>:map:<native-id>`    | Ordered collection of tickets                             |
-| ticket    | `<workspace-ref>:ticket:<native-id>` | One unit of work                                          |
+| namespace | `<tracker-ref>:<namespace-id>`       | Tracker dependency and policy boundary                    |
+| group     | `<namespace-ref>:group:<native-id>`  | Optional grouping of maps                                 |
+| map       | `<namespace-ref>:map:<native-id>`    | Tracker anchor for linked tickets                         |
+| ticket    | `<namespace-ref>:ticket:<native-id>` | One unit of work                                          |
 | run       | `interlock-run:<id>`                 | Local execution identity                                  |
 | claim     | `interlock-claim:<id>`               | Ownership held by the claim lock, mirrored by the tracker |
 
@@ -50,8 +89,8 @@ See [claim semantics](claim-semantics.md).
 
 ## Lane
 
-T3 Code hosts the lane through its in-thread MCP tools; Interlock has no host
-adapter and never launches or stops an agent. Lane actions return a value or a
+T3 Code hosts the session through its in-thread MCP tools; Interlock prepares
+launch arguments but never launches or stops a harness session. Lane actions return a value or a
 refusal with a machine-readable code. `lane attach --ticket REF`, run from the
 worktree before any work, finds the ticket's one claimed run and its active
 claim, verifies the current directory is that run's worktree root on its
@@ -99,7 +138,7 @@ This serializes core-managed creation, not GitHub itself: external actors can
 still create PRs outside core, and GitHub search is eventually consistent.
 The lane agent needs no GitHub write credential for submission; removing
 ambient credentials from the lane environment remains the host's job. The `lane` actions and
-[`LaneService`](../src/execution/lane.ts) expose the machine as commands.
+[`LaneService`](../src/execution/lane.ts) expose the state machine as commands.
 
 ## Conformance
 

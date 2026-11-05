@@ -162,7 +162,7 @@ const searchPageSchema = z.object({
 type JiraClaimSnapshot = z.infer<typeof claimSnapshotSchema>;
 export interface JiraTrackerOptions {
   instance: string;
-  workspace: string;
+  namespace: string;
   transport: JiraTransport;
   /** Jira's site-specific field id for the standard LexoRank Rank field. */
   rankField?: string;
@@ -196,7 +196,7 @@ export class JiraTrackerAdapter implements Tracker {
     )
       throw new Error("Jira page size must be an integer from 1 to 100");
     this.#transport = options.transport;
-    this.#prefix = `jira:${options.instance}:${options.workspace}`;
+    this.#prefix = `jira:${options.instance}:${options.namespace}`;
     this.#claimProperty = options.claimProperty ?? "interlock.claim";
     this.#claimHome = options.claimHome;
     this.#claimedStatus = options.claimedStatus ?? "In Progress";
@@ -675,9 +675,9 @@ export class JiraTrackerAdapter implements Tracker {
       parsed.kind !== kind ||
       parsed.adapter !== "jira" ||
       !parsed.nativeId ||
-      `${parsed.adapter}:${parsed.instance}:${parsed.workspace}` !== this.#prefix
+      `${parsed.adapter}:${parsed.instance}:${parsed.namespace}` !== this.#prefix
     )
-      throw new Error(`${kind} is outside Jira workspace: ${ref}`);
+      throw new Error(`${kind} is outside Jira namespace: ${ref}`);
     return parsed.nativeId;
   }
 

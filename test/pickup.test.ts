@@ -179,6 +179,7 @@ class FakeWorkspace implements WorkspaceAdapter {
 const request = {
   ticket: ticketRefSchema.parse("jira:x:W:ticket:A"),
   owner: actorRefSchema.parse("human"),
+  host: adapterRefSchema.parse("t3"),
   harness: adapterRefSchema.parse("codex"),
 };
 

@@ -53,12 +53,12 @@ const legacyPickupConfiguration = validateExecutionConfiguration({
       "JWB-556": { repository: "r", claim_status: "In Progress", available_statuses: ["To Do"] },
     },
     tracker: { jira: { site: "https://x.atlassian.net" } },
-    t3: { provider: "codex", model: "test-model" },
+    t3: { harness: "codex", model: "test-model" },
     defaults: {},
     required: {},
   },
-  settings: { host: "t3", agent: "codex", model: "test-model" },
-  sources: { host: "default", agent: "default", model: "default" },
+  settings: { host: "t3", harness: "codex", model: "test-model" },
+  sources: { host: "default", harness: "default", model: "default" },
 });
 
 export function git(argv: string[], cwd: string, allowFailure = false) {
@@ -164,6 +164,7 @@ export function laneCompleteFixtures() {
     store.saveRun({
       ref: runRef,
       ticket: ticketRef,
+      host: adapterRefSchema.parse("t3"),
       harness: adapterRefSchema.parse("t3"),
       workspace: { path: repo.lane, branch },
       capabilities: {},

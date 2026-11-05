@@ -6,7 +6,7 @@ import { parseClaimProperty } from "../src/adapters/trackers/jira.ts";
 import {
   committedContractFiles,
   contractFileName,
-  contractSurfaces,
+  registeredContracts,
   contractText,
   parseContractFileName,
 } from "../src/conformance/contracts.ts";
@@ -14,7 +14,7 @@ import { CLAIM_RECORD_VERSION } from "../src/domain/claim-lock.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures/claim-records");
 
-const claimRecord = contractSurfaces().find((surface) => surface.name === "claim-record");
+const claimRecord = registeredContracts().find((contract) => contract.name === "claim-record");
 
 test("CLAIM_RECORD_VERSION is the highest committed claim record contract", () => {
   const versions = committedContractFiles()
@@ -25,7 +25,7 @@ test("CLAIM_RECORD_VERSION is the highest committed claim record contract", () =
 });
 
 test("the claim record shape matches the frozen contract for its version", () => {
-  if (!claimRecord) throw new Error("claim-record surface is not registered");
+  if (!claimRecord) throw new Error("claim-record contract is not registered");
   expect(claimRecord.frozen).toBe(true);
   expect(contractFileName(claimRecord)).toBe(`claim-record.v${CLAIM_RECORD_VERSION}.json`);
   expect(contractText(claimRecord)).toBe(

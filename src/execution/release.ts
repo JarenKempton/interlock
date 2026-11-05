@@ -69,7 +69,7 @@ export async function releaseClaim(
       throw new Error("Recorded workspace does not match its selected repository");
     const jira = await executionTracker(
       jiraSite,
-      parseRef(claim.ticket).workspace ?? "",
+      parseRef(claim.ticket).namespace ?? "",
       services,
       "release",
     );

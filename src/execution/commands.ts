@@ -34,6 +34,7 @@ export function runActions(services: RuntimeServices) {
   const local = (path?: string) => ({ ...services, statePath: executionStatePath(services, path) });
   return {
     pickup: defineAction({
+      version: 2,
       description: "Claim a ticket, prepare its worktree, and return T3 launch arguments.",
       input: {
         key: positional(text("Jira ticket key.", "KEY")),
@@ -59,12 +60,14 @@ export function runActions(services: RuntimeServices) {
     runs: {
       list: defineAction({
         description: "List durable local runs.",
+        version: 2,
         input: { state },
         result: z.array(runSchema),
         handler: (input) => withStore(local(input.state), (store) => store.listRuns()),
       }),
       show: defineAction({
         description: "Inspect a durable local run.",
+        version: 2,
         input: { run, state },
         result: runSchema,
         handler: (input) => withStore(local(input.state), (store) => store.run(runRef(input.run))),
@@ -72,7 +75,7 @@ export function runActions(services: RuntimeServices) {
       export: defineAction({
         description: "Export a run, claim, steps, and recovery evidence.",
         input: { run, state },
-        version: 2,
+        version: 3,
         result: runExportSchema,
         handler: (input) =>
           withStore(local(input.state), (store) => {

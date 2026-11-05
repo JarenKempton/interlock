@@ -111,6 +111,7 @@ export interface Clock {
 export interface PickupRequest {
   ticket: TicketRef;
   owner: ActorRef;
+  host: AdapterRef;
   harness: AdapterRef;
   model?: string;
 }
