@@ -35,7 +35,7 @@ adapter categories plural, and vendor names occur only under `adapters/`.
 src/
   main.ts
   app/                         application, runtime services, tracker registry
-  domain/<concept>/            refs, tracker, claim, lane, submission
+  domain/<concept>/            refs, tracker, claim, lane, submission, operation, gate, host
   execution/<use-case>/        pickup, claim, lane
   adapters/
     trackers/<vendor>/
@@ -117,23 +117,21 @@ Interlock never deletes a workspace. See the [Git adapter](../src/adapters/works
 Tracker, claim-lock and lane contracts are plain TypeScript interfaces;
 see the [domain model](domain-model.md#tracker).
 
-Public contracts are recorded as JSON Schema under [`contracts/`](../contracts/):
-each action's input and output (one snapshot covers its MCP tool and CLI
-`--json`), `interlock.toml`, user and personal settings, and the claim record.
-Every action declares a zod `result`; a result that does not match fails the
-action before anything is rendered or returned. `vp run contracts:write`
-regenerates the current major's snapshot from zod and hashes it in
-`contracts/hashes.json`. Schemas repeated across snapshots live once in
-`contracts/definitions.json`, keyed by the SHA-256 of their resolved content
-and referenced by `$ref`; comparisons resolve them first, so a change to a
-shared schema is reported for every contract that uses it. The writer refuses a
-breaking change, and so does
-`vp run contracts:check <base-ref>` in CI: a removed or renamed field, a newly
-required field, a narrowed type or a removed enum value needs a new major
-(`version` on the action, or the contract's version constant), and every earlier
-snapshot stays hash-locked. Additive optional changes rewrite the current
-major. The rules are in the [classifier](../src/conformance/contract-diff.ts).
-`vp run db:hash` likewise only adds hashes for new migrations.
+Only [claim-record v2](../contracts/claim-record.v2.json) is frozen. Its
+[minimal generator](../src/conformance/claim-record.ts) and
+[byte-freeze tests](../test/claim-record-contract.test.ts) protect the schema
+and reader fixtures. Action surfaces, settings and TOML are unstable before
+1.0; there is no action compatibility classifier or historical schema archive.
+Every action still declares a zod `result`; a mismatch fails before rendering
+or returning it. [JSON output snapshots](../test/execution/outputs.test.ts)
+exercise the current pickup and lane handoff through the CLI. Deliberate
+changes update those snapshots in the same change, without minting a major.
+Migration hashes remain independent: `vp run db:hash` only adds new migrations.
+
+Engine-ready domain contracts live in `domain/operation/identity.ts`,
+`domain/gate/evidence.ts` and `domain/host/capability.ts`. They define stable
+side-effect identity, external gate facts and host session operations, not an
+engine, supervisor or adapter. See [their semantics](domain-model.md#engine-ready-contracts).
 
 ## Verification
 

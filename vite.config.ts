@@ -34,8 +34,6 @@ export default defineConfig({
       "db:generate": "drizzle-kit generate",
       "db:check": "bun scripts/verify-migrations.ts",
       "db:hash": "bun scripts/verify-migrations.ts --write",
-      "contracts:write": "bun scripts/write-contracts.ts",
-      "contracts:check": "bun scripts/check-contracts.ts",
       "sample-ledger": "bun scripts/create-sample-ledger.ts",
       completions: "bun src/cli.ts completions",
       man: "bun src/cli.ts man",

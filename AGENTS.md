@@ -30,7 +30,7 @@ transaction logic should remain ordinary TypeScript.
 
 ## Engineering rules
 
-- Keep public protocol changes backward compatible within a protocol major.
+- Action surfaces are unstable before 1.0; claim-record v2 is frozen.
 - Use argument arrays with `Bun.spawn`; never compose shell commands.
 - Add tests for every state-machine transition and failure compensation path.
 - Run `vp check`, `vp run test`, and `vp run typecheck` before handoff.

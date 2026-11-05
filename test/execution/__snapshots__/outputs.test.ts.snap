@@ -1,0 +1,731 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`pickup and lane JSON consumed by the T3 skill: pickup planned 1`] = `
+{
+  "code": 0,
+  "output": {
+    "branch": "task/TEST-492",
+    "claimHome": {
+      "change": "Set claim_home in interlock.toml on the work repo's default branch, or run: interlock config edit --set claim-home VALUE",
+      "configCommit": "<config-commit>",
+      "home": "<claim-home>",
+      "lockRef": "refs/interlock/v2/example/TEST-492",
+      "recordVersion": 2,
+      "source": "claim_home in interlock.toml on refs/heads/main at <config-commit>",
+      "url": "<claim-home-url>",
+    },
+    "dryRun": true,
+    "hostVerification": {
+      "observedAt": "2026-11-05T00:00:00.000Z",
+      "sessionId": "fixture-thread",
+      "source": "caller-supplied-t3-catalog",
+    },
+    "instructions": [],
+    "launch": {
+      "interactionMode": "default",
+      "message": 
+"Tracker:
+https://example.atlassian.net
+
+Map:
+jira:example:TEST:map:TEST-470
+
+Ticket:
+jira:example:TEST:ticket:TEST-492 — Prepare a real pickup
+
+Role:
+task
+
+Role guidance:
+Implement only the selected task and verify its acceptance criteria. Report the implementation artifact and verification evidence.
+
+Description:
+PROBLEM
+Pickup is missing.
+ACCEPTANCE CRITERIA
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Acceptance criteria:
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Required output:
+- Report the work performed and link any resulting artifacts.
+- Report acceptance evidence, unverified criteria, and remaining blockers.
+
+Lane procedure:
+1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
+2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
+5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
+   - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
+6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+Interlock refusals are final for that step: report them instead of working around them.
+
+Authorization and completion:
+Apart from the Interlock lane commands above, this prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied."
+,
+      "modelSelection": {
+        "harness": "codex",
+        "instanceId": "codex",
+        "model": "test-model",
+        "options": {
+          "reasoningEffort": "high",
+        },
+      },
+      "runtimeMode": "full-access",
+      "title": "TEST-492: Prepare a real pickup",
+      "workspaceStrategy": {
+        "branch": "task/TEST-492",
+        "type": "existing_worktree",
+        "worktreePath": "<root>/worktrees/alice/TEST-492",
+      },
+    },
+    "modelSelection": {
+      "harness": "codex",
+      "instanceId": "codex",
+      "model": "test-model",
+      "options": {
+        "reasoningEffort": "high",
+      },
+    },
+    "prompt": 
+"Tracker:
+https://example.atlassian.net
+
+Map:
+jira:example:TEST:map:TEST-470
+
+Ticket:
+jira:example:TEST:ticket:TEST-492 — Prepare a real pickup
+
+Role:
+task
+
+Role guidance:
+Implement only the selected task and verify its acceptance criteria. Report the implementation artifact and verification evidence.
+
+Description:
+PROBLEM
+Pickup is missing.
+ACCEPTANCE CRITERIA
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Acceptance criteria:
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Required output:
+- Report the work performed and link any resulting artifacts.
+- Report acceptance evidence, unverified criteria, and remaining blockers.
+
+Lane procedure:
+1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
+2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
+5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
+   - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
+6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+Interlock refusals are final for that step: report them instead of working around them.
+
+Authorization and completion:
+Apart from the Interlock lane commands above, this prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied."
+,
+    "repository": "alice",
+    "reviewers": {
+      "correctness": {
+        "harness": "codex",
+        "instanceId": "codex",
+        "model": "test-model",
+        "options": {
+          "reasoningEffort": "high",
+        },
+      },
+    },
+    "state": "planned",
+    "ticket": "jira:example:TEST:ticket:TEST-492",
+    "title": "TEST-492: Prepare a real pickup",
+    "version": 1,
+    "worktree": "<root>/worktrees/alice/TEST-492",
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: pickup claimed 1`] = `
+{
+  "code": 0,
+  "output": {
+    "branch": "task/TEST-492",
+    "claim": "<claim>",
+    "claimHome": {
+      "change": "Set claim_home in interlock.toml on the work repo's default branch, or run: interlock config edit --set claim-home VALUE",
+      "configCommit": "<config-commit>",
+      "home": "<claim-home>",
+      "lockRef": "refs/interlock/v2/example/TEST-492",
+      "recordVersion": 2,
+      "source": "claim_home in interlock.toml on refs/heads/main at <config-commit>",
+      "url": "<claim-home-url>",
+    },
+    "claimHomeSaved": true,
+    "dryRun": false,
+    "hostVerification": {
+      "observedAt": "2026-11-05T00:00:00.000Z",
+      "sessionId": "fixture-thread",
+      "source": "caller-supplied-t3-catalog",
+    },
+    "instructions": [],
+    "launch": {
+      "interactionMode": "default",
+      "message": 
+"Tracker:
+https://example.atlassian.net
+
+Map:
+jira:example:TEST:map:TEST-470
+
+Ticket:
+jira:example:TEST:ticket:TEST-492 — Prepare a real pickup
+
+Role:
+task
+
+Role guidance:
+Implement only the selected task and verify its acceptance criteria. Report the implementation artifact and verification evidence.
+
+Description:
+PROBLEM
+Pickup is missing.
+ACCEPTANCE CRITERIA
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Acceptance criteria:
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Required output:
+- Report the work performed and link any resulting artifacts.
+- Report acceptance evidence, unverified criteria, and remaining blockers.
+
+Lane procedure:
+1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
+2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
+5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
+   - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
+6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+Interlock refusals are final for that step: report them instead of working around them.
+
+Authorization and completion:
+Apart from the Interlock lane commands above, this prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied."
+,
+      "modelSelection": {
+        "harness": "codex",
+        "instanceId": "codex",
+        "model": "test-model",
+        "options": {
+          "reasoningEffort": "high",
+        },
+      },
+      "runtimeMode": "full-access",
+      "title": "TEST-492: Prepare a real pickup",
+      "workspaceStrategy": {
+        "branch": "task/TEST-492",
+        "type": "existing_worktree",
+        "worktreePath": "<root>/worktrees/alice/TEST-492",
+      },
+    },
+    "modelSelection": {
+      "harness": "codex",
+      "instanceId": "codex",
+      "model": "test-model",
+      "options": {
+        "reasoningEffort": "high",
+      },
+    },
+    "prompt": 
+"Tracker:
+https://example.atlassian.net
+
+Map:
+jira:example:TEST:map:TEST-470
+
+Ticket:
+jira:example:TEST:ticket:TEST-492 — Prepare a real pickup
+
+Role:
+task
+
+Role guidance:
+Implement only the selected task and verify its acceptance criteria. Report the implementation artifact and verification evidence.
+
+Description:
+PROBLEM
+Pickup is missing.
+ACCEPTANCE CRITERIA
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Acceptance criteria:
+- Claim before creating a worktree.
+- Return the T3 launch arguments.
+
+Required output:
+- Report the work performed and link any resulting artifacts.
+- Report acceptance evidence, unverified criteria, and remaining blockers.
+
+Lane procedure:
+1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
+2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
+5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
+   - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
+6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+Interlock refusals are final for that step: report them instead of working around them.
+
+Authorization and completion:
+Apart from the Interlock lane commands above, this prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied."
+,
+    "repository": "alice",
+    "reviewers": {
+      "correctness": {
+        "harness": "codex",
+        "instanceId": "codex",
+        "model": "test-model",
+        "options": {
+          "reasoningEffort": "high",
+        },
+      },
+    },
+    "run": "<run>",
+    "state": "claimed",
+    "ticket": "jira:example:TEST:ticket:TEST-492",
+    "title": "TEST-492: Prepare a real pickup",
+    "version": 1,
+    "worktree": "<root>/worktrees/alice/TEST-492",
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane attached 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [],
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 0,
+      "run": "<run>",
+      "state": "implementing",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane show 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [],
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 0,
+      "run": "<run>",
+      "state": "implementing",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane next 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "kind": "implement",
+      "lane": "<lane>",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane list 1`] = `
+{
+  "code": 0,
+  "output": [
+    {
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [],
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 0,
+      "run": "<run>",
+      "state": "implementing",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+    },
+  ],
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane refusal 1`] = `
+{
+  "code": 1,
+  "output": {
+    "ok": false,
+    "refusal": {
+      "code": "invalid_transition",
+      "message": "Cannot review a lane in implementing",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane submit 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "artifact": "https://github.com/test/pickup/pull/940",
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [
+        {
+          "gate": "tests",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "url": "https://ci.test/940",
+        },
+      ],
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 1,
+      "run": "<run>",
+      "state": "submitted",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane next after submit 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "kind": "review",
+      "lane": "<lane>",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane review 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "artifact": "https://github.com/test/pickup/pull/940",
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [
+        {
+          "gate": "tests",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "url": "https://ci.test/940",
+        },
+      ],
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 1,
+      "run": "<run>",
+      "state": "reviewing",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane next after review 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kind": "record_verdict",
+      "lane": "<lane>",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane verdict 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "artifact": "https://github.com/test/pickup/pull/940",
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [
+        {
+          "gate": "tests",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "url": "https://ci.test/940",
+        },
+      ],
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 1,
+      "run": "<run>",
+      "state": "approved",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+      "verdict": {
+        "decision": "approved",
+        "findings": [],
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": 1,
+      },
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane next after verdict 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kind": "merge",
+      "lane": "<lane>",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane attention 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "artifact": "https://github.com/test/pickup/pull/940",
+      "attentionReason": "awaiting_merge",
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [
+        {
+          "gate": "tests",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "url": "https://ci.test/940",
+        },
+      ],
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "previousState": "approved",
+      "reviewRound": 1,
+      "run": "<run>",
+      "state": "attention",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+      "verdict": {
+        "decision": "approved",
+        "findings": [],
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": 1,
+      },
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane next after attention 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "kind": "attention",
+      "lane": "<lane>",
+      "reason": "awaiting_merge",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane resume 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "artifact": "https://github.com/test/pickup/pull/940",
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [
+        {
+          "gate": "tests",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "url": "https://ci.test/940",
+        },
+      ],
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 1,
+      "run": "<run>",
+      "state": "approved",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+      "verdict": {
+        "decision": "approved",
+        "findings": [],
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": 1,
+      },
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane next after resume 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kind": "merge",
+      "lane": "<lane>",
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane merge 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "artifact": "https://github.com/test/pickup/pull/940",
+      "claim": "<claim>",
+      "createdAt": "2026-11-05T00:00:00.000Z",
+      "evidence": [
+        {
+          "gate": "tests",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "url": "https://ci.test/940",
+        },
+      ],
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "<lane>",
+      "maxReviewRounds": 3,
+      "reviewRound": 1,
+      "run": "<run>",
+      "state": "merged",
+      "ticket": "jira:example:TEST:ticket:TEST-492",
+      "updatedAt": "2026-11-05T00:00:00.000Z",
+      "verdict": {
+        "decision": "approved",
+        "findings": [],
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": 1,
+      },
+    },
+  },
+}
+`;
+
+exports[`pickup and lane JSON consumed by the T3 skill: lane next after merge 1`] = `
+{
+  "code": 0,
+  "output": {
+    "ok": true,
+    "value": {
+      "kind": "verify_done",
+      "lane": "<lane>",
+    },
+  },
+}
+`;
+
+exports[`lane completion JSON includes read-back unblocked tickets and retirement 1`] = `
+{
+  "code": 0,
+  "result": {
+    "ok": true,
+    "retirement": {
+      "preservedFiles": "<root>/main/.git/interlock-retired/<retirement-id>/files",
+      "retainedRef": "refs/interlock/retired/<retirement-id>",
+    },
+    "unblocked": {
+      "state": "known",
+      "tickets": [],
+    },
+    "value": {
+      "artifact": "https://github.com/o/r/pull/9",
+      "claim": "interlock-claim:complete",
+      "createdAt": "<time>",
+      "evidence": [
+        {
+          "gate": "test",
+          "head": "<head>",
+          "url": "https://ci.test/abc",
+        },
+      ],
+      "head": "<head>",
+      "id": "interlock-lane:complete",
+      "maxReviewRounds": 3,
+      "reviewRound": 1,
+      "run": "interlock-run:complete",
+      "state": "done",
+      "ticket": "jira:x:JWB:ticket:JWB-909",
+      "updatedAt": "<time>",
+      "verdict": {
+        "decision": "approved",
+        "findings": [],
+        "head": "<head>",
+        "round": 1,
+      },
+    },
+  },
+}
+`;

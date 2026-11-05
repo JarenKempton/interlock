@@ -1,36 +1,37 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseLockRecordMessage } from "../src/adapters/claims/git-lock.ts";
 import { parseClaimProperty } from "../src/adapters/trackers/jira.ts";
-import {
-  committedContractFiles,
-  contractFileName,
-  registeredContracts,
-  contractText,
-  parseContractFileName,
-} from "../src/conformance/contracts.ts";
+import { claimRecordContract } from "../src/conformance/claim-record.ts";
 import { CLAIM_RECORD_VERSION } from "../src/domain/claim-lock.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures/claim-records");
 
-const claimRecord = registeredContracts().find((contract) => contract.name === "claim-record");
-
-test("CLAIM_RECORD_VERSION is the highest committed claim record contract", () => {
-  const versions = committedContractFiles()
-    .map(parseContractFileName)
-    .filter((parsed) => parsed?.name === "claim-record")
-    .map((parsed) => parsed?.version ?? 0);
-  expect(CLAIM_RECORD_VERSION).toBe(Math.max(...versions));
+test("the claim record shape matches the frozen v2 contract", () => {
+  expect(CLAIM_RECORD_VERSION).toBe(2);
+  expect(claimRecordContract()).toBe(
+    readFileSync(join(import.meta.dirname, "../contracts/claim-record.v2.json"), "utf8"),
+  );
 });
 
-test("the claim record shape matches the frozen contract for its version", () => {
-  if (!claimRecord) throw new Error("claim-record contract is not registered");
-  expect(claimRecord.frozen).toBe(true);
-  expect(contractFileName(claimRecord)).toBe(`claim-record.v${CLAIM_RECORD_VERSION}.json`);
-  expect(contractText(claimRecord)).toBe(
-    readFileSync(join(import.meta.dirname, "../contracts", contractFileName(claimRecord)), "utf8"),
-  );
+test.each([
+  [
+    "../contracts/claim-record.v2.json",
+    "bcc406e6eede36b81fc6e69decbe58d62b7223085ec1043360da07699e1aa55e",
+  ],
+  [
+    "fixtures/claim-records/v2-lock-commit.txt",
+    "90ec06dd48e01e81dd8aaea37e1385e324c440354320b347ae3a6eaed85d310e",
+  ],
+  [
+    "fixtures/claim-records/v2-jira-property.json",
+    "fe43ce283e12a4a5f405311736468d9d4a0fe89231593831891647c66c1dba88",
+  ],
+])("%s stays byte-frozen", (file, hash) => {
+  const bytes = readFileSync(join(import.meta.dirname, file));
+  expect(createHash("sha256").update(bytes).digest("hex")).toBe(hash);
 });
 
 test("the current reader accepts a v2 lock commit message", () => {

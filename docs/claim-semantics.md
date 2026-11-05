@@ -149,14 +149,15 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   and the ledger holds no claims. A v1 or version-less record is refused with
   what to remove to clear it: the `interlock.claim` property and
   `refs/interlock/claims/<KEY>` on the claim remote.
-- The record shape is frozen per version in
-  `contracts/claim-record.v<N>.json`, generated with `z.toJSONSchema` from the
-  lock record and Jira property schemas, and hashed in `contracts/hashes.json`.
-  Tests fail when the shape drifts from the current version's file, when
-  `CLAIM_RECORD_VERSION` is not the highest committed version, or when a
-  committed file changes. A format change adds a new version file and bumps the
-  constant; `vp run contracts:write` writes the new file and hashes only files
-  without an entry.
+- Claim-record v2 is frozen in
+  [`contracts/claim-record.v2.json`](../contracts/claim-record.v2.json). The
+  [minimal generator](../src/conformance/claim-record.ts) derives its schema
+  from the lock record and Jira property zod schemas.
+  [`test/claim-record-contract.test.ts`](../test/claim-record-contract.test.ts)
+  compares that output byte-for-byte and pins the schema and reader fixture
+  hashes. Updating an action snapshot never updates these frozen bytes.
+  A future claim format requires an explicit version and reader migration;
+  pre-1.0 action instability does not relax the claim contract.
 
 [Lock tests](../test/git-claim-lock.test.ts) and
 [lock conformance](../test/claim-lock-conformance.test.ts) run against real
