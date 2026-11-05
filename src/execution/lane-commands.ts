@@ -13,7 +13,6 @@ import { RecordedAttachAuthority } from "./attachment.ts";
 import { LaneService } from "./lane.ts";
 import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
-import { RecordedSubmissionAuthority } from "./submission.ts";
 
 function exitCode(output: unknown): number {
   return typeof output === "object" && output !== null && "ok" in output && !output.ok ? 1 : 0;
@@ -30,12 +29,6 @@ export function laneActions(services: RuntimeServices) {
       tracker: services.lane?.tracker ?? signedInLaneTracker(services),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
       git: services.execution?.git ?? new BunGitCommandExecutor(),
-      submissions:
-        services.lane?.submissions ??
-        new RecordedSubmissionAuthority(
-          store,
-          services.execution?.git ?? new BunGitCommandExecutor(),
-        ),
       attachments:
         services.lane?.attachments ??
         new RecordedAttachAuthority(services.execution?.git ?? new BunGitCommandExecutor()),

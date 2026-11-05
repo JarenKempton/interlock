@@ -125,21 +125,19 @@ branch commit OID, binds Git and `gh --repo` to one verified push repository,
 and retains the PR URL before attempting the tracker link. Existing PRs must
 be open with a complete ticket key in their title; closed PRs are not replaced.
 
-[`SubmissionAuthority`](../src/domain/submission.ts) reserves one create attempt
-per ticket across machines in the recorded claim home. Its independent v1
-Git record binds the lane/run/claim, repository and branch; it does not change
-the v2 claim-record protocol. A verified atomic ref creation grants one
-caller permission to create. Reservations are never expired, reassigned or
-deleted by completion. Later calls may adopt an existing PR but
-cannot issue another create when the first outcome is unknown. A crash or
-push/create failure after reservation may require manual reconciliation
-(`recovery_required`); an absent GitHub search result is not proof that a
-previous create failed. Local ledger locks alone are not this authority.
-The [Git adapter](../src/adapters/submissions/git.ts) and
-[isolated tests](../test/submission-authority.test.ts) define the contract.
+Before each push, submit verifies the claimed run's workspace identity, the
+active local ticket claim and a fresh remote claim/run/owner readback. It does
+not reserve a PR create permit. A failed push can be retried without repairing
+remote refs. PR lookup covers every state on the head branch and complete
+ticket-key title matches: multiple candidates refuse `duplicate_artifact`,
+and a closed or merged branch PR refuses `artifact_mismatch` instead of being
+replaced. An ambiguous create returns `ambiguous_write` unless readback can
+adopt its PR; the next submit looks up the branch again before creating.
 
-This serializes core-managed creation, not GitHub itself: external actors can
-still create PRs outside core, and GitHub search is eventually consistent.
+GitHub search is eventually consistent, so this is not an exactly-once creation
+guarantee. Existing `refs/interlock/submissions/v1/*` refs are unused and left
+untouched. Claim-record v2 is unchanged. The
+[submit tests](../test/lane-submit.test.ts) define retry and ownership behavior.
 The lane agent needs no GitHub write credential for submission; removing
 ambient credentials from the lane environment remains the host's job. The `lane` actions and
 [`LaneService`](../src/execution/lane.ts) expose the state machine as commands.

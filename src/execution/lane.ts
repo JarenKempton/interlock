@@ -29,11 +29,7 @@ import {
 } from "../domain/lane.ts";
 import type { LaneRef, RunRef, Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
-import {
-  type SubmissionAuthority,
-  SubmissionRefusal,
-  ticketKeyMatches,
-} from "../domain/submission.ts";
+import { ticketKeyMatches } from "../domain/submission.ts";
 import type { TrackerRead } from "../domain/tracker.ts";
 import type { StateStore } from "../persistence/state.ts";
 import { type AttachAuthority, AttachRefusal } from "./attachment.ts";
@@ -104,7 +100,6 @@ export interface LaneServiceOptions {
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
   git?: GitCommandExecutor;
-  submissions?: SubmissionAuthority;
   attachments?: AttachAuthority;
   clock?: { now(): Date };
   newId?: () => LaneRef;
@@ -130,7 +125,6 @@ export class LaneService {
   readonly #tracker: LaneTrackerPort | undefined;
   readonly #artifacts: ArtifactHost | undefined;
   readonly #git: GitCommandExecutor;
-  readonly #submissions: SubmissionAuthority | undefined;
   readonly #attachments: AttachAuthority | undefined;
   readonly #clock: { now(): Date };
   readonly #newId: () => LaneRef;
@@ -140,7 +134,6 @@ export class LaneService {
     this.#tracker = options.tracker;
     this.#artifacts = options.artifacts;
     this.#git = options.git ?? new BunGitCommandExecutor();
-    this.#submissions = options.submissions;
     this.#attachments = options.attachments;
     this.#clock = options.clock ?? { now: () => new Date() };
     this.#newId = options.newId ?? (() => laneRefSchema.parse(`interlock-lane:${randomUUID()}`));
@@ -280,14 +273,14 @@ export class LaneService {
     } catch {
       return fail("gates_unmet", "Submission head, branch, or remote cannot be verified");
     }
-    const found = await openPullRequests(artifacts, target, key);
+    const found = await findPullRequests(artifacts, target, key);
     if (!found.ok) return found;
     const others = found.value.filter((item) => item.branch !== workspace.branch);
     const own = found.value.filter((item) => item.branch === workspace.branch);
     if (others.length > 0 || own.length > 1)
       return fail(
         "duplicate_artifact",
-        `Ticket already has an open pull request: ${[...others, ...own].map((item) => item.url).join(", ")}`,
+        `Pull request candidates are not unique to this lane: ${[...others, ...own].map((item) => item.url).join(", ")}`,
       );
     if (lane.artifact && own[0]?.url !== lane.artifact)
       return fail(
@@ -303,33 +296,43 @@ export class LaneService {
         "artifact_mismatch",
         "Existing PR must be open and its title must carry the ticket key",
       );
-    if (!this.#submissions || !lane.run || !lane.claim)
-      return fail(
-        "unsupported_capability",
-        "Submit requires shared submission authority and recorded run/claim identity",
-      );
-    let mayCreate: boolean;
+    if (!lane.run || !lane.claim)
+      return fail("unsupported_capability", "Submit requires recorded run/claim identity");
     try {
-      ({ mayCreate } = await this.#submissions.reserve(
-        {
-          lane: lane.id,
-          run: lane.run,
-          claim: lane.claim,
-          ...(lane.ticket ? { ticket: lane.ticket } : {}),
-          repository: target.repository,
-          branch: target.branch,
-        },
-        target.path,
-      ));
-    } catch (error) {
-      if (error instanceof SubmissionRefusal) return fail(error.code, error.message);
-      return fail("recovery_required", "Submission authority could not be verified");
+      const run = this.#store.run(lane.run);
+      if (
+        run.workspace.path !== target.path ||
+        run.workspace.branch !== target.branch ||
+        run.status !== "claimed"
+      )
+        return fail("claim_collision", "Submission does not match the claimed run workspace");
+      if (lane.ticket) {
+        const claim = this.#store.claim(lane.claim);
+        if (
+          run.ticket !== lane.ticket ||
+          claim.ticket !== lane.ticket ||
+          claim.run !== run.ref ||
+          claim.status !== "active" ||
+          !claim.claimHomeUrl ||
+          !claim.claimHome
+        )
+          return fail("claim_collision", "Submission requires the recorded active ticket claim");
+        const home = normalizeClaimHome(claim.claimHomeUrl);
+        if (home.identity !== claim.claimHome)
+          return fail("claim_collision", "Recorded claim home identity does not match");
+        const lock = new GitClaimLock({ repository: target.path, home, git: this.#git });
+        const held = heldClaim(await lock.read(lane.ticket));
+        if (
+          !held ||
+          held.claim !== lane.claim ||
+          held.run !== lane.run ||
+          held.owner !== claim.humanOwner
+        )
+          return fail("claim_collision", "Remote claim is not held by this submission owner");
+      }
+    } catch {
+      return fail("claim_collision", "Submission ownership could not be verified");
     }
-    if (!existing && !mayCreate)
-      return fail(
-        "recovery_required",
-        "PR creation was already reserved; reconcile its outcome instead of issuing another create",
-      );
     try {
       await artifacts.push(target);
     } catch {
@@ -629,7 +632,7 @@ export class LaneService {
   }
 }
 
-async function openPullRequests(
+async function findPullRequests(
   artifacts: ArtifactHost,
   workspace: ArtifactTarget,
   key: string | undefined,
@@ -637,7 +640,7 @@ async function openPullRequests(
   try {
     return ok(await artifacts.pullRequests(workspace, key));
   } catch {
-    return fail("artifact_host_unavailable", "Could not read open pull requests");
+    return fail("artifact_host_unavailable", "Could not read pull requests in all states");
   }
 }
 
