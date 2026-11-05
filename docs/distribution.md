@@ -13,18 +13,19 @@ explicit version because GitHub's latest-release route excludes them.
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/JarenKempton/interlock/main/scripts/install.sh | \
+  https://interlock.build/install.sh | \
   INTERLOCK_VERSION='<version-without-v>' sh
 ```
 
 ```powershell
 $env:INTERLOCK_VERSION = '<version-without-v>'
-irm https://raw.githubusercontent.com/JarenKempton/interlock/main/scripts/install.ps1 | iex
+irm https://interlock.build/install.ps1 | iex
 ```
 
 The [POSIX](../scripts/install.sh) and [PowerShell](../scripts/install.ps1)
 installers select the platform asset and verify its SHA-256 checksum before
-replacement. Set `INTERLOCK_INSTALL_DIR` to choose the destination.
+replacement. The site build copies these source scripts into its static assets;
+there is no separate maintained installer copy. Set `INTERLOCK_INSTALL_DIR` to choose the destination.
 Unsupported platforms, missing checksums, and digest mismatches leave an
 existing executable intact.
 
