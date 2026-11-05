@@ -56,21 +56,22 @@ export const hero = {
   },
 };
 
-const release = "0.1.0-alpha.6";
 const installerUrl = "https://interlock.build";
 
 export const install = {
-  notice: `Pre-release · v${release}`,
+  notice: "Latest stable by default · tagged pre-release while no stable exists · nightly only by request",
   platforms: [
     {
       id: "unix",
       label: "macOS / Linux",
       command: `curl -fsSL ${installerUrl}/install.sh | sh`,
+      nightlyCommand: `curl -fsSL ${installerUrl}/install.sh | INTERLOCK_VERSION=nightly sh`,
     },
     {
       id: "windows",
       label: "Windows PowerShell",
       command: `irm ${installerUrl}/install.ps1 | iex`,
+      nightlyCommand: `$env:INTERLOCK_VERSION = 'nightly'; irm ${installerUrl}/install.ps1 | iex; Remove-Item Env:INTERLOCK_VERSION`,
     },
   ],
 };

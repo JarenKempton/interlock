@@ -51,7 +51,7 @@ export async function checkForUpdate(
   }
   const current = parseVersion(options.currentVersion);
   if (!current) return undefined;
-  if (current.prerelease[0] === "dev") return undefined;
+  if (current.prerelease[0] === "dev" || current.prerelease[0] === "nightly") return undefined;
 
   const releasesUrl = environment.INTERLOCK_UPDATE_URL ?? RELEASES_URL;
   if (!releasesUrl) return undefined;

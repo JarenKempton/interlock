@@ -28,7 +28,7 @@ if (-not $BaseUrl) {
             if ($_.Exception.Response -and ([int]$_.Exception.Response.StatusCode -eq 404)) {
                 $prerelease = $true
                 try {
-                    $response = Invoke-WebRequest -UseBasicParsing -Uri "${api}?per_page=1"
+                    $response = Invoke-WebRequest -UseBasicParsing -Uri "${api}?per_page=2"
                 } catch {
                     throw 'interlock: GitHub releases API request failed'
                 }
@@ -42,7 +42,8 @@ if (-not $BaseUrl) {
             if (-not $prerelease -and -not $response.Content.TrimStart().StartsWith('{')) { throw 'Expected release object' }
             $release = $releases | Where-Object {
                 ($_.draft -is [bool]) -and (-not $_.draft) -and
-                ($_.prerelease -is [bool]) -and ($_.prerelease -eq $prerelease)
+                ($_.prerelease -is [bool]) -and ($_.prerelease -eq $prerelease) -and
+                ($_.tag_name -cne 'nightly')
             } | Select-Object -First 1
             if (-not $release -or $release.tag_name -cnotmatch '^v?[0-9][A-Za-z0-9.+-]*$') { throw 'Missing release tag' }
             $Version = $release.tag_name
@@ -51,6 +52,9 @@ if (-not $BaseUrl) {
         }
         if ($prerelease) { [Console]::Error.WriteLine("Installing Interlock $Version (pre-release)") }
         $tag = $Version
+    } elseif ($Version -ceq 'nightly') {
+        $tag = 'nightly'
+        [Console]::Error.WriteLine('Installing Interlock nightly (pre-release)')
     } elseif ($Version -eq 'latest') {
         throw 'interlock: INTERLOCK_VERSION is required for prerelease installation'
     } else {

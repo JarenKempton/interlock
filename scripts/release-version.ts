@@ -1,4 +1,11 @@
 const tag = process.argv[2];
+if (tag === "nightly") {
+  const sha = process.argv[3];
+  if (!/^[0-9a-f]{40}$/.test(sha ?? "")) throw new Error("nightly requires a full main commit SHA");
+  process.stdout.write(`0.0.0-nightly.g${sha}\n`);
+  process.exit(0);
+}
+
 const match =
   /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)$/.exec(tag ?? "");
 

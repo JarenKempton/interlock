@@ -28,6 +28,24 @@ describe("update notifications", () => {
     );
   });
 
+  test("nightly builds never recommend an older tagged alpha", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "interlock-nightly-update-"));
+    let requests = 0;
+    const result = await checkForUpdate({
+      currentVersion: `0.0.0-nightly.g${"a".repeat(40)}`,
+      interactive: true,
+      environment: { INTERLOCK_UPDATE_URL: "https://releases.example.test/releases" },
+      cachePath: join(directory, "cache.json"),
+      fetch: async () => {
+        requests += 1;
+        return Response.json([release("nightly", true), release("v0.1.0-alpha.6", true)]);
+      },
+    });
+    expect(result).toBeUndefined();
+    expect(requests).toBe(0);
+    expect(await readdir(directory)).toEqual([]);
+  });
+
   test("checks at most once per 24 hours", async () => {
     const cachePath = join(await mkdtemp(join(tmpdir(), "interlock-update-")), "cache.json");
     let requests = 0;
