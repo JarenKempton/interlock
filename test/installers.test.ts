@@ -224,7 +224,7 @@ for (const shell of shells) {
       if (shell.name === "POSIX") expect(performance.now() - started).toBeLessThan(5_000);
       expect(result.exitCode).toBe(0);
       const log = readFileSync(join(f.root, "curl.log"), "utf8");
-      expect(log).toContain("/releases?per_page=1\n");
+      expect(log).toMatch(/\/releases\?per_page=1\r?\n/);
       expect(log).not.toContain("per_page=100");
       expect(readFileSync(join(f.install, shell.executable), "utf8")).toBe("new binary");
     });
