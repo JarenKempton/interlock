@@ -7,5 +7,5 @@
     "directory": "./dist",
     "not_found_handling": "404-page"
   },
-  "routes": [{ "pattern": "interlock.jarenkempton.dev", "custom_domain": true }]
+  "routes": [{ "pattern": "interlock.build", "custom_domain": true }]
 }

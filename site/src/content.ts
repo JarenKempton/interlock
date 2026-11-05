@@ -57,19 +57,19 @@ export const hero = {
 };
 
 const release = "0.1.0-alpha.6";
-const releaseUrl = `https://github.com/JarenKempton/interlock/releases/download/v${release}`;
+const installerUrl = "https://interlock.build";
 
 export const install = {
   platforms: [
     {
       id: "unix",
       label: "macOS / Linux",
-      command: `curl --proto '=https' --tlsv1.2 -fsSL ${releaseUrl}/install.sh | INTERLOCK_VERSION=${release} sh`,
+      command: `curl --proto '=https' --tlsv1.2 -fsSL ${installerUrl}/install.sh | INTERLOCK_VERSION=${release} sh`,
     },
     {
       id: "windows",
       label: "Windows PowerShell",
-      command: `$env:INTERLOCK_VERSION = '${release}'; irm ${releaseUrl}/install.ps1 | iex`,
+      command: `$env:INTERLOCK_VERSION = '${release}'; irm ${installerUrl}/install.ps1 | iex`,
     },
   ],
 };

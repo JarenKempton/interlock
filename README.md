@@ -8,6 +8,19 @@ Built with TypeScript and Bun.
 and returns the arguments a T3 Code thread uses to launch the lane.
 `claim release` gives the ticket back.
 
+## Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://interlock.build/install.sh | INTERLOCK_VERSION=0.1.0-alpha.6 sh
+```
+
+```powershell
+$env:INTERLOCK_VERSION = '0.1.0-alpha.6'
+irm https://interlock.build/install.ps1 | iex
+```
+
+See [distribution](docs/distribution.md) for versions, checksums and install destinations.
+
 ## Try it
 
 From this checkout, with [Bun](https://bun.sh) installed:
