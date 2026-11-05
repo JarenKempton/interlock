@@ -66,15 +66,15 @@ sources without writing configuration or initializing the database.
 
 ## Work on the code
 
-| Task | Start here |
-| --- | --- |
-| Add an action | [Configuration commands](src/configuration/commands.ts) show the pattern; register new groups in [application.ts](src/application.ts) |
-| Change configuration | [Schemas](src/configuration/schema.ts) and [starter TOML](src/configuration/default.toml) |
-| Add a tracker or workspace adapter | [Adapters](src/adapters/) — implementations are grouped by responsibility and named by provider |
-| Understand execution | [Execution](src/execution/) and [portable contracts](src/domain/contracts.ts) |
-| Understand boundaries and contracts | [Architecture](docs/architecture.md) |
-| Install releases or configure shell integration | [Distribution](docs/distribution.md) |
-| Change the landing page | [site/](site/): Astro, served as Worker static assets; `bun run dev` inside it |
+| Task                                            | Start here                                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Add an action                                   | [Configuration commands](src/configuration/commands.ts) show the pattern; register new groups in [application.ts](src/application.ts) |
+| Change configuration                            | [Schemas](src/configuration/schema.ts) and [starter TOML](src/configuration/default.toml)                                             |
+| Add a tracker or workspace adapter              | [Adapters](src/adapters/) — implementations are grouped by responsibility and named by provider                                       |
+| Understand execution                            | [Execution](src/execution/) and [portable contracts](src/domain/contracts.ts)                                                         |
+| Understand boundaries and contracts             | [Architecture](docs/architecture.md)                                                                                                  |
+| Install releases or configure shell integration | [Distribution](docs/distribution.md)                                                                                                  |
+| Change the landing page                         | [site/](site/): Astro, served as Worker static assets; `bun run dev` inside it                                                        |
 
 ```sh
 bun test
