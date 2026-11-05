@@ -7,8 +7,8 @@ Adapters own vendor mechanics. The Git-remote claim lock decides ownership and
 the tracker mirrors it; tracker facts remain durable coordination truth, and the
 local ledger holds execution and recovery evidence.
 
-T3 Code owns the lane: its conversation, agent provider, model, and the
-in-thread MCP launch of the agent. A lane works one ticket in one worktree and
+Interlock owns the lane record. T3 Code hosts its session, launches the harness
+with the chosen model, and supplies the in-thread MCP client. A lane works one ticket in one worktree and
 produces one pull request. Closing a lane does not release its claim.
 
 Skills, MCP integrations, and other clients own presentation, map authoring,
@@ -56,9 +56,9 @@ fail closed. Jira search supplies ordering; a subsequent direct issue read
 supplies current fields, so search index lag cannot reopen completed tickets or
 hide reopened blockers.
 
-The implementer uses the user's `agent` and `model`, or the calling thread's
-when unset, checked against exact provider instance/model IDs and advertised
-option values. Inherited T3 model options apply only to the same provider
+The implementer uses the user's `harness` and `model`, or the calling thread's
+when unset, checked against exact harness instance/model IDs and advertised
+option values. Inherited T3 model options apply only to the same harness
 instance and model; `effort` and `context_window` override them. The plan's
 `reviewers` object has one checked selection per lens in the user's
 `reviewers` setting, using the implementer's selection unless `reviewer_agent`,
@@ -112,7 +112,7 @@ after the active process exits; read-only run inspection remains available.
 Keep an active ledger at its original path until its operations finish.
 
 Pickup takes exactly one ticket key. Secrets
-cross through credential-provider handles or scoped secure channels, never
+cross through credential handles or scoped secure channels, never
 ordinary configuration, process arguments, logs, or receipts.
 
 Public protocol changes remain backward compatible within a major. Consumers

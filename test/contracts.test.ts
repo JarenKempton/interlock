@@ -8,7 +8,7 @@ import { breakingChanges, contractBreakingChanges } from "../src/conformance/con
 import {
   CONTRACT_DEFINITIONS_PATH,
   CONTRACTS_DIRECTORY,
-  type ContractSurface,
+  type PublicContract,
   committedContract,
   committedContractDefinitions,
   committedContractFiles,
@@ -17,7 +17,7 @@ import {
   contractFileName,
   contractHash,
   contractSet,
-  contractSurfaces,
+  registeredContracts,
   contractVersionFailures,
   definitionFailures,
   definitionsText,
@@ -27,15 +27,15 @@ import { laneSchema } from "../src/domain/lane.ts";
 import { McpServer } from "../src/mcp/server.ts";
 
 test("every committed current snapshot matches its zod schema", () => {
-  const surfaces = contractSurfaces();
-  const { texts, definitions } = contractSet(surfaces);
-  for (const surface of surfaces) {
-    const file = contractFileName(surface);
+  const contracts = registeredContracts();
+  const { texts, definitions } = contractSet(contracts);
+  for (const contract of contracts) {
+    const file = contractFileName(contract);
     expect(`${file}\n${texts.get(file)}`).toBe(
       `${file}\n${readFileSync(join(CONTRACTS_DIRECTORY, file), "utf8")}`,
     );
     expect(resolveContract(JSON.parse(texts.get(file) ?? ""), definitions)).toEqual(
-      surface.document(),
+      contract.document(),
     );
   }
   expect(readFileSync(CONTRACT_DEFINITIONS_PATH, "utf8")).toBe(
@@ -51,8 +51,8 @@ test("every committed shared definition matches its key and every snapshot resol
 });
 
 test("a removed optional Lane field in its shared definition fails every lane action using it", () => {
-  const surfaces = contractSurfaces();
-  const before = contractSet(surfaces);
+  const contracts = registeredContracts();
+  const before = contractSet(contracts);
   const fields = Object.keys(laneSchema.shape);
   const field = Object.entries(laneSchema.shape).find(([, schema]) => schema.isOptional())?.[0];
   if (!field) throw new Error("Lane has no optional field");
@@ -84,13 +84,13 @@ test("a removed optional Lane field in its shared definition fails every lane ac
     );
   };
   const after = contractSet(
-    surfaces.map((surface): ContractSurface => ({
-      ...surface,
-      document: () => z.record(z.string(), z.unknown()).parse(withoutField(surface.document())),
+    contracts.map((contract): PublicContract => ({
+      ...contract,
+      document: () => z.record(z.string(), z.unknown()).parse(withoutField(contract.document())),
     })),
   );
-  const failing = surfaces.filter((surface) => {
-    const file = contractFileName(surface);
+  const failing = contracts.filter((contract) => {
+    const file = contractFileName(contract);
     return (
       contractBreakingChanges(
         resolveContract(JSON.parse(before.texts.get(file) ?? ""), before.definitions),
@@ -98,17 +98,19 @@ test("a removed optional Lane field in its shared definition fails every lane ac
       ).length > 0
     );
   });
-  const lanes = surfaces.filter((surface) => surface.name.startsWith("action.lane-"));
-  const usingLane = lanes.filter((surface) =>
-    JSON.stringify(surface.document()).includes(lane.slice(1, -1)),
+  const lanes = contracts.filter((contract) => contract.name.startsWith("action.lane-"));
+  const usingLane = lanes.filter((contract) =>
+    JSON.stringify(contract.document()).includes(lane.slice(1, -1)),
   );
-  expect(usingLane.map((surface) => surface.name)).toEqual(
-    lanes.map((surface) => surface.name).filter((name) => name !== "action.lane-next"),
+  expect(usingLane.map((contract) => contract.name)).toEqual(
+    lanes.map((contract) => contract.name).filter((name) => name !== "action.lane-next"),
   );
-  expect(failing.map((surface) => surface.name)).toEqual(usingLane.map((surface) => surface.name));
-  for (const surface of usingLane)
+  expect(failing.map((contract) => contract.name)).toEqual(
+    usingLane.map((contract) => contract.name),
+  );
+  for (const contract of usingLane)
     expect(
-      JSON.stringify(JSON.parse(before.texts.get(contractFileName(surface)) ?? "")),
+      JSON.stringify(JSON.parse(before.texts.get(contractFileName(contract)) ?? "")),
     ).not.toContain(lane.slice(1, -1));
 });
 
@@ -116,7 +118,7 @@ test("unresolved, cyclic and tampered shared definitions fail closed", () => {
   const ref = (key: string) => ({ $ref: `definitions.json#/${key}` });
   expect(() => resolveContract(ref("missing"), {})).toThrow("definition missing is missing");
   expect(() => resolveContract(ref("a"), { a: ref("b"), b: ref("a") })).toThrow("refers to itself");
-  const { definitions } = contractSet(contractSurfaces());
+  const { definitions } = contractSet(registeredContracts());
   const [key] = Object.keys(definitions);
   if (!key) throw new Error("no shared definitions");
   expect(definitionFailures({ ...definitions, [key]: { type: "string" } })).toEqual([
@@ -129,7 +131,7 @@ test("unresolved, cyclic and tampered shared definitions fail closed", () => {
 
 test("every registered action and MCP tool has a snapshot", () => {
   const app = createApplication();
-  const names = new Set(contractSurfaces().map((surface) => surface.name));
+  const names = new Set(registeredContracts().map((contract) => contract.name));
   for (const { command } of registeredActions(app))
     expect(names.has(`action.${command.join("-")}`)).toBe(true);
   const versions = new Map(

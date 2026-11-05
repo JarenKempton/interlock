@@ -77,8 +77,8 @@ export class PickupCoordinator {
   }
 
   async prepare(request: PickupRequest): Promise<PickupReceipt> {
-    if (!request.ticket || !request.owner || !request.harness) {
-      throw new Error("Ticket, owner, and harness are required");
+    if (!request.ticket || !request.owner || !request.host || !request.harness) {
+      throw new Error("Ticket, owner, host, and harness are required");
     }
     const runRef = this.#options.ids.run();
     const claimRef = this.#options.ids.claim();
@@ -93,6 +93,7 @@ export class PickupCoordinator {
     const run: Run = {
       ref: runRef,
       ticket: request.ticket,
+      host: request.host,
       harness: request.harness,
       workspace: { path: "" },
       capabilities: capabilities(),

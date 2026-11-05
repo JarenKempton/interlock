@@ -4,6 +4,7 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 export const runs = sqliteTable("runs", {
   ref: text().primaryKey(),
   ticket: text().notNull(),
+  host: text().notNull().default("unknown"),
   harness: text().notNull(),
   model: text(),
   effort: text(),

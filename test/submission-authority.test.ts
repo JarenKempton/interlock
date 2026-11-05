@@ -143,6 +143,7 @@ test("recorded authority requires matching active local and remote claim ownersh
   const run: Run = {
     ref: identity.run,
     ticket,
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: fixture.alice, branch: identity.branch },
     capabilities: {},

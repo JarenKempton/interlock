@@ -43,8 +43,8 @@ Help and shell completion derive from the registered actions.
 ## Configuration
 
 User settings live in local SQLite: the Jira site from `login jira`, host,
-agent, model and modes, the `branch` template (default `task/{key}`), and
-pickable and claimed statuses (default `To Do` and `In Progress`). Unset agent
+harness, model and modes, the `branch` template (default `task/{key}`), and
+pickable and claimed statuses (default `To Do` and `In Progress`). Unset harness
 and model follow the calling T3 thread.
 
 ```sh
@@ -71,7 +71,7 @@ sources without writing configuration or initializing the database.
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Add an action                                   | [Configuration commands](src/configuration/commands.ts) show the pattern; register new groups in [application.ts](src/application.ts) |
 | Change configuration                            | [Schemas](src/configuration/schema.ts) and [starter TOML](src/configuration/default.toml)                                             |
-| Add a tracker or workspace adapter              | [Adapters](src/adapters/) — implementations are grouped by responsibility and named by provider                                       |
+| Add a tracker or workspace adapter              | [Adapters](src/adapters/) — implementations are grouped by responsibility and named by integration                                    |
 | Understand execution                            | [Execution](src/execution/) and [portable contracts](src/domain/contracts.ts)                                                         |
 | Understand boundaries and contracts             | [Architecture](docs/architecture.md)                                                                                                  |
 | Install releases or configure shell integration | [Distribution](docs/distribution.md)                                                                                                  |

@@ -270,6 +270,7 @@ test("execution snapshots persist independently and cannot be silently replaced"
   const run: Run = {
     ref: runRefSchema.parse("interlock-run:config"),
     ticket: ticketRefSchema.parse("jira:example:P:ticket:P-1"),
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/workspace" },
     capabilities: {},
@@ -553,14 +554,14 @@ test("follow all clears every personal choice but keeps sign-in and claim home",
   const f = fixture();
   await f.ops.edit({ set: ["jira_site", "https://mine.atlassian.net"] });
   await f.ops.edit({ set: ["claim-home", "team/locks"] });
-  await f.ops.edit({ set: ["agent", "claude"] });
+  await f.ops.edit({ set: ["harness", "claude"] });
   await f.ops.edit({ set: ["pickable_statuses", "Ready"] });
   const output: string[] = [];
   await run(["config", "edit", "--follow", "all", "--json"], (line) => output.push(line), {
     configuration: { cwd: f.cwd, statePath: f.statePath },
   });
   const result = JSON.parse(output[0] ?? "");
-  expect(result.configuration.settings.agent).toBeUndefined();
+  expect(result.configuration.settings.harness).toBeUndefined();
   expect(result.configuration.settings.pickable_statuses).toEqual(["To Do"]);
   expect(readUserSettings(f.statePath)).toEqual({
     jira_site: "https://mine.atlassian.net",
@@ -613,20 +614,20 @@ test("version 1 receipts retain their historical resolution contract", () => {
       repositories: {},
       maps: {},
       tracker: { jira: { site: "https://example.atlassian.net" } },
-      t3: { provider: "codex", model: "historical-default", thinking_effort: "high" },
+      t3: { harness: "codex", model: "historical-default", thinking_effort: "high" },
       defaults: { model: "project-default" },
       required: { runtime_mode: "approval-required" },
     },
     settings: {
       host: "t3",
-      agent: "codex",
+      harness: "codex",
       model: "personal-choice",
       effort: "high",
       runtime_mode: "approval-required",
     },
     sources: {
       host: "default",
-      agent: "default",
+      harness: "default",
       model: "personal",
       effort: "default",
       runtime_mode: "required",

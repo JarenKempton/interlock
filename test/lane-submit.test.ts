@@ -114,6 +114,7 @@ function setup(
   store.saveRun({
     ref: runRef,
     ticket,
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch: options.branch ?? branch },
     capabilities: {},
@@ -350,6 +351,7 @@ test("CLI lane submit goes through the artifact host and records the PR", async 
   seed.saveRun({
     ref: runRef,
     ticket,
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch },
     capabilities: {},
@@ -424,6 +426,7 @@ async function cliLane(services: RuntimeServices, statePath: string, directory: 
   seed.saveRun({
     ref: runRef,
     ticket: ticketRefSchema.parse(jiraTicket),
+    host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch },
     capabilities: {},

@@ -115,6 +115,7 @@ export class StateStore {
     const values = {
       ref: run.ref,
       ticket: run.ticket,
+      host: run.host,
       harness: run.harness,
       model: run.model ?? null,
       workspace_json: JSON.stringify(run.workspace),
@@ -145,6 +146,7 @@ export class StateStore {
     return {
       ref: runRefSchema.parse(row.ref),
       ticket: ticketRefSchema.parse(row.ticket),
+      host: adapterRefSchema.parse(row.host),
       harness: adapterRefSchema.parse(row.harness),
       ...(row.model ? { model: row.model } : {}),
       workspace: JSON.parse(row.workspace_json),

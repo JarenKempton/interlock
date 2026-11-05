@@ -4,7 +4,7 @@ import { parseRef } from "../src/domain/reference.ts";
 describe("parseRef", () => {
   test.each([
     ["jira:responsibid", "tracker"],
-    ["jira:responsibid:JWB", "workspace"],
+    ["jira:responsibid:JWB", "namespace"],
     ["jira:responsibid:JWB:group:JWB-150", "group"],
     ["jira:responsibid:JWB:map:JWB-239", "map"],
     ["jira:responsibid:JWB:ticket:JWB-245", "ticket"],

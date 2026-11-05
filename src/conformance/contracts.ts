@@ -23,7 +23,7 @@ export type Definitions = z.infer<typeof definitionsSchema>;
 const DEFINITION_REF = "definitions.json#/";
 const SHARED_MINIMUM = 400;
 
-export interface ContractSurface {
+export interface PublicContract {
   name: string;
   version: number;
   frozen: boolean;
@@ -42,7 +42,7 @@ function jsonSchema(schema: z.ZodType, io: "input" | "output"): Record<string, u
   return document;
 }
 
-export function contractSurfaces(): ContractSurface[] {
+export function registeredContracts(): PublicContract[] {
   const actions = registeredActions(createApplication()).map(({ command, action }) => ({
     name: `action.${command.join("-")}`,
     version: action.version,
@@ -71,13 +71,13 @@ export function contractSurfaces(): ContractSurface[] {
     },
     {
       name: "user-settings",
-      version: 1,
+      version: 2,
       frozen: false,
       document: () => ({ file: jsonSchema(userSettingsSchema, "input") }),
     },
     {
       name: "personal-settings",
-      version: 1,
+      version: 2,
       frozen: false,
       document: () => ({ file: jsonSchema(personalSettingsSchema, "input") }),
     },
@@ -85,12 +85,12 @@ export function contractSurfaces(): ContractSurface[] {
   ];
 }
 
-export function contractFileName(surface: Pick<ContractSurface, "name" | "version">): string {
-  return `${surface.name}.v${surface.version}.json`;
+export function contractFileName(contract: Pick<PublicContract, "name" | "version">): string {
+  return `${contract.name}.v${contract.version}.json`;
 }
 
-export function contractText(surface: ContractSurface): string {
-  return jsonText(surface.document());
+export function contractText(contract: PublicContract): string {
+  return jsonText(contract.document());
 }
 
 function jsonText(value: unknown): string {
@@ -157,11 +157,11 @@ export function referencedDefinitions(documents: unknown[], definitions: Definit
   return Object.fromEntries(Object.entries(used).sort(([a], [b]) => a.localeCompare(b)));
 }
 
-export function contractSet(surfaces: ContractSurface[]): {
+export function contractSet(contracts: PublicContract[]): {
   texts: Map<string, string>;
   definitions: Definitions;
 } {
-  const documents = surfaces.map((surface) => surface.document());
+  const documents = contracts.map((contract) => contract.document());
   const counts = new Map<string, number>();
   const count = (node: unknown): unknown => {
     if (isRecord(node)) {
@@ -170,8 +170,8 @@ export function contractSet(surfaces: ContractSurface[]): {
     }
     return mapTree(node, count);
   };
-  surfaces.forEach((surface, index) => {
-    if (!surface.frozen) mapTree(documents[index], count);
+  contracts.forEach((contract, index) => {
+    if (!contract.frozen) mapTree(documents[index], count);
   });
   const definitions: Definitions = {};
   const share = (node: unknown): unknown => {
@@ -181,8 +181,8 @@ export function contractSet(surfaces: ContractSurface[]): {
     definitions[key] ??= mapTree(node, share);
     return { $ref: `${DEFINITION_REF}${key}` };
   };
-  const shared = surfaces.map((surface, index) =>
-    surface.frozen ? documents[index] : mapTree(documents[index], share),
+  const shared = contracts.map((contract, index) =>
+    contract.frozen ? documents[index] : mapTree(documents[index], share),
   );
   const uses = new Map<string, number>();
   const tally = (node: unknown): unknown => {
@@ -204,8 +204,8 @@ export function contractSet(surfaces: ContractSurface[]): {
   );
   return {
     texts: new Map(
-      surfaces.map((surface, index) => [
-        contractFileName(surface),
+      contracts.map((contract, index) => [
+        contractFileName(contract),
         jsonText(documentsWithReferences[index]),
       ]),
     ),
@@ -229,10 +229,10 @@ export function parseContractFileName(file: string): { name: string; version: nu
 }
 
 export function contractVersionFailures(
-  surfaces: Pick<ContractSurface, "name" | "version">[],
+  contracts: Pick<PublicContract, "name" | "version">[],
   files: string[],
 ): string[] {
-  return surfaces.flatMap(({ name, version }) => {
+  return contracts.flatMap(({ name, version }) => {
     if (!Number.isSafeInteger(version) || version < 1)
       return [`${name}: major must be a positive integer`];
     const highest = Math.max(

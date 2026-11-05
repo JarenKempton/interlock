@@ -1,10 +1,10 @@
-export type RefKind = "tracker" | "workspace" | "group" | "map" | "ticket" | "run" | "claim";
+export type RefKind = "tracker" | "namespace" | "group" | "map" | "ticket" | "run" | "claim";
 
 export interface ParsedRef {
   kind: RefKind;
   adapter?: string;
   instance?: string;
-  workspace?: string;
+  namespace?: string;
   nativeId?: string;
   raw: string;
 }
@@ -19,18 +19,18 @@ export function parseRef(input: string): ParsedRef {
   }
 
   const parts = raw.split(":");
-  const [adapter, instance, workspace, kind, nativeId] = parts;
+  const [adapter, instance, namespace, kind, nativeId] = parts;
   if (!adapter || !instance) {
     throw new Error(`Invalid qualified reference: ${JSON.stringify(raw)}`);
   }
   if (parts.length === 2) {
     return { kind: "tracker", adapter, instance, raw };
   }
-  if (!workspace) {
-    throw new Error("Workspace id is empty");
+  if (!namespace) {
+    throw new Error("Namespace id is empty");
   }
   if (parts.length === 3) {
-    return { kind: "workspace", adapter, instance, workspace, raw };
+    return { kind: "namespace", adapter, instance, namespace, raw };
   }
   if (parts.length !== 5 || !nativeId) {
     throw new Error("Reference must end in group, map, or ticket plus a native id");
@@ -38,7 +38,7 @@ export function parseRef(input: string): ParsedRef {
   if (kind !== "group" && kind !== "map" && kind !== "ticket") {
     throw new Error(`Unknown reference kind: ${JSON.stringify(kind)}`);
   }
-  return { kind, adapter, instance, workspace, nativeId, raw };
+  return { kind, adapter, instance, namespace, nativeId, raw };
 }
 
 function terminalRef(raw: string, prefix: string, kind: "run" | "claim"): ParsedRef {

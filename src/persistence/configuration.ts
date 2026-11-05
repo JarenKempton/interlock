@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
+import { savedT3Configuration } from "../adapters/hosts/t3-legacy.ts";
 import {
   type UserSettingKey,
   validateExecutionConfiguration,
@@ -21,7 +22,7 @@ function decode(content: string): unknown {
 }
 
 const snapshotRow = executionConfigurationRowSchema.transform((row) =>
-  validateExecutionConfiguration(decode(row.snapshot_json)),
+  validateExecutionConfiguration(savedT3Configuration(decode(row.snapshot_json))),
 );
 
 function guarded<T>(operation: () => T): T {
