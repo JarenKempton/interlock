@@ -200,34 +200,38 @@ for (const shell of shells) {
       },
     );
 
-    installerTest("prerelease lookup requests one realistically sized release", () => {
-      const f = fixture();
-      binary(f);
-      writeFileSync(join(f.downloads, "latest"), '{"message":"Not Found"}');
-      writeFileSync(join(f.downloads, "latest.status"), "404");
-      const payload = JSON.stringify([
-        {
-          ...release("v0.1.0-alpha.6", true),
-          body: 'Release notes with escaped "quotes" and newline\n'.repeat(400),
-          assets: Array.from({ length: 16 }, (_, id) => ({
-            id,
-            name: `asset-${id}`,
-            uploader: { login: "release-bot", avatar_url: "https://example.test/avatar" },
-            browser_download_url: `https://example.test/download/asset-${id}`,
-          })),
-        },
-      ]);
-      expect(payload.length).toBeGreaterThan(20_000);
-      writeFileSync(join(f.downloads, "releases"), payload);
-      const started = performance.now();
-      const result = runInstaller(f, shell);
-      if (shell.name === "POSIX") expect(performance.now() - started).toBeLessThan(5_000);
-      expect(result.exitCode).toBe(0);
-      const log = readFileSync(join(f.root, "curl.log"), "utf8");
-      expect(log).toMatch(/\/releases\?per_page=1\r?\n/);
-      expect(log).not.toContain("per_page=100");
-      expect(readFileSync(join(f.install, shell.executable), "utf8")).toBe("new binary");
-    });
+    installerTest(
+      "prerelease lookup bounds the response while allowing one nightly to be skipped",
+      () => {
+        const f = fixture();
+        binary(f);
+        writeFileSync(join(f.downloads, "latest"), '{"message":"Not Found"}');
+        writeFileSync(join(f.downloads, "latest.status"), "404");
+        const payload = JSON.stringify([
+          release("nightly", true),
+          {
+            ...release("v0.1.0-alpha.6", true),
+            body: 'Release notes with escaped "quotes" and newline\n'.repeat(400),
+            assets: Array.from({ length: 16 }, (_, id) => ({
+              id,
+              name: `asset-${id}`,
+              uploader: { login: "release-bot", avatar_url: "https://example.test/avatar" },
+              browser_download_url: `https://example.test/download/asset-${id}`,
+            })),
+          },
+        ]);
+        expect(payload.length).toBeGreaterThan(20_000);
+        writeFileSync(join(f.downloads, "releases"), payload);
+        const started = performance.now();
+        const result = runInstaller(f, shell);
+        if (shell.name === "POSIX") expect(performance.now() - started).toBeLessThan(5_000);
+        expect(result.exitCode).toBe(0);
+        const log = readFileSync(join(f.root, "curl.log"), "utf8");
+        expect(log).toMatch(/\/releases\?per_page=2\r?\n/);
+        expect(log).not.toContain("per_page=100");
+        expect(readFileSync(join(f.install, shell.executable), "utf8")).toBe("new binary");
+      },
+    );
 
     installerTest("automatic resolution preserves an API tag without a v prefix", () => {
       const f = fixture();
@@ -249,18 +253,36 @@ for (const shell of shells) {
       expect(result.stderr.toString()).toContain("(pre-release)");
     });
 
-    installerTest("default accepts nightly when it is the newest prerelease", () => {
+    installerTest("default skips nightly for the newest tagged prerelease", () => {
       const f = fixture();
       binary(f);
       writeFileSync(join(f.downloads, "latest"), '{"message":"Not Found"}');
       writeFileSync(join(f.downloads, "latest.status"), "404");
-      writeFileSync(join(f.downloads, "releases"), JSON.stringify([release("nightly", true)]));
+      writeFileSync(
+        join(f.downloads, "releases"),
+        JSON.stringify([release("nightly", true), release("v0.1.0-alpha.6", true)]),
+      );
       const result = runInstaller(f, shell);
       expect(result.exitCode).toBe(0);
-      expect(readFileSync(join(f.root, "curl.log"), "utf8")).toContain(
-        "/releases/download/nightly/",
+      const log = readFileSync(join(f.root, "curl.log"), "utf8");
+      expect(log).toContain("/releases/download/v0.1.0-alpha.6/");
+      expect(log).not.toContain("/releases/download/nightly/");
+      expect(result.stderr.toString()).toContain(
+        "Installing Interlock v0.1.0-alpha.6 (pre-release)",
       );
-      expect(result.stderr.toString()).toContain("Installing Interlock nightly (pre-release)");
+    });
+
+    installerTest("default fails closed when nightly is the only published release", () => {
+      const f = fixture();
+      writeFileSync(join(f.install, shell.executable), "previous binary");
+      writeFileSync(join(f.downloads, "latest"), '{"message":"Not Found"}');
+      writeFileSync(join(f.downloads, "latest.status"), "404");
+      writeFileSync(join(f.downloads, "releases"), JSON.stringify([release("nightly", true)]));
+      const result = runInstaller(f, shell);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("GitHub releases API");
+      expect(readFileSync(join(f.install, shell.executable), "utf8")).toBe("previous binary");
+      expect(readFileSync(join(f.root, "curl.log"), "utf8")).not.toContain("/releases/download/");
     });
 
     installerTest("explicit latest retains its existing rejection", () => {

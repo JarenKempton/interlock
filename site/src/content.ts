@@ -59,7 +59,7 @@ export const hero = {
 const installerUrl = "https://interlock.build";
 
 export const install = {
-  notice: "Latest stable by default · pre-release while no stable exists",
+  notice: "Latest stable by default · tagged pre-release while no stable exists · nightly only by request",
   platforms: [
     {
       id: "unix",

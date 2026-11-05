@@ -32,7 +32,10 @@ const workflow = z
 function prepare(extra: Record<string, string> = {}) {
   const root = mkdtempSync(join(tmpdir(), "interlock-nightly-"));
   roots.push(root);
-  writeFileSync(join(root, "git"), '#!/bin/sh\nprintf "%s\\n" "$MAIN_SHA"\n');
+  writeFileSync(
+    join(root, "git"),
+    '#!/bin/sh\nif [ "$*" = "rev-parse HEAD" ]; then printf "%s\\n" "$MAIN_SHA"; else exec "$REAL_GIT" "$@"; fi\n',
+  );
   writeFileSync(
     join(root, "curl"),
     `#!/bin/sh
@@ -60,6 +63,7 @@ exit "$CURL_EXIT"
       ...process.env,
       PATH: `${root}:${process.env.PATH}`,
       MAIN_SHA: sha,
+      REAL_GIT: Bun.which("git") ?? "git",
       EVENT_NAME: "schedule",
       REF_NAME: "main",
       API_URL: "https://example.invalid",
@@ -90,7 +94,7 @@ exit "$CURL_EXIT"
         tag_name: "nightly",
         prerelease: true,
         draft: false,
-        target_commitish: previous,
+        target_commitish: "stale-first-nightly-sha",
         body: `<!-- interlock-nightly-sha:${previous} -->`,
       }),
     });

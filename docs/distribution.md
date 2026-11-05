@@ -7,8 +7,9 @@ native runtime acceptance on the target platform.
 
 ## Install
 
-The installers select the newest stable release, or the newest prerelease when
-no stable release exists. Prerelease installation prints a warning to stderr.
+The installers select the newest stable release, or the newest tagged prerelease
+when no stable release exists. Nightly is installed only when explicitly requested.
+Prerelease installation prints a warning to stderr.
 Set `INTERLOCK_VERSION` explicitly to install a particular published version.
 If the GitHub releases API cannot resolve a version, installation stops.
 
@@ -32,8 +33,9 @@ Remove-Item Env:INTERLOCK_VERSION
 ```
 
 The default command prefers stable, even when a newer nightly exists. Until a
-stable release exists, the newest prerelease can be nightly; the installer
-announces this before downloading. API errors do not silently select nightly.
+stable release exists, it selects the newest tagged prerelease and announces
+this before downloading. It skips nightly; if nightly is the only release,
+installation stops. API errors never silently select another channel.
 Clear `INTERLOCK_VERSION` to return to automatic stable-first selection.
 
 The [POSIX](../scripts/install.sh) and [PowerShell](../scripts/install.ps1)
@@ -79,5 +81,7 @@ The nightly tag advances only by fast-forward; rewritten main history needs
 maintainer attention rather than an automatic forced update.
 
 `interlock --version` prints `0.0.0-nightly.g<full-main-SHA>` for nightly builds.
+Nightly builds skip tagged-release update notices; reinstall with the nightly
+command to get the next main build.
 The first scheduled run is required to establish hosted build, native-platform,
 and published provenance acceptance; local fixtures do not prove publication.

@@ -51,9 +51,8 @@ jobs:
               "$API_URL/repos/$REPOSITORY/releases/tags/nightly" --output "$response")
             case "$status" in
               200)
-                jq -e '.tag_name == "nightly" and .prerelease == true and .draft == false and (.target_commitish | type == "string")' "$response" >/dev/null
-                previous=$(jq -r '.target_commitish' "$response")
-                if [ "$previous" = "$sha" ] && jq -e --arg marker "<!-- interlock-nightly-sha:$sha -->" '(.body // "") | contains($marker)' "$response" >/dev/null; then
+                jq -e '.tag_name == "nightly" and .prerelease == true and .draft == false and ((.body // "") | type == "string")' "$response" >/dev/null
+                if jq -e --arg marker "<!-- interlock-nightly-sha:$sha -->" '(.body // "") | contains($marker)' "$response" >/dev/null; then
                   echo 'build=false' >> "$GITHUB_OUTPUT"
                   exit 0
                 fi
@@ -62,7 +61,7 @@ jobs:
               *) echo "Nightly lookup failed: HTTP $status" >&2; exit 1 ;;
             esac
           fi
-          version=$(bun scripts/release-version.ts "$tag" "$sha")
+          version=$(vp exec bun scripts/release-version.ts "$tag" "$sha")
           printf 'build=true\nsha=%s\ntag=%s\nversion=%s\n' "$sha" "$tag" "$version" >> "$GITHUB_OUTPUT"
 
   verify:

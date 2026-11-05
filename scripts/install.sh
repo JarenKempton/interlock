@@ -60,8 +60,8 @@ release_tag() {
             token()
           }
         }
-        if (depth == release_depth && draft == "false" && pre == prerelease && selected == "") {
-          if (tag !~ /^"v?[0-9][A-Za-z0-9.+-]*"$/ && !(pre == "true" && tag == "\"nightly\"")) fail()
+        if (depth == release_depth && draft == "false" && pre == prerelease && tag != "\"nightly\"" && selected == "") {
+          if (tag !~ /^"v?[0-9][A-Za-z0-9.+-]*"$/) fail()
           selected = substr(tag, 2, length(tag) - 2)
         }
         token()
@@ -110,7 +110,7 @@ else
       200) ;;
       404)
         prerelease=true
-        if ! status=$(curl --location --silent --show-error --write-out '%{http_code}' "$api?per_page=1" --output "$api_response"); then
+        if ! status=$(curl --location --silent --show-error --write-out '%{http_code}' "$api?per_page=2" --output "$api_response"); then
           echo "interlock: GitHub releases API request failed" >&2; exit 1
         fi
         ;;
