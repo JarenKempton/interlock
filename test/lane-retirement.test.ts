@@ -2,7 +2,6 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { GitClaimLock } from "../src/adapters/claims/git-lock.ts";
-import { submissionRef } from "../src/adapters/submissions/git.ts";
 import { BunGitCommandExecutor } from "../src/adapters/workspaces/git.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import {
@@ -40,21 +39,13 @@ async function release(lane: Fixture) {
 
 test("MCP completion leaves the shared remote claim and submission reservation unchanged", async () => {
   const lane = await mergedLane({ mcp: true, squash: true });
-  const identity = {
-    lane: lane.id,
-    run: runRef,
-    claim: claimRefSchema.parse("interlock-claim:complete"),
-    ticket: ticketRef,
-    repository: "github.com/o/r",
-    branch,
-  };
-  const before = git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main);
+  const legacyRef = `refs/interlock/submissions/v1/${"a".repeat(64)}`;
+  git(["push", lane.repo.origin, `${lane.repo.head}:${legacyRef}`], lane.repo.main);
+  const before = git(["ls-remote", lane.repo.origin, legacyRef], lane.repo.main);
   const claimBefore = await lockFor(lane).read(ticketRef);
   expect(before).not.toBe("");
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
-  expect(git(["ls-remote", lane.repo.origin, submissionRef(identity)], lane.repo.main)).toBe(
-    before,
-  );
+  expect(git(["ls-remote", lane.repo.origin, legacyRef], lane.repo.main)).toBe(before);
   expect(await lockFor(lane).read(ticketRef)).toEqual(claimBefore);
   lane.intact();
 });

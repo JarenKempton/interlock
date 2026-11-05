@@ -1,5 +1,4 @@
 import type { ConfigurationPlatformOptions } from "./configuration/project-files.ts";
-import type { SubmissionAuthority } from "./domain/submission.ts";
 import type { AttachAuthority } from "./execution/attachment.ts";
 import type { ArtifactHost, LaneTrackerPort } from "./execution/lane.ts";
 import type { ExecutionPlatform } from "./execution/pickup-runtime.ts";
@@ -13,7 +12,6 @@ export interface RuntimeServices {
   lane?: {
     tracker?: LaneTrackerPort;
     artifacts?: ArtifactHost;
-    submissions?: SubmissionAuthority;
     attachments?: AttachAuthority;
   };
 }

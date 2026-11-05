@@ -36,6 +36,17 @@ A run whose side effects could not be verified stays `recovery_required` with
 its evidence in the ledger; `interlock runs export` shows it. A flag or human
 assertion is not itself proof of the remote outcome.
 
+## Submission retries
+
+`lane submit` re-checks the claimed run and workspace, active local ticket claim,
+and remote claim/run/owner immediately before pushing. It never reserves a PR
+create permit. A failed push leaves the lane implementing and retryable. PR
+adoption reads all states on the head branch and refuses multiple candidates or
+a closed/merged PR rather than opening a replacement. After an ambiguous create,
+retry looks up the branch again to adopt its PR. GitHub search is eventually
+consistent; submit does not promise exactly-once creation. Legacy
+`refs/interlock/submissions/v1/*` refs are unused and are not deleted.
+
 ## Pickup and compensation
 
 Pickup persists each transition before beginning the next side effect. It

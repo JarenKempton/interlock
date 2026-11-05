@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { GitClaimLock } from "../../src/adapters/claims/git-lock.ts";
-import { GitSubmissionAuthority } from "../../src/adapters/submissions/git.ts";
 import {
   BunGitCommandExecutor,
   type GitCommandExecutor,
@@ -223,17 +222,6 @@ export function laneCompleteFixtures() {
         leaseExpiresAt: claim.leaseExpiresAt,
         expectedVersion: (await lock.read(ticketRef)).version,
       });
-      await new GitSubmissionAuthority(home, commands).reserve(
-        {
-          lane: created.value.id,
-          run: runRef,
-          claim: claim.ref,
-          ticket: ticketRef,
-          repository: "github.com/o/r",
-          branch,
-        },
-        repo.main,
-      );
     }
     store.close();
     const tracker = options.tracker ?? new FakeJira();

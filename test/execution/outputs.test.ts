@@ -10,7 +10,6 @@ import type { RuntimeServices } from "../../src/runtime-services.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../fixtures/git-remote.ts";
 import { laneCompleteFixtures } from "../fixtures/lane-complete.ts";
 import { catalogEnvelope, pickupFixture } from "../fixtures/pickup-runtime.ts";
-import { FakeSubmissionAuthority } from "../fixtures/submission.ts";
 
 const now = "2026-11-05T00:00:00.000Z";
 
@@ -109,7 +108,6 @@ test(
       expect(refusal.code).toBe(1);
       expect(normalize(refusal, replacements)).toMatchSnapshot("lane refusal");
       services.lane = {
-        submissions: new FakeSubmissionAuthority(),
         tracker: {
           read: async () => {
             throw new Error("Unexpected tracker read");

@@ -15,7 +15,6 @@ import type { Ticket } from "../src/domain/model.ts";
 import type { ArtifactHost } from "../src/execution/lane.ts";
 import { LaneService, type LaneTrackerPort } from "../src/execution/lane.ts";
 import { StateStore } from "../src/persistence/state.ts";
-import { FakeSubmissionAuthority } from "./fixtures/submission.ts";
 
 const proof = {
   merged: true,
@@ -482,7 +481,7 @@ test("CLI runs a one-off lane and refuses completion without an owned claim", as
     pullRequests: async () => [],
     open: async () => ({ url: "https://example.test/pr/1", branch: "local/cli", state: "OPEN" }),
   };
-  const services = { statePath, lane: { artifacts, submissions: new FakeSubmissionAuthority() } };
+  const services = { statePath, lane: { artifacts } };
   try {
     const call = async (args: string[]) => {
       const output: string[] = [];
