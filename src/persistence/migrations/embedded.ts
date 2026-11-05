@@ -6,6 +6,8 @@ import migration0004 from "./0004_awesome_nitro.sql" with { type: "text" };
 
 import migration0005 from "./0005_host_harness.sql" with { type: "text" };
 
+import migration0006 from "./0006_wandering_lyja.sql" with { type: "text" };
+
 export interface LedgerMigration {
   tag: string;
   sql: string;
@@ -18,4 +20,5 @@ export const embeddedMigrations: readonly LedgerMigration[] = [
   { tag: "0003_funny_phalanx", sql: migration0003 },
   { tag: "0004_awesome_nitro", sql: migration0004 },
   { tag: "0005_host_harness", sql: migration0005 },
+  { tag: "0006_wandering_lyja", sql: migration0006 },
 ];

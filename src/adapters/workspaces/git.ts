@@ -3,14 +3,7 @@ import { join, resolve } from "node:path";
 import type { WorkspaceAdapter, WorkspacePlan } from "../../domain/contracts.ts";
 import type { PreparedWorkspace, RepositorySpec, Ticket, TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/reference.ts";
-import type {
-  MergeProof,
-  RetirementIdentity,
-  RetirementPhase,
-  RetirementRecord,
-} from "../../domain/retirement.ts";
 import { lockExecution } from "../../persistence/execution-lock.ts";
-import { GitRetirement } from "./retirement.ts";
 
 export interface CommandResult {
   exitCode: number;
@@ -89,23 +82,6 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
     this.#git = git;
     this.#fileSystem = fileSystem;
     this.#branch = branch;
-  }
-
-  static prepareRetirement(
-    identity: RetirementIdentity,
-    proof: MergeProof,
-    git: GitCommandExecutor = new BunGitCommandExecutor(),
-  ) {
-    return new GitRetirement(git).prepare(identity, proof);
-  }
-
-  static retire(
-    record: RetirementRecord,
-    advance: (phase: RetirementPhase) => void,
-    fence: () => Promise<void>,
-    git: GitCommandExecutor = new BunGitCommandExecutor(),
-  ) {
-    return new GitRetirement(git).retire(record, advance, fence);
   }
 
   async preflight(ticket: Ticket): Promise<void> {

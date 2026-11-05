@@ -62,7 +62,7 @@ Lane procedure:
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
 6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
-7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane complete --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\`, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.
 Interlock refusals are final for that step: report them instead of working around them.
 
 Authorization and completion:
@@ -131,7 +131,7 @@ Lane procedure:
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
 6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
-7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane complete --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\`, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.
 Interlock refusals are final for that step: report them instead of working around them.
 
 Authorization and completion:
@@ -221,7 +221,7 @@ Lane procedure:
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
 6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
-7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane complete --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\`, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.
 Interlock refusals are final for that step: report them instead of working around them.
 
 Authorization and completion:
@@ -290,7 +290,7 @@ Lane procedure:
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
 6. Record one verdict for that head: \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>\` only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.
-7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane merge LANE --head SHA --state <state>\` and then \`bun <cli> lane complete LANE --json --state <state>\`, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.
+7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane complete --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\`, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.
 Interlock refusals are final for that step: report them instead of working around them.
 
 Authorization and completion:
@@ -531,8 +531,7 @@ exports[`pickup and lane JSON consumed by the T3 skill: lane next after verdict 
   "output": {
     "ok": true,
     "value": {
-      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "kind": "merge",
+      "kind": "verify_done",
       "lane": "<lane>",
     },
   },
@@ -631,55 +630,6 @@ exports[`pickup and lane JSON consumed by the T3 skill: lane next after resume 1
   "output": {
     "ok": true,
     "value": {
-      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "kind": "merge",
-      "lane": "<lane>",
-    },
-  },
-}
-`;
-
-exports[`pickup and lane JSON consumed by the T3 skill: lane merge 1`] = `
-{
-  "code": 0,
-  "output": {
-    "ok": true,
-    "value": {
-      "artifact": "https://github.com/test/pickup/pull/940",
-      "claim": "<claim>",
-      "createdAt": "2026-11-05T00:00:00.000Z",
-      "evidence": [
-        {
-          "gate": "tests",
-          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "url": "https://ci.test/940",
-        },
-      ],
-      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "id": "<lane>",
-      "maxReviewRounds": 3,
-      "reviewRound": 1,
-      "run": "<run>",
-      "state": "merged",
-      "ticket": "jira:example:TEST:ticket:TEST-492",
-      "updatedAt": "2026-11-05T00:00:00.000Z",
-      "verdict": {
-        "decision": "approved",
-        "findings": [],
-        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "round": 1,
-      },
-    },
-  },
-}
-`;
-
-exports[`pickup and lane JSON consumed by the T3 skill: lane next after merge 1`] = `
-{
-  "code": 0,
-  "output": {
-    "ok": true,
-    "value": {
       "kind": "verify_done",
       "lane": "<lane>",
     },
@@ -687,15 +637,11 @@ exports[`pickup and lane JSON consumed by the T3 skill: lane next after merge 1`
 }
 `;
 
-exports[`lane completion JSON includes read-back unblocked tickets and retirement 1`] = `
+exports[`lane completion JSON includes read-back unblocked tickets without retirement 1`] = `
 {
   "code": 0,
   "result": {
     "ok": true,
-    "retirement": {
-      "preservedFiles": "<root>/main/.git/interlock-retired/<retirement-id>/files",
-      "retainedRef": "refs/interlock/retired/<retirement-id>",
-    },
     "unblocked": {
       "state": "known",
       "tickets": [],

@@ -17,6 +17,15 @@ import { LaneService, type LaneTrackerPort } from "../src/execution/lane.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { FakeSubmissionAuthority } from "./fixtures/submission.ts";
 
+const proof = {
+  merged: true,
+  url: "https://example.test/pr/1",
+  repository: "github.com/o/r",
+  branch: "task/A-1",
+  head: "abc",
+  base: "main",
+  commit: "def",
+};
 const now = "2026-01-01T00:00:00.000Z";
 const ticketRef = ticketRefSchema.parse("jira:x:W:ticket:A-1");
 const otherTicketRef = ticketRefSchema.parse("jira:x:W:ticket:A-2");
@@ -108,11 +117,8 @@ test("happy path walks every state and next returns exactly one action per state
   expect(nextLaneAction(lane)).toEqual({ kind: "record_verdict", lane: lane.id, head: "abc" });
   lane = drive(lane, { type: "verdict", head: "abc", decision: "approved", findings: [] });
   expect(lane.state).toBe("approved");
-  expect(nextLaneAction(lane)).toEqual({ kind: "merge", lane: lane.id, head: "abc" });
-  lane = drive(lane, { type: "merge", head: "abc" });
-  expect(lane.state).toBe("merged");
   expect(nextLaneAction(lane).kind).toBe("verify_done");
-  lane = drive(lane, { type: "complete", trackerDoneVerified: true });
+  lane = drive(lane, { type: "complete", proof, trackerDoneVerified: true });
   expect(lane.state).toBe("done");
   expect(nextLaneAction(lane).kind).toBe("none");
 });
@@ -124,8 +130,7 @@ test("every out-of-state transition is refused with a machine-readable code", ()
     { type: "submit", artifact: "a", head: "abc", evidence },
     { type: "begin_review" },
     { type: "verdict", head: "abc", decision: "approved", findings: [] },
-    { type: "merge", head: "abc" },
-    { type: "complete", trackerDoneVerified: true },
+    { type: "complete", proof, trackerDoneVerified: true },
     { type: "resume" },
   ];
   for (const command of commands) {
@@ -133,14 +138,11 @@ test("every out-of-state transition is refused with a machine-readable code", ()
     expect(result.refusal?.code).toBe("invalid_transition");
     expect(result.lane).toBe(lane);
   }
-  const done = drive(
-    approved(domainLane()),
-    { type: "merge", head: "abc" },
-    {
-      type: "complete",
-      trackerDoneVerified: true,
-    },
-  );
+  const done = drive(approved(domainLane()), {
+    type: "complete",
+    proof,
+    trackerDoneVerified: true,
+  });
   for (const command of commands) {
     expect(transitionLane(done, command, now).refusal?.code).toBe("invalid_transition");
   }
@@ -280,16 +282,22 @@ test("changes_requested loops to implementing until the round limit routes to at
 
 test("an approval goes stale when the head changes before merge", () => {
   const lane = approved(domainLane());
-  const result = transitionLane(lane, { type: "merge", head: "new-head" }, now);
+  const result = transitionLane(
+    lane,
+    { type: "complete", trackerDoneVerified: true, proof: { ...proof, head: "new-head" } },
+    now,
+  );
   expect(result.refusal?.code).toBe("stale_evidence");
-  expect(result.lane.state).toBe("implementing");
-  expect(result.lane.verdict).toBeUndefined();
-  expect(nextLaneAction(result.lane).kind).toBe("implement");
+  expect(result.lane).toBe(lane);
 });
 
 test("complete requires verified tracker completion at the domain gate", () => {
-  const merged = drive(approved(domainLane()), { type: "merge", head: "abc" });
-  const refused = transitionLane(merged, { type: "complete", trackerDoneVerified: false }, now);
+  const merged = { ...approved(domainLane()), state: "merged" as const };
+  const refused = transitionLane(
+    merged,
+    { type: "complete", proof, trackerDoneVerified: false },
+    now,
+  );
   expect(refused.refusal?.code).toBe("tracker_not_done");
   expect(refused.lane.state).toBe("merged");
 });
@@ -362,7 +370,7 @@ function makeService(tracker?: LaneTrackerPort) {
   };
 }
 
-async function serviceLaneToMerged(service: LaneService, ticket?: string) {
+async function serviceLaneToApproved(service: LaneService, ticket?: string) {
   const created = service.create(ticket ? { ticket } : { title: "One off" });
   if (!created.ok) throw new Error(created.refusal.message);
   const id = created.value.id;
@@ -372,7 +380,6 @@ async function serviceLaneToMerged(service: LaneService, ticket?: string) {
     { type: "submit", artifact: "https://example.test/pr/1", head: "abc", evidence },
     { type: "begin_review" },
     { type: "verdict", head: "abc", decision: "approved", findings: [] },
-    { type: "merge", head: "abc" },
   ] as const) {
     const result = await service.apply(id, command);
     if (!result.ok) throw new Error(`${command.type}: ${result.refusal.message}`);
@@ -390,13 +397,13 @@ test("service persists lanes and refuses unknown lanes", async () => {
       ok: false,
       refusal: { code: "lane_not_found", message: expect.any(String) },
     });
-    const id = await serviceLaneToMerged(service);
-    expect(service.get(id)).toMatchObject({ ok: true, value: { state: "merged" } });
+    const id = await serviceLaneToApproved(service);
+    expect(service.get(id)).toMatchObject({ ok: true, value: { state: "approved" } });
     expect(service.next(id)).toEqual({ ok: true, value: { kind: "verify_done", lane: id } });
     store.close();
     const reopened = new StateStore(path);
     try {
-      expect(reopened.lane(id).state).toBe("merged");
+      expect(reopened.lane(id).state).toBe("approved");
       expect(reopened.lane(id).evidence).toEqual(evidence);
     } finally {
       reopened.close();
@@ -438,10 +445,10 @@ test("completion without a recorded run refuses before tracker writes", async ()
   const tracker = new FakeTracker();
   const { service, cleanup } = makeService(tracker);
   try {
-    const id = await serviceLaneToMerged(service, String(ticketRef));
-    expect(await service.apply(id, { type: "complete", trackerDoneVerified: false })).toMatchObject(
-      { ok: false, refusal: { code: "workspace_unknown" } },
-    );
+    const id = await serviceLaneToApproved(service, String(ticketRef));
+    expect(
+      await service.apply(id, { type: "complete", proof, trackerDoneVerified: false }),
+    ).toMatchObject({ ok: false, refusal: { code: "unsupported_capability" } });
     expect(tracker.transitions).toEqual([]);
   } finally {
     cleanup();
@@ -514,9 +521,11 @@ test("CLI runs a one-off lane and refuses completion without an owned claim", as
       "--json",
     ]);
     expect(verdict.value.value.state).toBe("approved");
-    await call(["lane", "merge", id, "--head", "abc", "--json"]);
     const completed = await call(["lane", "complete", id, "--json"]);
-    expect(completed.value).toMatchObject({ ok: false, refusal: { code: "workspace_unknown" } });
+    expect(completed.value).toMatchObject({
+      ok: false,
+      refusal: { code: "unsupported_capability" },
+    });
     expect((await call(["lane", "next", id, "--json"])).value.value.kind).toBe("verify_done");
     const listed = await call(["lane", "list", "--json"]);
     expect(listed.value).toHaveLength(1);
@@ -533,7 +542,6 @@ test("the no-lens procedure reaches merge: review, attention, resume, then a per
     { type: "attention", reason: "review_required" },
     { type: "resume" },
     { type: "verdict", head: "abc", decision: "approved", findings: [] },
-    { type: "merge", head: "abc" },
   );
-  expect(lane.state).toBe("merged");
+  expect(lane.state).toBe("approved");
 });

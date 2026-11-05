@@ -2,6 +2,18 @@ import { z } from "zod";
 import { claimRefSchema, laneRefSchema, runRefSchema, ticketRefSchema } from "./identifiers.ts";
 import type { ClaimRef, LaneRef, RunRef, TicketRef } from "./model.ts";
 
+const oid = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
+export const mergeProofSchema = z.object({
+  merged: z.boolean(),
+  url: z.url(),
+  repository: z.string().min(1),
+  branch: z.string().min(1),
+  head: oid,
+  base: z.string().min(1),
+  commit: oid.nullable(),
+});
+export type MergeProof = z.infer<typeof mergeProofSchema>;
+
 export const laneRefusalCodeSchema = z.enum([
   "claim_collision",
   "stale_version",
@@ -22,9 +34,6 @@ export const laneRefusalCodeSchema = z.enum([
   "tracker_unavailable",
   "tracker_write_failed",
   "pull_request_unmerged",
-  "workspace_dirty",
-  "branch_unmerged",
-  "cleanup_pending",
 ]);
 export type LaneRefusalCode = z.infer<typeof laneRefusalCodeSchema>;
 
@@ -41,9 +50,6 @@ export function laneResultSchema<T extends z.ZodType>(value: T) {
     z.strictObject({
       ok: z.literal(true),
       value,
-      retirement: z
-        .strictObject({ preservedFiles: z.string(), retainedRef: z.string() })
-        .optional(),
       unblocked: unblockedSchema.optional(),
     }),
     z.strictObject({ ok: z.literal(false), refusal: laneRefusalSchema }),
@@ -54,7 +60,6 @@ export type LaneResult<T> =
   | {
       ok: true;
       value: T;
-      retirement?: { preservedFiles: string; retainedRef: string };
       unblocked?: Unblocked;
     }
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
@@ -120,8 +125,7 @@ export type LaneCommand =
       decision: "approved" | "changes_requested";
       findings: readonly string[];
     }
-  | { type: "merge"; head: string }
-  | { type: "complete"; trackerDoneVerified: boolean }
+  | { type: "complete"; trackerDoneVerified: boolean; proof?: MergeProof }
   | { type: "attention"; reason: string }
   | { type: "resume" }
   | { type: "promote"; ticket: TicketRef };
@@ -138,7 +142,6 @@ export const laneActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("submit"), ...laneTarget }),
   z.strictObject({ kind: z.literal("review"), ...laneTarget }),
   z.strictObject({ kind: z.literal("record_verdict"), ...laneTarget, head: z.string().optional() }),
-  z.strictObject({ kind: z.literal("merge"), ...laneTarget, head: z.string().optional() }),
   z.strictObject({ kind: z.literal("verify_done"), ...laneTarget }),
   z.strictObject({ kind: z.literal("attention"), ...laneTarget, reason: z.string().optional() }),
   z.strictObject({ kind: z.literal("none"), ...laneTarget }),
@@ -209,7 +212,6 @@ export function nextLaneAction(lane: Lane): LaneAction {
     case "reviewing":
       return { kind: "record_verdict", lane: lane.id, ...(lane.head ? { head: lane.head } : {}) };
     case "approved":
-      return { kind: "merge", lane: lane.id, ...(lane.head ? { head: lane.head } : {}) };
     case "merged":
       return { kind: "verify_done", lane: lane.id };
     case "attention":
@@ -311,25 +313,15 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
         });
       return moved(lane, now, { state: "implementing", verdict });
     }
-    case "merge": {
-      if (lane.state !== "approved")
-        return refused(lane, "invalid_transition", `Cannot merge a lane in ${lane.state}`);
-      if (!isApprovedForHead(lane, command.head)) {
-        const stale: Lane = { ...lane, state: "implementing", updatedAt: now };
-        delete stale.verdict;
-        return {
-          lane: stale,
-          refusal: {
-            code: "stale_evidence",
-            message: "Approved verdict is stale for the current head; resubmit for review",
-          },
-        };
-      }
-      return moved(lane, now, { state: "merged" });
-    }
     case "complete": {
-      if (lane.state !== "merged")
+      if (lane.state !== "approved" && lane.state !== "merged")
         return refused(lane, "invalid_transition", `Cannot complete a lane in ${lane.state}`);
+      if (!command.proof?.merged)
+        return refused(lane, "pull_request_unmerged", "Completion requires a verified merge");
+      if (!isApprovedForHead(lane, command.proof.head))
+        return refused(lane, "stale_evidence", "Merged head does not have the lane's approval");
+      if (command.proof.url !== lane.artifact)
+        return refused(lane, "artifact_mismatch", "Merge proof belongs to another pull request");
       if (!command.trackerDoneVerified)
         return refused(
           lane,

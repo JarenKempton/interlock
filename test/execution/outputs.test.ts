@@ -149,7 +149,6 @@ test(
         ["verdict", lane, "--head", head, "--decision", "approved"],
         ["attention", lane, "--reason", "awaiting_merge"],
         ["resume", lane],
-        ["merge", lane, "--head", head],
       ];
       for (const step of steps) {
         const output = await command(services, ["lane", ...step]);
@@ -169,19 +168,15 @@ test(
 const { mergedLane } = laneCompleteFixtures();
 
 test(
-  "lane completion JSON includes read-back unblocked tickets and retirement",
+  "lane completion JSON includes read-back unblocked tickets without retirement",
   async () => {
     const f = await mergedLane({ pickedUp: true });
     const completed = await f.complete();
     expect(completed.code).toBe(0);
     const lane = laneResultSchema(laneSchema).parse(completed.result);
     if (!lane.ok) throw new Error(lane.refusal.message);
-    const retirementId = lane.retirement?.retainedRef.split("/").at(-1);
-    expect(retirementId).toMatch(/^[a-f0-9]{64}$/);
-    if (!retirementId) throw new Error("Missing retirement identity");
     expect(
       normalize(completed, [
-        [retirementId, "<retirement-id>"],
         [await realpath(f.repo.root), "<root>"],
         [f.repo.root, "<root>"],
         [f.repo.head, "<head>"],

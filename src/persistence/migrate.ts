@@ -67,6 +67,15 @@ export function migrateLedger(
         const first = migrations[0];
         if (adopting && first) recordMigration(database, first);
         for (const migration of pending) {
+          if (migration.tag === "0006_wandering_lyja" && hasTable(database, "retirements")) {
+            const rows = database
+              .query<{ lane: string }, []>("SELECT lane FROM retirements ORDER BY lane")
+              .all();
+            if (rows.length)
+              throw new Error(
+                `Retirement recovery records require manual cleanup before migration: ${rows.map((row) => row.lane).join(", ")}. Preserve their retained refs and files before removing the records`,
+              );
+          }
           for (const statement of migration.sql.split("--> statement-breakpoint")) {
             const trimmed = statement.trim();
             if (trimmed) database.exec(trimmed);

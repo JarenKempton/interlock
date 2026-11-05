@@ -24,8 +24,13 @@ is released explicitly.
 
 Release explicitly returns ownership by conditionally restoring and verifying
 the original claim-related fields. The ticket can be picked up again only if
-the restored state is eligible. Closing a lane, stopping an agent, and deleting
-a workspace are separate from release.
+the restored state is eligible. Closing a lane and stopping an agent are separate from release.
+`lane complete --ticket KEY` verifies GitHub merge proof at the approved head
+and re-reads the remote claim holder before every tracker write, including on
+recovery. It journals completion intent and stores the success receipt with the
+done lane after tracker readback. It never releases the claim or removes its
+workspace. Legacy retirement records block ledger migration and name the lanes
+requiring manual recovery of retained refs and preserved files.
 
 A run whose side effects could not be verified stays `recovery_required` with
 its evidence in the ledger; `interlock runs export` shows it. A flag or human
