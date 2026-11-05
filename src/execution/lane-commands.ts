@@ -26,7 +26,7 @@ export function laneActions(services: RuntimeServices) {
   const service = (store: Parameters<Parameters<typeof withExecutionStore>[2]>[0]) =>
     new LaneService({
       store,
-      tracker: services.lane?.tracker ?? signedInLaneTracker(services),
+      tracker: services.lane?.tracker ?? signedInLaneTracker(services, store),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
       git: services.execution?.git ?? new BunGitCommandExecutor(),
       attachments:

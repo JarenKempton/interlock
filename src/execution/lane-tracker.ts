@@ -6,8 +6,10 @@ import type { RuntimeServices } from "../runtime-services.ts";
 import { lookupCredentials, savedSite, trackerSignIns } from "../sign-in/credentials.ts";
 import type { LaneTrackerPort } from "./lane.ts";
 import { jiraRankField } from "./pickup-runtime.ts";
+import type { StateStore } from "../persistence/state.ts";
+import { journalJiraWrite, verifyJournaledJiraWrite } from "./jira-write-journal.ts";
 
-export function signedInLaneTracker(services: RuntimeServices): LaneTrackerPort {
+export function signedInLaneTracker(services: RuntimeServices, store: StateStore): LaneTrackerPort {
   const adapter = async (ticket: TicketRef) => {
     const ref = parseRef(ticket);
     if (ref.adapter !== "jira" || !ref.instance || !ref.namespace)
@@ -35,6 +37,20 @@ export function signedInLaneTracker(services: RuntimeServices): LaneTrackerPort 
     });
   };
   return {
+    removeMirror: async (claim) => {
+      const tracker = new JiraTrackerAdapter({
+        ...(await adapter(claim.ticket)),
+        ...(claim.claimHome ? { claimHome: claim.claimHome } : {}),
+        journalWrite: (pending) => journalJiraWrite(store, claim.run, pending),
+      });
+      await verifyJournaledJiraWrite(store, claim.run, claim.ticket, tracker);
+      await tracker.removeMirror({
+        ticket: claim.ticket,
+        claim: claim.ref,
+        run: claim.run,
+        owner: claim.humanOwner,
+      });
+    },
     available: async (ticket) => {
       await adapter(ticket);
     },

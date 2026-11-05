@@ -82,6 +82,11 @@ export class FakeJira implements LaneTrackerPort {
   failing = new Set<TicketRef>();
   reads: TicketRef[] = [];
   transitions: string[] = [];
+  removals = 0;
+  async removeMirror() {
+    if (this.ticket.state !== "closed") throw new Error("Ticket is not Done");
+    this.removals += 1;
+  }
   onTransition: (fake: FakeJira) => void = (fake) => fake.set("Done");
 
   set(status: string) {

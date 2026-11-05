@@ -151,6 +151,75 @@ function restoreRequest(): MirrorRestore {
   };
 }
 
+describe("completion mirror removal", () => {
+  const request = {
+    ticket,
+    claim: claimRefSchema.parse("interlock-claim:c"),
+    run: runRefSchema.parse("interlock-run:r"),
+    owner,
+  };
+  const property = { ...request, home: "github.com/jarenkempton/interlock", version: 2 };
+
+  test("deletes only the property after identity comparison and verifies absence", async () => {
+    const api = new FakeJira();
+    api.issues = [issue("JWB-288", { status: "Done", assignee: owner })];
+    api.claimProperty = property;
+    await adapter(api).removeMirror(request);
+    expect(api.mirror()).toEqual({ status: "Done", assignee: owner, claim: null });
+    expect(api.requests.map(({ method }) => method)).toEqual(["GET", "DELETE", "GET"]);
+    await adapter(api).removeMirror(request);
+    expect(api.mutationCount()).toBe(1);
+  });
+
+  for (const field of ["claim", "run", "owner", "home"] as const) {
+    test(`replacement ${field} refuses without mutation`, async () => {
+      const api = new FakeJira();
+      api.claimProperty = { ...property, [field]: "replacement" };
+      await expect(adapter(api).removeMirror(request)).rejects.toBeInstanceOf(ClaimCollisionError);
+      expect(api.mutationCount()).toBe(0);
+    });
+  }
+
+  test("successful DELETE with a surviving property fails verification", async () => {
+    const api = new FakeJira();
+    api.claimProperty = property;
+    api.fail = (method) => (method === "DELETE" ? 204 : undefined);
+    await expect(adapter(api).removeMirror(request)).rejects.toBeInstanceOf(
+      AmbiguousTrackerResultError,
+    );
+  });
+
+  test("ambiguous DELETE stays journaled until readback proves removal", async () => {
+    const api = new FakeJira();
+    api.claimProperty = property;
+    let completed = 0;
+    const pending: unknown[] = [];
+    const tracker = new JiraTrackerAdapter({
+      instance: "responsibid",
+      namespace: "JWB",
+      transport: api,
+      claimHome: property.home,
+      journalWrite: (intent) => {
+        pending.push(intent);
+        return () => {
+          completed += 1;
+        };
+      },
+    });
+    api.fail = (method) => (method === "DELETE" ? 503 : undefined);
+    await expect(tracker.removeMirror(request)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    expect(pending).toMatchObject([
+      { operation: "remove claim mirror", expected: { field: "claim", value: null } },
+    ]);
+    expect(completed).toBe(0);
+    await expect(tracker.removeMirror(request)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    api.claimProperty = null;
+    await tracker.removeMirror(request);
+    expect(completed).toBe(1);
+    expect(api.mutationCount()).toBe(1);
+  });
+});
+
 describe("Jira tracker read adapter", () => {
   test("hydrates map tickets in standard Jira LexoRank order without numeric parsing", async () => {
     const api = new FakeJira();

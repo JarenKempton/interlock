@@ -37,7 +37,7 @@ async function release(lane: Fixture) {
   });
 }
 
-test("MCP completion leaves the shared remote claim and submission reservation unchanged", async () => {
+test("MCP completion releases the claim with history intact and leaves submission reservations unchanged", async () => {
   const lane = await mergedLane({ mcp: true, squash: true });
   const legacyRef = `refs/interlock/submissions/v1/${"a".repeat(64)}`;
   git(["push", lane.repo.origin, `${lane.repo.head}:${legacyRef}`], lane.repo.main);
@@ -46,7 +46,27 @@ test("MCP completion leaves the shared remote claim and submission reservation u
   expect(before).not.toBe("");
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
   expect(git(["ls-remote", lane.repo.origin, legacyRef], lane.repo.main)).toBe(before);
-  expect(await lockFor(lane).read(ticketRef)).toEqual(claimBefore);
+  const released = await lockFor(lane).read(ticketRef);
+  expect(released.record).toMatchObject({
+    ...claimBefore.record,
+    action: "release",
+    authorizedBy: "owner",
+  });
+  expect(git(["rev-parse", `${released.version}^`], lane.repo.main)).toBe(claimBefore.version);
+  expect(lane.tracker.removals).toBe(1);
+  changeStore(lane, (store) => {
+    expect(store.run(runRef).status).toBe("released");
+    expect(store.claimForRun(runRef).status).toBe("released");
+    expect(store.steps(runRef).map((step) => step.state)).toEqual(
+      expect.arrayContaining([
+        "completion_mirror_pending",
+        "completion_mirror_removed",
+        "completion_release_pending",
+        "completion_released",
+        "lane_completed",
+      ]),
+    );
+  });
   lane.intact();
 });
 
@@ -139,6 +159,98 @@ test("symlink aliases of another lane's workspace refuse completion", async () =
   expect((await lane.complete({ lane: lane.id })).result.ok).toBe(false);
   expect(lane.tracker.transitions).toEqual([]);
   lane.intact();
+});
+
+test("legacy retirement fence releases by fresh version and preserves its history", async () => {
+  const lane = await mergedLane();
+  const lock = lockFor(lane);
+  const before = await lock.read(ticketRef);
+  const record = { ...before.record, claim: "interlock-claim:retirement-old" };
+  const fenced = git(
+    [
+      "commit-tree",
+      git(["mktree"], lane.repo.main),
+      "-p",
+      before.version,
+      "-m",
+      "legacy retirement",
+      "-m",
+      JSON.stringify(record),
+    ],
+    lane.repo.main,
+  );
+  git(["push", lane.repo.origin, `${fenced}:${await lock.ref(ticketRef)}`], lane.repo.main);
+  changeStore(lane, (store) =>
+    store.saveClaim({ ...store.claimForRun(runRef), currentVersion: before.version }),
+  );
+  expect((await lane.complete()).code).toBe(0);
+  const after = await lock.read(ticketRef);
+  expect(after.record).toMatchObject({ action: "release", claim: record.claim, run: runRef });
+  expect(git(["rev-parse", `${after.version}^`], lane.repo.main)).toBe(fenced);
+});
+
+test("mirror removal failure retains ownership and retries from recovery", async () => {
+  const lane = await mergedLane();
+  const before = await lockFor(lane).read(ticketRef);
+  const remove = lane.tracker.removeMirror.bind(lane.tracker);
+  lane.tracker.removeMirror = async () => {
+    throw new Error("readback failed");
+  };
+  expect((await lane.complete()).result).toMatchObject({ refusal: { code: "recovery_required" } });
+  expect(await lockFor(lane).read(ticketRef)).toEqual(before);
+  changeStore(lane, (store) => expect(store.run(runRef).status).toBe("recovery_required"));
+  lane.tracker.removeMirror = remove;
+  expect((await lane.complete()).code).toBe(0);
+  expect(lane.tracker.transitions).toEqual(["Done"]);
+});
+
+test("accepted release with lost readback resumes without appending a second release", async () => {
+  const commands = new BunGitCommandExecutor();
+  let loseRead = false;
+  let pushes = 0;
+  const lane = await mergedLane({
+    git: {
+      async run(argv, cwd) {
+        if (loseRead && argv[1] === "ls-remote" && argv[2] !== "--get-url") {
+          loseRead = false;
+          throw new Error("lost release readback");
+        }
+        const result = await commands.run(argv, cwd);
+        if (argv[1] === "push") {
+          pushes += 1;
+          loseRead = true;
+        }
+        return result;
+      },
+    },
+  });
+  expect((await lane.complete()).result).toMatchObject({ refusal: { code: "recovery_required" } });
+  const released = await lockFor(lane).read(ticketRef);
+  expect(released.record?.action).toBe("release");
+  expect((await lane.complete()).code).toBe(0);
+  expect(await lockFor(lane).read(ticketRef)).toEqual(released);
+  expect(pushes).toBe(1);
+});
+
+test("replacement installed during mirror removal is never released", async () => {
+  const lane = await mergedLane();
+  lane.tracker.removeMirror = async () => {
+    await release(lane);
+    const lock = lockFor(lane);
+    await lock.claim({
+      claim: claimRefSchema.parse("interlock-claim:replacement"),
+      run: runRef,
+      owner: actorRefSchema.parse("owner"),
+      ticket: ticketRef,
+      leaseExpiresAt: "2099-01-01T00:00:00Z",
+      expectedVersion: (await lock.read(ticketRef)).version,
+    });
+  };
+  expect((await lane.complete()).result).toMatchObject({ refusal: { code: "recovery_required" } });
+  expect((await lockFor(lane).read(ticketRef)).record).toMatchObject({
+    action: "claim",
+    claim: "interlock-claim:replacement",
+  });
 });
 
 test("an expired lease does not release ownership or prevent completion", async () => {
