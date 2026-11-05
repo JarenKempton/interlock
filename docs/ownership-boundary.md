@@ -71,8 +71,8 @@ the branch only, `lane submit` to push and open the one pull request, then
 `link_pull_request` and `watch_pull_request` on that URL and no other. Each
 planned lens runs as a `delegate_task` review inside the lane with its plan
 target; the lane records one verdict for the submitted head, and merge stays
-outside the lane. After the merge, `lane merge` and `lane complete` verify it
-and retire the worktree and branch. Interlock enforces the attach checks, the
+outside the lane. After the merge, `lane complete --ticket KEY` verifies it
+and finishes the ticket while preserving the worktree and branch. Interlock enforces the attach checks, the
 one-pull-request rule, head binding and merge readback. It cannot enforce what
 the agent does outside its commands: the procedure tells the agent not to use
 GitHub write credentials, and only the host can withhold them.

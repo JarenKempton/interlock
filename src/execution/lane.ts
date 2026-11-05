@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
+import { BunGitCommandExecutor, type GitCommandExecutor } from "../adapters/workspaces/git.ts";
+import { normalizeClaimHome } from "../domain/claim-home.ts";
 import {
   AmbiguousTrackerResultError,
   ArtifactLinkConflictError,
@@ -16,19 +19,16 @@ import {
   type LaneRefusalCode,
   type LaneResult,
   nextLaneAction,
+  isApprovedForHead,
+  type MergeProof,
+  mergeProofSchema,
+  laneResultSchema,
+  laneSchema,
   transitionLane,
   type Unblocked,
 } from "../domain/lane.ts";
 import type { LaneRef, RunRef, Ticket, TicketRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
-import {
-  type LaneWorkspaces,
-  type MergeProof,
-  mergeProofSchema,
-  type RetirementIdentity,
-  RetirementRefusal,
-  retirementIdentitySchema,
-} from "../domain/retirement.ts";
 import {
   type SubmissionAuthority,
   SubmissionRefusal,
@@ -78,8 +78,6 @@ export interface ArtifactHost {
   merged?(url: string): Promise<MergeProof>;
 }
 
-export type { LaneWorkspaces } from "../domain/retirement.ts";
-
 export interface LaneSubmitInput {
   head: string;
   evidence: readonly LaneEvidence[];
@@ -98,14 +96,14 @@ export interface LaneServiceOptions {
     | "listRuns"
     | "claim"
     | "claimForRun"
-    | "retirement"
-    | "beginRetirement"
-    | "advanceRetirement"
+    | "steps"
+    | "recordStep"
+    | "commitLaneCompletion"
     | "getExecutionConfiguration"
   >;
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
-  workspaces?: LaneWorkspaces;
+  git?: GitCommandExecutor;
   submissions?: SubmissionAuthority;
   attachments?: AttachAuthority;
   clock?: { now(): Date };
@@ -131,7 +129,7 @@ export class LaneService {
   readonly #store: LaneServiceOptions["store"];
   readonly #tracker: LaneTrackerPort | undefined;
   readonly #artifacts: ArtifactHost | undefined;
-  readonly #workspaces: LaneWorkspaces | undefined;
+  readonly #git: GitCommandExecutor;
   readonly #submissions: SubmissionAuthority | undefined;
   readonly #attachments: AttachAuthority | undefined;
   readonly #clock: { now(): Date };
@@ -141,7 +139,7 @@ export class LaneService {
     this.#store = options.store;
     this.#tracker = options.tracker;
     this.#artifacts = options.artifacts;
-    this.#workspaces = options.workspaces;
+    this.#git = options.git ?? new BunGitCommandExecutor();
     this.#submissions = options.submissions;
     this.#attachments = options.attachments;
     this.#clock = options.clock ?? { now: () => new Date() };
@@ -248,7 +246,7 @@ export class LaneService {
         return fail("claim_collision", "Ticket already has an active lane");
     }
     const transition = transitionLane(lane, command, this.#clock.now().toISOString());
-    this.#store.saveLane(transition.lane);
+    if (!transition.refusal) this.#store.saveLane(transition.lane);
     return transition.refusal ? { ok: false, refusal: transition.refusal } : ok(transition.lane);
   }
 
@@ -374,111 +372,132 @@ export class LaneService {
     }
   }
 
+  async complete(input: { lane?: string; ticket?: string }): Promise<LaneResult<Lane>> {
+    if (Boolean(input.lane) === Boolean(input.ticket))
+      return fail("gates_unmet", "Provide exactly one lane reference or --ticket KEY");
+    if (input.lane)
+      return this.apply(laneRefSchema.parse(input.lane), {
+        type: "complete",
+        trackerDoneVerified: false,
+      });
+    const matches = this.#store
+      .listLanes()
+      .filter(
+        (lane) =>
+          lane.ticket &&
+          (lane.ticket === input.ticket || parseRef(lane.ticket).nativeId === input.ticket),
+      );
+    const tickets = new Set(matches.map((lane) => lane.ticket));
+    const active = matches.filter((lane) => lane.state !== "done");
+    if (tickets.size > 1 || active.length > 1)
+      return fail("claim_collision", "Ticket resolves to multiple lanes; use its lane reference");
+    const ticket = matches[0]?.ticket;
+    const lane = active[0] ?? (ticket ? this.#store.laneForTicket(ticket) : undefined);
+    return lane
+      ? this.#complete(lane)
+      : fail("lane_not_found", `Lane not found for ticket: ${input.ticket}`);
+  }
+
   async #complete(lane: Lane): Promise<LaneResult<Lane>> {
-    if (lane.state !== "merged") {
-      const transition = transitionLane(
-        lane,
-        { type: "complete", trackerDoneVerified: false },
-        this.#clock.now().toISOString(),
+    const steps = lane.run ? this.#store.steps(lane.run) : [];
+    if (lane.state === "done") {
+      const receipt = steps.findLast(
+        (step) =>
+          step.state === "lane_completed" &&
+          step.receipt_json &&
+          JSON.parse(step.receipt_json).value?.id === lane.id,
       );
-      return {
-        ok: false,
-        refusal: transition.refusal ?? {
-          code: "invalid_transition",
-          message: "Lane is not merged",
-        },
-      };
+      if (!receipt?.receipt_json) return ok(lane);
+      const result = laneResultSchema(laneSchema).parse(JSON.parse(receipt.receipt_json));
+      return result.ok
+        ? {
+            ok: true,
+            value: result.value,
+            ...(result.unblocked ? { unblocked: result.unblocked } : {}),
+          }
+        : result;
     }
-    let identity: RetirementIdentity;
-    try {
-      identity = await this.#retirementIdentity(lane);
-    } catch (error) {
-      return fail("workspace_unknown", errorMessage(error, "Lane ownership is not verified"));
+    if (lane.state !== "approved" && lane.state !== "merged")
+      return fail("invalid_transition", `Cannot complete a lane in ${lane.state}`);
+    if (!lane.head || !isApprovedForHead(lane, lane.head))
+      return fail("stale_evidence", "Completion requires approval of the recorded head");
+    const artifacts = this.#artifacts;
+    if (!artifacts?.merged)
+      return fail("unsupported_capability", "Completion requires merge readback");
+    const workspace = this.#workspace(lane);
+    if (!workspace) return fail("workspace_unknown", "Lane has no recorded workspace branch");
+    if (!lane.artifact) {
+      try {
+        const target = await artifacts.prepare(workspace, lane.head);
+        const candidates = (await artifacts.pullRequests(target)).filter(
+          (item) => item.branch === workspace.branch && item.state === "MERGED",
+        );
+        const candidate = candidates[0];
+        if (candidates.length !== 1 || !candidate)
+          return fail(
+            "artifact_required",
+            "Expected exactly one merged pull request on the recorded branch",
+          );
+        lane = { ...lane, artifact: candidate.url };
+      } catch {
+        return fail(
+          "artifact_host_unavailable",
+          "Could not adopt the lane pull request by head branch",
+        );
+      }
     }
-    if (!this.#artifacts?.merged || !this.#workspaces)
-      return fail(
-        "unsupported_capability",
-        "Completion requires merge readback and recoverable workspace cleanup",
-      );
+    if (!lane.artifact || !lane.run)
+      return fail("workspace_unknown", "Completion requires a recorded run and pull request");
     let proof: MergeProof;
     try {
-      proof = mergeProofSchema.parse(await this.#artifacts.merged(identity.artifact));
+      proof = mergeProofSchema.parse(await artifacts.merged(lane.artifact));
     } catch {
-      return fail("artifact_host_unavailable", `Could not verify ${identity.artifact}`);
+      return fail("artifact_host_unavailable", `Could not verify ${lane.artifact}`);
     }
-    if (!proof.merged)
-      return fail(
-        "pull_request_unmerged",
-        `Pull request is not merged; ${identity.path} and ${identity.branch} are left`,
-      );
-    if (
-      proof.head !== identity.head ||
-      proof.branch !== identity.branch ||
-      proof.url !== identity.artifact
-    )
+    if (!proof.merged) return fail("pull_request_unmerged", "Pull request is not merged");
+    if (proof.branch !== workspace.branch || proof.url !== lane.artifact)
       return fail(
         "artifact_mismatch",
-        "Merged pull request does not match the lane's submitted branch and head",
+        "Merged pull request does not match the recorded branch and URL",
       );
-    let record = this.#store.retirement(lane.id);
-    try {
-      if (record) {
-        const saved = retirementIdentitySchema.parse(record.plan);
-        if (
-          JSON.stringify({ ...identity, path: resolve(identity.path) }) !==
-            JSON.stringify({ ...saved, path: resolve(saved.path) }) ||
-          JSON.stringify(record.plan.proof) !== JSON.stringify(proof)
-        )
-          return fail(
-            "workspace_unknown",
-            "Retirement identity or merge proof changed; manual recovery required",
-          );
-      } else {
-        const plan = await this.#workspaces.prepare(identity, proof);
-        const done = await this.#verifyDone(lane);
-        if (!done.ok) return done;
-        await this.#retirementIdentity(lane);
-        record = this.#store.beginRetirement(plan);
-      }
-      await this.#workspaces.verify(record);
-      const done = await this.#verifyDone(lane);
-      if (!done.ok) return done;
-      await this.#retirementIdentity(lane);
-      await this.#workspaces.retire(record, (phase) =>
-        this.#store.advanceRetirement(lane.id, phase),
-      );
-    } catch (error) {
-      return fail(
-        error instanceof RetirementRefusal
-          ? error.code
-          : record
-            ? "cleanup_pending"
-            : "workspace_unknown",
-        `${errorMessage(error, "Cleanup failed")}; inspect ${identity.path} and ${identity.branch}; retained commits and retirement intent are preserved`,
-      );
-    }
-    const transition = transitionLane(
+    const gate = transitionLane(
       lane,
-      { type: "complete", trackerDoneVerified: true },
+      { type: "complete", proof, trackerDoneVerified: true },
       this.#clock.now().toISOString(),
     );
-    this.#store.saveLane(transition.lane);
-    if (transition.refusal) return { ok: false, refusal: transition.refusal };
+    if (gate.refusal) return { ok: false, refusal: gate.refusal };
+    const intent = { lane: lane.id, run: lane.run, claim: lane.claim, ticket: lane.ticket, proof };
+    const saved = steps.findLast(
+      (step) =>
+        step.state === "lane_completion_pending" &&
+        step.receipt_json &&
+        JSON.parse(step.receipt_json).lane === lane.id,
+    );
+    if (
+      saved?.receipt_json &&
+      JSON.stringify(JSON.parse(saved.receipt_json)) !== JSON.stringify(intent)
+    )
+      return fail(
+        "recovery_required",
+        "Completion identity or merge proof changed; reconcile the journal",
+      );
+    try {
+      await this.#verifyCompletionOwner(lane);
+    } catch (error) {
+      return fail("claim_collision", errorMessage(error, "Lane ownership is not verified"));
+    }
+    this.#store.saveLane(lane);
+    if (!saved) this.#store.recordStep(lane.run, "lane_completion_pending", intent);
+    const done = await this.#verifyDone(lane);
+    if (!done.ok) return done;
     const unblocked = lane.ticket ? await this.#unblocked(lane.ticket, lane.run) : undefined;
-    return {
+    const result: LaneResult<Lane> = {
       ok: true,
-      value: transition.lane,
-      retirement: {
-        preservedFiles: join(
-          record.plan.commonDirectory,
-          "interlock-retired",
-          record.plan.retainedRef.split("/").at(-1) ?? "",
-          "files",
-        ),
-        retainedRef: record.plan.retainedRef,
-      },
+      value: gate.lane,
       ...(unblocked ? { unblocked } : {}),
     };
+    this.#store.commitLaneCompletion(gate.lane, result);
+    return result;
   }
 
   async #unblocked(ticket: TicketRef, run: RunRef | undefined): Promise<Unblocked> {
@@ -497,56 +516,62 @@ export class LaneService {
     }
   }
 
-  async #retirementIdentity(lane: Lane): Promise<RetirementIdentity> {
+  async #verifyCompletionOwner(lane: Lane): Promise<void> {
     const current = this.#store.findLane(lane.id);
     if (
-      current?.state !== "merged" ||
+      current?.state !== lane.state ||
       current.run !== lane.run ||
       current.claim !== lane.claim ||
       current.head !== lane.head ||
-      current.artifact !== lane.artifact ||
-      current.ticket !== lane.ticket
+      current.ticket !== lane.ticket ||
+      (current.artifact && current.artifact !== lane.artifact) ||
+      JSON.stringify(current.verdict) !== JSON.stringify(lane.verdict)
     )
       throw new Error("Lane changed during completion");
     if (!lane.run || !lane.claim) throw new Error("Lane has no recorded run and claim");
     const run = this.#store.run(lane.run);
     const claim = this.#store.claim(lane.claim);
-    if (run.status !== "claimed" || claim.status !== "active")
-      throw new Error(
-        `Run ${run.ref} is ${run.status}, claim ${claim.ref} is ${claim.status}; cleanup refused`,
-      );
     if (
+      run.status !== "claimed" ||
+      claim.status !== "active" ||
       claim.run !== run.ref ||
       claim.ticket !== run.ticket ||
       (lane.ticket && lane.ticket !== run.ticket)
     )
-      throw new Error("Lane, run and claim ticket identities do not match");
+      throw new Error("Lane, run and active claim identities do not match");
     for (const other of this.#store.listLanes()) {
       if (other.id === lane.id) continue;
       if (other.run === lane.run || other.claim === lane.claim)
         throw new Error(`Run or claim is shared with lane ${other.id}`);
       if (other.run && other.state !== "done") {
-        const workspace = this.#store.run(other.run).workspace;
         const canonical = async (path: string) =>
           realpath(path).catch((error: unknown) => {
             if (error instanceof Error && "code" in error && error.code === "ENOENT")
               return resolve(path);
             throw error;
           });
-        if ((await canonical(workspace.path)) === (await canonical(run.workspace.path)))
+        if (
+          (await canonical(this.#store.run(other.run).workspace.path)) ===
+          (await canonical(run.workspace.path))
+        )
           throw new Error(`Workspace is owned by lane ${other.id}`);
       }
     }
-    return retirementIdentitySchema.parse({
-      lane: lane.id,
-      run: run.ref,
-      claim: claim.ref,
-      ticket: run.ticket,
-      path: run.workspace.path,
-      branch: run.workspace.branch,
-      head: lane.head,
-      artifact: lane.artifact,
-    });
+    if (!claim.claimHome || !claim.claimHomeUrl) throw new Error("Missing recorded claim home");
+    const home = normalizeClaimHome(claim.claimHomeUrl);
+    if (home.identity !== claim.claimHome) throw new Error("Recorded claim home identity changed");
+    const held = heldClaim(
+      await new GitClaimLock({ repository: run.workspace.path, home, git: this.#git }).read(
+        run.ticket,
+      ),
+    );
+    if (
+      !held ||
+      held.claim !== claim.ref ||
+      held.run !== run.ref ||
+      held.owner !== claim.humanOwner
+    )
+      throw new Error("Remote claim no longer authorizes completion");
   }
 
   async #verifyDone(lane: Lane): Promise<LaneResult<true>> {
@@ -564,7 +589,7 @@ export class LaneService {
       } catch (error) {
         if (error instanceof TrackerUnavailableError)
           return fail("tracker_unavailable", error.message);
-        return fail("tracker_not_done", "Tracker readback failed; lane remains merged");
+        return fail("tracker_not_done", "Tracker readback failed; lane remains incomplete");
       }
     };
     const before = await read();
@@ -572,6 +597,11 @@ export class LaneService {
     if (before.value) return ok(true);
     if (!tracker.transition)
       return fail("unsupported_capability", "Tracker cannot mark the ticket done");
+    try {
+      await this.#verifyCompletionOwner(lane);
+    } catch (error) {
+      return fail("claim_collision", errorMessage(error, "Remote claim changed"));
+    }
     let failure: unknown;
     try {
       await tracker.transition(ticket, "Done");
@@ -583,17 +613,17 @@ export class LaneService {
     if (failure instanceof AmbiguousTrackerResultError || (failure && !after.ok))
       return fail(
         "ambiguous_write",
-        "Tracker done transition was not verified; lane remains merged",
+        "Tracker done transition was not verified; lane remains incomplete",
       );
     if (failure)
       return fail(
         "tracker_write_failed",
-        errorMessage(failure, "Tracker done transition failed; lane remains merged"),
+        errorMessage(failure, "Tracker done transition failed; lane remains incomplete"),
       );
     if (!after.ok)
       return fail(
         "tracker_not_done",
-        "Tracker readback after done transition failed; lane remains merged",
+        "Tracker readback after done transition failed; lane remains incomplete",
       );
     return fail("tracker_not_done", "Tracker readback has not verified the ticket is done");
   }

@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { normalizeClaimHome } from "../../domain/claim-home.ts";
-import { type MergeProof, mergeProofSchema } from "../../domain/retirement.ts";
+import { type MergeProof, mergeProofSchema } from "../../domain/lane.ts";
 import { commitOidSchema, ticketKeyMatches } from "../../domain/submission.ts";
 import type {
   ArtifactHost,

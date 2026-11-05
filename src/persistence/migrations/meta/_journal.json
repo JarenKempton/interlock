@@ -43,6 +43,13 @@
       "when": 1793905994951,
       "tag": "0005_host_harness",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793910947353,
+      "tag": "0006_wandering_lyja",
+      "breakpoints": true
     }
   ]
 }

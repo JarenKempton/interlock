@@ -26,7 +26,7 @@ import {
   ticketRefSchema,
 } from "../../src/domain/identifiers.ts";
 import type { Ticket, TicketRef } from "../../src/domain/model.ts";
-import type { MergeProof } from "../../src/domain/retirement.ts";
+import type { MergeProof } from "../../src/domain/lane.ts";
 import { LaneService, type LaneTrackerPort } from "../../src/execution/lane.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import { StateStore } from "../../src/persistence/state.ts";
@@ -151,7 +151,8 @@ export function laneCompleteFixtures() {
       tracker?: FakeJira;
       squash?: boolean;
       git?: GitCommandExecutor;
-      authority?: boolean;
+      state?: "approved" | "merged";
+      onProof?: () => Promise<void>;
       mcp?: boolean;
       leaseExpiresAt?: string;
       pickedUp?: boolean;
@@ -197,12 +198,13 @@ export function laneCompleteFixtures() {
       { type: "submit", artifact: prUrl, head: repo.head, evidence },
       { type: "begin_review" },
       { type: "verdict", head: repo.head, decision: "approved", findings: [] },
-      { type: "merge", head: repo.head },
     ] as const) {
       const result = await service.apply(created.value.id, command);
       if (!result.ok) throw new Error(result.refusal.message);
     }
-    if (options.authority) {
+    if (options.state === "merged")
+      store.saveLane({ ...store.lane(created.value.id), state: "merged" });
+    {
       const claim = store.claim(claimRefSchema.parse("interlock-claim:complete"));
       const home = normalizeClaimHome(repo.origin);
       store.saveClaim({ ...claim, claimHome: home.identity, claimHomeUrl: home.url });
@@ -254,10 +256,11 @@ export function laneCompleteFixtures() {
         head: repo.head,
       }),
       push: async () => {},
-      pullRequests: async () => [],
+      pullRequests: async () => [{ url: prUrl, branch, state: "MERGED" as const }],
       open: async () => ({ url: prUrl, branch, state: "OPEN" as const }),
       merged: async (url: string) => {
         views.push(url);
+        await options.onProof?.();
         return proof;
       },
     };
@@ -266,9 +269,6 @@ export function laneCompleteFixtures() {
       lane: {
         tracker,
         artifacts,
-        ...(options.authority
-          ? {}
-          : { retirementAuthority: { verify: async () => {}, fence: async () => {} } }),
       },
       execution: {
         git: {
@@ -280,7 +280,9 @@ export function laneCompleteFixtures() {
         },
       },
     };
-    const complete = async () => {
+    const complete = async (
+      selector: { lane?: string; ticket?: string } = { ticket: "JWB-909" },
+    ) => {
       if (options.mcp) {
         const server = new McpServer(createApplication(services));
         const response = await server.handle(
@@ -290,7 +292,7 @@ export function laneCompleteFixtures() {
             method: "tools/call",
             params: {
               name: "lane_complete",
-              arguments: { lane: created.value.id, state: statePath },
+              arguments: { ...selector, state: statePath },
             },
           },
           server.newSession(),
@@ -303,7 +305,15 @@ export function laneCompleteFixtures() {
       }
       const output: string[] = [];
       const code = await runCli(
-        ["lane", "complete", created.value.id, "--state", statePath, "--json"],
+        [
+          "lane",
+          "complete",
+          ...(selector.lane ? [selector.lane] : []),
+          ...(selector.ticket ? ["--ticket", selector.ticket] : []),
+          "--state",
+          statePath,
+          "--json",
+        ],
         (text) => output.push(text),
         services,
       );
@@ -313,7 +323,17 @@ export function laneCompleteFixtures() {
       expect(existsSync(repo.lane)).toBe(true);
       expect(git(["branch", "--list", branch], repo.main)).toContain(branch);
     };
-    return { repo, tracker, views, complete, intact, id: created.value.id, statePath, proof };
+    return {
+      repo,
+      tracker,
+      views,
+      complete,
+      intact,
+      id: created.value.id,
+      statePath,
+      proof,
+      artifacts,
+    };
   }
 
   function changeStore(

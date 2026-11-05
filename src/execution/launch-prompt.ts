@@ -82,7 +82,7 @@ export function laneProcedure(ticket: Ticket, lane: LaneProcedure): string {
     `3. When your checks pass at HEAD, run ${run("lane", "submit", "LANE", "--head", "SHA", "--gate", "GATE", "--evidence-url", "URL", "--json")} with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.`,
     "4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.",
     ...review,
-    `7. Merge is not yours. When the watched pull request merges at the approved head, run ${run("lane", "merge", "LANE", "--head", "SHA")} and then ${run("lane", "complete", "LANE", "--json")}, which verifies the merge, moves the ticket to Done and removes this worktree and branch. Then unwatch the pull request.`,
+    `7. Merge is not yours. When the watched pull request merges at the approved head, run ${run("lane", "complete", "--ticket", ticket.ref, "--json")}, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.`,
     "Interlock refusals are final for that step: report them instead of working around them.",
   ].join("\n");
 }

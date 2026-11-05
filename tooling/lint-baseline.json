@@ -3,7 +3,6 @@
     "boundaries/dependencies": [
       "src/adapters/artifacts/github.ts",
       "src/adapters/workspaces/git.ts",
-      "src/adapters/workspaces/retirement.ts",
       "src/domain/claim-home.ts",
       "src/execution/attachment.ts",
       "src/execution/claim-home.ts",
@@ -16,7 +15,6 @@
       "src/execution/lane.ts",
       "src/execution/pickup-runtime.ts",
       "src/execution/release.ts",
-      "src/execution/retirement-authority.ts",
       "src/execution/submission.ts",
       "src/execution/t3-plan.ts",
       "src/mcp/server.ts",
@@ -38,7 +36,6 @@
     "boundaries/no-unknown-files": ["src/application.ts", "src/cli.ts", "src/runtime-services.ts"],
     "import/no-cycle": [
       "src/adapters/workspaces/git.ts",
-      "src/adapters/workspaces/retirement.ts",
       "src/cli/definition.ts",
       "src/cli/parser.ts"
     ],
@@ -102,7 +99,6 @@
       "pickup-runtime.ts",
       "pickup.ts",
       "release.ts",
-      "retirement-authority.ts",
       "submission.ts",
       "t3-plan.ts"
     ],

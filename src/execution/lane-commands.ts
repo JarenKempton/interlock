@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
-import { BunGitCommandExecutor, GitWorkspaceAdapter } from "../adapters/workspaces/git.ts";
+import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
 import { defineAction } from "../cli/definition.ts";
 import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { ticketRefSchema } from "../domain/identifiers.ts";
@@ -13,7 +13,6 @@ import { RecordedAttachAuthority } from "./attachment.ts";
 import { LaneService } from "./lane.ts";
 import { signedInLaneTracker } from "./lane-tracker.ts";
 import { executionStatePath, withExecutionStore } from "./pickup-runtime.ts";
-import { RecordedRetirementAuthority } from "./retirement-authority.ts";
 import { RecordedSubmissionAuthority } from "./submission.ts";
 
 function exitCode(output: unknown): number {
@@ -30,49 +29,7 @@ export function laneActions(services: RuntimeServices) {
       store,
       tracker: services.lane?.tracker ?? signedInLaneTracker(services),
       artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
-      workspaces: services.lane?.workspaces ?? {
-        prepare: async (identity, proof) => {
-          await (
-            services.lane?.retirementAuthority ??
-            new RecordedRetirementAuthority(
-              store,
-              services.execution?.git ?? new BunGitCommandExecutor(),
-            )
-          ).verify(identity, proof.repository, identity.path);
-          return GitWorkspaceAdapter.prepareRetirement(identity, proof, services.execution?.git);
-        },
-        verify: async (record) => {
-          await (
-            services.lane?.retirementAuthority ??
-            new RecordedRetirementAuthority(
-              store,
-              services.execution?.git ?? new BunGitCommandExecutor(),
-            )
-          ).verify(record.plan, record.plan.proof.repository, record.plan.repositoryPath);
-        },
-        retire: async (record, advance) => {
-          await (
-            services.lane?.retirementAuthority ??
-            new RecordedRetirementAuthority(
-              store,
-              services.execution?.git ?? new BunGitCommandExecutor(),
-            )
-          ).verify(record.plan, record.plan.proof.repository, record.plan.repositoryPath);
-          return GitWorkspaceAdapter.retire(
-            record,
-            advance,
-            () =>
-              (
-                services.lane?.retirementAuthority ??
-                new RecordedRetirementAuthority(
-                  store,
-                  services.execution?.git ?? new BunGitCommandExecutor(),
-                )
-              ).fence(record.plan, record.plan.proof.repository, record.plan.repositoryPath),
-            services.execution?.git,
-          );
-        },
-      },
+      git: services.execution?.git ?? new BunGitCommandExecutor(),
       submissions:
         services.lane?.submissions ??
         new RecordedSubmissionAuthority(
@@ -232,24 +189,22 @@ export function laneActions(services: RuntimeServices) {
         }),
       exitCode,
     }),
-    merge: defineAction({
-      description: "Mark an approved lane merged at the approved head commit.",
+    complete: defineAction({
+      description:
+        "Verify a merged pull request at the approved head, finish the ticket and report unblocked tickets without removing its workspace.",
       input: {
-        lane,
-        head: text("Current head commit.", "HEAD"),
+        lane: optional(lane),
+        ticket: optional(text("Ticket key or tracker reference.", "TICKET")),
         state,
       },
       result: laneResult,
-      handler: (input) => apply(input.lane, input.state, { type: "merge", head: input.head }),
-      exitCode,
-    }),
-    complete: defineAction({
-      description:
-        "Move a merged lane's ticket to Done, verify it by readback, remove its clean merged worktree and branch, close the lane, and report the tickets it unblocked.",
-      input: { lane, state },
-      result: laneResult,
       handler: (input) =>
-        apply(input.lane, input.state, { type: "complete", trackerDoneVerified: false }),
+        withLane(input.state, (laneService) =>
+          laneService.complete({
+            ...(input.lane ? { lane: String(laneRef(input.lane)) } : {}),
+            ...(input.ticket ? { ticket: input.ticket } : {}),
+          }),
+        ),
       exitCode,
     }),
     attention: defineAction({

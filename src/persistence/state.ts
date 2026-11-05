@@ -17,20 +17,12 @@ import {
 } from "../domain/identifiers.ts";
 import type { Lane, LaneState } from "../domain/lane.ts";
 import type { Claim, ClaimRef, LaneRef, Run, RunRef } from "../domain/model.ts";
-import {
-  type RetirementPhase,
-  type RetirementPlan,
-  type RetirementRecord,
-  retirementPhaseSchema,
-  retirementPlanSchema,
-} from "../domain/retirement.ts";
 import { configurationStore } from "./configuration.ts";
 import { ledgerDb } from "./ledger-db.ts";
 import { type LedgerMigration, migrateLedger } from "./migrate.ts";
 import { claims } from "./schema/claims.ts";
 import { lanes } from "./schema/lanes.ts";
 import { recoveryEvidence } from "./schema/recovery-evidence.ts";
-import { retirements } from "./schema/retirements.ts";
 import { runs } from "./schema/runs.ts";
 import { transactionSteps } from "./schema/transaction-steps.ts";
 
@@ -325,47 +317,13 @@ export class StateStore {
       .all();
   }
 
-  retirement(lane: LaneRef): RetirementRecord | undefined {
-    const row = this.#db.select().from(retirements).where(eq(retirements.lane, lane)).get();
-    return row
-      ? {
-          plan: retirementPlanSchema.parse(JSON.parse(row.plan_json)),
-          phase: retirementPhaseSchema.parse(row.phase),
-        }
-      : undefined;
-  }
-
-  beginRetirement(plan: RetirementPlan): RetirementRecord {
-    const parsed = retirementPlanSchema.parse(plan);
-    this.#db
-      .insert(retirements)
-      .values({
-        lane: parsed.lane,
-        run: parsed.run,
-        path: parsed.worktreePath,
-        repository: parsed.commonDirectory,
-        branch: parsed.branch,
-        plan_json: JSON.stringify(parsed),
-        phase: "prepared",
-      })
-      .onConflictDoNothing()
-      .run();
-    const existing = this.retirement(parsed.lane);
-    if (!existing || JSON.stringify(existing.plan) !== JSON.stringify(parsed))
-      throw new Error("Retirement identity is already reserved or changed");
-    return existing;
-  }
-
-  advanceRetirement(lane: LaneRef, phase: RetirementPhase): void {
-    const phases = retirementPhaseSchema.options;
-    const current = this.retirement(lane);
-    if (!current || phases.indexOf(phase) !== phases.indexOf(current.phase) + 1)
-      throw new Error("Invalid retirement phase transition");
-    this.#db
-      .update(retirements)
-      .set({ phase })
-      .where(and(eq(retirements.lane, lane), eq(retirements.phase, current.phase)))
-      .run();
+  commitLaneCompletion(lane: Lane, receipt: unknown): void {
+    if (!lane.run) throw new Error("Completion requires a run");
+    const run = lane.run;
+    this.#transaction(() => {
+      this.saveLane(lane);
+      this.recordStep(run, "lane_completed", receipt);
+    });
   }
 
   saveLane(lane: Lane): void {

@@ -98,15 +98,19 @@ recorded branch and that the remote claim lock is held by that claim, run and
 owner, then binds the ticket's lane to them and starts it. Any mismatch
 refuses and records no lane; repeating attach returns the same lane. The
 [lane state machine](../src/domain/lane.ts) moves a lane
-through queued, claimed, implementing, submitted, reviewing, approved, merged
-and done; changes_requested loops back to implementing up to the lane's
+through queued, claimed, implementing, submitted, reviewing, approved
+and done; legacy merged lanes remain completable; changes_requested loops back to implementing up to the lane's
 configured round limit, then routes to attention, which resumes to the prior
 state. Verdicts and evidence are bound to the submitted head and go stale for
 any other head. `lane next` returns exactly one action for the lane's state.
 Lanes persist in the local ledger, with or without a ticket; a one-off lane
-can be promoted to a ticket. Merged lanes complete only after tracker
-readback verifies the ticket is done, marking it done first when the
-tracker's merge automation has not. Its result lists `unblocked`: the tickets
+can be promoted to a ticket. `lane complete --ticket KEY` accepts approved or
+legacy merged lanes. GitHub must prove the recorded PR URL, branch and approved
+head; a missing URL is adopted from the head branch. Before tracker mutation,
+completion re-reads the remote claim's claim/run/owner identity. It journals the
+intent, marks the ticket Done if needed and verifies the result by readback.
+Retries recover unfinished intent and return the persisted success receipt.
+Completion neither releases the claim nor removes the worktree or branch. Its result lists `unblocked`: the tickets
 it blocks that pickup's eligibility check now accepts under the run's recorded
 configuration. Computing the list only reads. A failed read reports the list
 as unknown, never as empty, and completion still succeeds. Core owns the lane's one pull request:
@@ -126,7 +130,7 @@ per ticket across machines in the recorded claim home. Its independent v1
 Git record binds the lane/run/claim, repository and branch; it does not change
 the v2 claim-record protocol. A verified atomic ref creation grants one
 caller permission to create. Reservations are never expired, reassigned or
-deleted, including by retirement. Later calls may adopt an existing PR but
+deleted by completion. Later calls may adopt an existing PR but
 cannot issue another create when the first outcome is unknown. A crash or
 push/create failure after reservation may require manual reconciliation
 (`recovery_required`); an absent GitHub search result is not proof that a
