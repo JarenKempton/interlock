@@ -317,12 +317,15 @@ export class StateStore {
       .all();
   }
 
-  commitLaneCompletion(lane: Lane, receipt: unknown): void {
-    if (!lane.run) throw new Error("Completion requires a run");
-    const run = lane.run;
+  commitLaneCompletion(lane: Lane, receipt: unknown, lockVersion: string): void {
+    if (!lane.run || !lane.claim) throw new Error("Completion requires a run and claim");
+    const run = this.run(lane.run);
+    const claim = this.claim(lane.claim);
     this.#transaction(() => {
+      this.saveClaim({ ...claim, status: "released", currentVersion: lockVersion });
+      this.saveRun({ ...run, status: "released", updatedAt: lane.updatedAt });
       this.saveLane(lane);
-      this.recordStep(run, "lane_completed", receipt);
+      this.recordStep(run.ref, "lane_completed", receipt);
     });
   }
 

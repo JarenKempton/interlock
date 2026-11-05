@@ -366,6 +366,29 @@ export class JiraTrackerAdapter implements Tracker {
       throw new AmbiguousTrackerResultError("Jira claim mirror could not be verified");
   }
 
+  async removeMirror(request: MirrorClaim): Promise<void> {
+    await this.#settlePendingWrite(request.ticket);
+    const current = await this.#readClaim(request.ticket);
+    if (current === null) return;
+    if (
+      !sameClaimIdentity(current, {
+        claim: request.claim,
+        run: request.run,
+        owner: request.owner,
+        home: this.#requireClaimHome(),
+        version: CLAIM_RECORD_VERSION,
+      })
+    )
+      throw new ClaimCollisionError("Jira claim mirror belongs to another claim or run");
+    await this.#write("DELETE", this.#propertyPath(request.ticket), undefined, {
+      ticket: request.ticket,
+      operation: "remove claim mirror",
+      expected: { field: "claim", value: null },
+    });
+    if ((await this.#readClaim(request.ticket)) !== null)
+      throw new AmbiguousTrackerResultError("Jira claim mirror removal could not be verified");
+  }
+
   async restore(request: MirrorRestore): Promise<void> {
     const home = this.#requireClaimHome();
     const owner = requireClaimedOwner(request.claimedOwner);

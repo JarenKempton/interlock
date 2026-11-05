@@ -11,10 +11,10 @@ Tracker assignment names the responsible human. A run identifies one execution;
 a claim binds that run, ticket, and owner to an exact pre-claim snapshot.
 Local state alone never establishes ownership.
 
-| Claim state | Meaning                                                |
-| ----------- | ------------------------------------------------------ |
-| `active`    | Held by the claim lock and mirrored by the tracker     |
-| `released`  | Explicit, verified restoration of the pre-claim fields |
+| Claim state | Meaning                                                         |
+| ----------- | --------------------------------------------------------------- |
+| `active`    | Held by the claim lock and mirrored by the tracker              |
+| `released`  | Verified release after restoration or completion mirror removal |
 
 Each claim records a lease expiry. Nothing renews it, and expiry never
 authorizes release, reassignment, or a takeover: the claim stays held until it
@@ -22,15 +22,27 @@ is released explicitly.
 
 ## Release and recovery
 
-Release explicitly returns ownership by conditionally restoring and verifying
-the original claim-related fields. The ticket can be picked up again only if
-the restored state is eligible. Closing a lane and stopping an agent are separate from release.
-`lane complete --ticket KEY` verifies GitHub merge proof at the approved head
-and re-reads the remote claim holder before every tracker write, including on
-recovery. It journals completion intent and stores the success receipt with the
-done lane after tracker readback. It never releases the claim or removes its
-workspace. Legacy retirement records block ledger migration and name the lanes
-requiring manual recovery of retained refs and preserved files.
+Ordinary claim release restores and verifies the original claim-related fields.
+Completion uses a separate path: `lane complete --ticket KEY` verifies GitHub
+merge proof at the approved head, verifies Done, removes the tracker mirror,
+then appends the existing v2 `release` record. Jira `removeMirror` compares claim,
+run, owner and home before deleting the property and reads it back; it never
+changes status or assignee. Jira has no conditional property DELETE, so this is
+read/compare/delete/readback, not a server-side compare-and-swap.
+
+Every step is journaled. Recovery rechecks ownership and pending write readback;
+uncertain writes or a replacement holder stop with `recovery_required` evidence.
+The Git append uses the freshly read tip as its parent, preserving history and
+refusing competing tips. The release retains `leaseExpiresAt`; claim-record v2
+is unchanged. A legacy `interlock-claim:retirement-` holder is releasable only
+when its run and owner match. No new retirement fences are written.
+
+Completion atomically stores the success receipt, done lane and terminal
+`released` run and claim. It never removes the workspace or branch. Legacy
+retirement rows still block migration 0006 and require manual recovery; releasing
+the remote claim does not delete those rows. Re-picking a reopened ticket is a
+known limit: the released ref is free, but the preserved branch/workspace and
+prior lane are not automatically reset for a new execution.
 
 A run whose side effects could not be verified stays `recovery_required` with
 its evidence in the ledger; `interlock runs export` shows it. A flag or human

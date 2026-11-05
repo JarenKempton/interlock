@@ -109,8 +109,16 @@ legacy merged lanes. GitHub must prove the recorded PR URL, branch and approved
 head; a missing URL is adopted from the head branch. Before tracker mutation,
 completion re-reads the remote claim's claim/run/owner identity. It journals the
 intent, marks the ticket Done if needed and verifies the result by readback.
-Retries recover unfinished intent and return the persisted success receipt.
-Completion neither releases the claim nor removes the worktree or branch. Its result lists `unblocked`: the tickets
+After Done readback, `removeMirror` removes only the matching tracker claim
+marker, with its own `removed_verified` receipt, then completion appends a v2
+release record against the freshly read Git tip. Same-run, same-owner legacy
+`interlock-claim:retirement-` records are also releasable; replacement ownership
+is never released. The release preserves history and `leaseExpiresAt`.
+Retries recover journaled writes and return the persisted success receipt.
+The run and claim become terminal together with the done lane. Completion never
+removes the worktree or branch. Re-picking a reopened ticket remains a known
+limit because prior workspace and lane state are not reset automatically.
+Its result lists `unblocked`: the tickets
 it blocks that pickup's eligibility check now accepts under the run's recorded
 configuration. Computing the list only reads. A failed read reports the list
 as unknown, never as empty, and completion still succeeds. Core owns the lane's one pull request:

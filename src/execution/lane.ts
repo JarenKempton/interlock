@@ -27,7 +27,8 @@ import {
   transitionLane,
   type Unblocked,
 } from "../domain/lane.ts";
-import type { LaneRef, RunRef, Ticket, TicketRef } from "../domain/model.ts";
+import type { Claim, LaneRef, RunRef, Ticket, TicketRef } from "../domain/model.ts";
+import { completionRecordMatches, releaseCompletedClaim } from "./claim/completion.ts";
 import { parseRef } from "../domain/reference.ts";
 import { ticketKeyMatches } from "../domain/submission.ts";
 import type { TrackerRead } from "../domain/tracker.ts";
@@ -40,6 +41,7 @@ export interface LaneTrackerPort {
   transition?(ticket: TicketRef, status: string): Promise<void>;
   link_artifact?(ticket: TicketRef, url: string, title?: string): Promise<void>;
   available?(ticket: TicketRef): Promise<void>;
+  removeMirror?(claim: Claim): Promise<void>;
 }
 
 export interface ArtifactWorkspace {
@@ -95,6 +97,7 @@ export interface LaneServiceOptions {
     | "steps"
     | "recordStep"
     | "commitLaneCompletion"
+    | "saveRecoveryRequired"
     | "getExecutionConfiguration"
   >;
   tracker?: LaneTrackerPort;
@@ -449,7 +452,7 @@ export class LaneService {
         );
       }
     }
-    if (!lane.artifact || !lane.run)
+    if (!lane.artifact || !lane.run || !lane.claim)
       return fail("workspace_unknown", "Completion requires a recorded run and pull request");
     let proof: MergeProof;
     try {
@@ -487,20 +490,45 @@ export class LaneService {
     try {
       await this.#verifyCompletionOwner(lane);
     } catch (error) {
+      this.#completionRecovery(lane, error);
       return fail("claim_collision", errorMessage(error, "Lane ownership is not verified"));
     }
     this.#store.saveLane(lane);
     if (!saved) this.#store.recordStep(lane.run, "lane_completion_pending", intent);
     const done = await this.#verifyDone(lane);
     if (!done.ok) return done;
+    this.#store.recordStep(lane.run, "completion_done_verified", { ticket: lane.ticket });
     const unblocked = lane.ticket ? await this.#unblocked(lane.ticket, lane.run) : undefined;
     const result: LaneResult<Lane> = {
       ok: true,
       value: gate.lane,
       ...(unblocked ? { unblocked } : {}),
     };
-    this.#store.commitLaneCompletion(gate.lane, result);
-    return result;
+    try {
+      const claim = this.#store.claim(lane.claim);
+      const tracker = this.#tracker;
+      const run = lane.run;
+      if (!tracker?.removeMirror || !claim.claimHomeUrl)
+        throw new Error("Completion requires mirror removal and the recorded claim home");
+      const removeMirror = tracker.removeMirror.bind(tracker);
+      const lockVersion = await releaseCompletedClaim({
+        lock: new GitClaimLock({
+          repository: workspace.path,
+          home: normalizeClaimHome(claim.claimHomeUrl),
+          git: this.#git,
+        }),
+        claim,
+        run: this.#store.run(lane.run),
+        removeMirror: () => removeMirror(claim),
+        journal: (state, receipt) => this.#store.recordStep(run, state, receipt),
+        releasePending: steps.some((step) => step.state === "completion_release_pending"),
+      });
+      this.#store.commitLaneCompletion(gate.lane, result, lockVersion);
+      return result;
+    } catch (error) {
+      this.#completionRecovery(lane, error);
+      return fail("recovery_required", errorMessage(error, "Completion release requires recovery"));
+    }
   }
 
   async #unblocked(ticket: TicketRef, run: RunRef | undefined): Promise<Unblocked> {
@@ -534,8 +562,12 @@ export class LaneService {
     if (!lane.run || !lane.claim) throw new Error("Lane has no recorded run and claim");
     const run = this.#store.run(lane.run);
     const claim = this.#store.claim(lane.claim);
+    const steps = this.#store.steps(run.ref);
+    const recovering =
+      run.status === "recovery_required" &&
+      steps.some((step) => step.state === "lane_completion_pending");
     if (
-      run.status !== "claimed" ||
+      (run.status !== "claimed" && !recovering) ||
       claim.status !== "active" ||
       claim.run !== run.ref ||
       claim.ticket !== run.ticket ||
@@ -563,18 +595,27 @@ export class LaneService {
     if (!claim.claimHome || !claim.claimHomeUrl) throw new Error("Missing recorded claim home");
     const home = normalizeClaimHome(claim.claimHomeUrl);
     if (home.identity !== claim.claimHome) throw new Error("Recorded claim home identity changed");
-    const held = heldClaim(
-      await new GitClaimLock({ repository: run.workspace.path, home, git: this.#git }).read(
-        run.ticket,
-      ),
-    );
+    const state = await new GitClaimLock({
+      repository: run.workspace.path,
+      home,
+      git: this.#git,
+    }).read(run.ticket);
     if (
-      !held ||
-      held.claim !== claim.ref ||
-      held.run !== run.ref ||
-      held.owner !== claim.humanOwner
+      !completionRecordMatches(state.record, claim) ||
+      (state.record?.action === "release" &&
+        !steps.some((step) => step.state === "completion_release_pending"))
     )
       throw new Error("Remote claim no longer authorizes completion");
+  }
+
+  #completionRecovery(lane: Lane, error: unknown): void {
+    if (!lane.run) return;
+    const run = this.#store.run(lane.run);
+    run.status = "recovery_required";
+    this.#store.saveRecoveryRequired(run, { lane: lane.id }, error, {
+      operation: "completion",
+      claim: lane.claim,
+    });
   }
 
   async #verifyDone(lane: Lane): Promise<LaneResult<true>> {
@@ -603,10 +644,12 @@ export class LaneService {
     try {
       await this.#verifyCompletionOwner(lane);
     } catch (error) {
+      this.#completionRecovery(lane, error);
       return fail("claim_collision", errorMessage(error, "Remote claim changed"));
     }
     let failure: unknown;
     try {
+      if (lane.run) this.#store.recordStep(lane.run, "completion_done_pending", { ticket });
       await tracker.transition(ticket, "Done");
     } catch (error) {
       failure = error ?? new Error("Tracker done transition failed");

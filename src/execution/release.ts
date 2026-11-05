@@ -12,11 +12,14 @@ import { parseRef } from "../domain/reference.ts";
 import { claimRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { journalJiraWrite, verifyJournaledJiraWrite } from "./jira-write-journal.ts";
+import { completionRecordMatches, releaseCompletedClaim } from "./claim/completion.ts";
+import { trackerTicketIsDone } from "./lane.ts";
 import {
   claimCoordination,
   executionStatePath,
   executionTarget,
   executionTracker,
+  jiraRankField,
   withExecutionStore,
 } from "./pickup-runtime.ts";
 
@@ -27,7 +30,7 @@ export const releaseResultSchema = z.strictObject({
   claim: claimRefSchema,
   ticket: ticketRefSchema,
   lockVersion: z.string(),
-  mirror: z.literal("restored_verified"),
+  mirror: z.enum(["restored_verified", "removed_verified"]),
 });
 
 export async function releaseClaim(
@@ -101,7 +104,15 @@ export async function releaseClaim(
       before.record.claim === claim.ref &&
       before.record.run === run.ref &&
       before.record.owner === claim.humanOwner;
-    if (!released && (claim.status !== "active" || before.version !== claim.currentVersion))
+    const fenced = Boolean(
+      before.record?.claim.startsWith("interlock-claim:retirement-") &&
+      completionRecordMatches(before.record, claim),
+    );
+    if (
+      !released &&
+      !fenced &&
+      (claim.status !== "active" || before.version !== claim.currentVersion)
+    )
       throw new Error("Claim lock changed; release refused");
     const latest =
       run.status === "recovery_required" ? store.recoveryEvidence(run.ref).at(-1) : undefined;
@@ -131,8 +142,34 @@ export async function releaseClaim(
     try {
       await verifyJournaledJiraWrite(store, run.ref, claim.ticket, mirror);
       if (pendingJiraWrite) await mirror.verifyPendingWrite(pendingJiraWrite);
-      if (!released) await claims.releaseClaim(request);
-      await claims.verifyReleased(request);
+      if (fenced) {
+        const reader = new JiraTrackerAdapter({
+          ...jira.options,
+          rankField: await jiraRankField(jira.options.transport),
+        });
+        if (!trackerTicketIsDone((await reader.read(claim.ticket)).ticket))
+          throw new Error("Retirement claim release requires verified Done");
+        store.recordStep(run.ref, "completion_done_verified", { ticket: claim.ticket });
+        await releaseCompletedClaim({
+          lock: claimLock,
+          claim,
+          run,
+          removeMirror: () =>
+            mirror.removeMirror({
+              claim: claim.ref,
+              run: run.ref,
+              ticket: claim.ticket,
+              owner: claim.humanOwner,
+            }),
+          journal: (state, receipt) => store.recordStep(run.ref, state, receipt),
+          releasePending: store
+            .steps(run.ref)
+            .some((step) => step.state === "completion_release_pending"),
+        });
+      } else {
+        if (!released) await claims.releaseClaim(request);
+        await claims.verifyReleased(request);
+      }
       const verified = await claimLock.read(claim.ticket);
       claim.status = "released";
       claim.currentVersion = verified.version;
@@ -145,7 +182,7 @@ export async function releaseClaim(
         claim: claim.ref,
         ticket: claim.ticket,
         lockVersion: verified.version,
-        mirror: "restored_verified",
+        mirror: fenced ? "removed_verified" : "restored_verified",
       };
       store.commitRelease(run, claim, receipt);
       return receipt;

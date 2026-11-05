@@ -103,7 +103,8 @@ agent; a finished agent turn does not establish ticket completion.
 `lane complete --ticket KEY` verifies GitHub merge proof at the approved head,
 re-checks remote claim ownership before tracker mutation, and journals recovery
 through the verified Done readback and persisted success receipt. Completion
-keeps both the workspace and the claim; `lane attach` remains mandatory before work.
+removes the tracker mirror and releases the claim while preserving the workspace;
+`lane attach` remains mandatory before work.
 
 Pickup prepares `task/KEY` at `<worktree_root>/KEY`. A new branch starts, untracked,
 at the origin's default branch as fetched just before claiming, never at the
