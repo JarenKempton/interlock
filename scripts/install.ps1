@@ -28,7 +28,7 @@ if (-not $BaseUrl) {
             if ($_.Exception.Response -and ([int]$_.Exception.Response.StatusCode -eq 404)) {
                 $prerelease = $true
                 try {
-                    $response = Invoke-WebRequest -UseBasicParsing -Uri "${api}?per_page=100"
+                    $response = Invoke-WebRequest -UseBasicParsing -Uri "${api}?per_page=1"
                 } catch {
                     throw 'interlock: GitHub releases API request failed'
                 }

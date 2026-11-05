@@ -110,7 +110,7 @@ else
       200) ;;
       404)
         prerelease=true
-        if ! status=$(curl --location --silent --show-error --write-out '%{http_code}' "$api?per_page=100" --output "$api_response"); then
+        if ! status=$(curl --location --silent --show-error --write-out '%{http_code}' "$api?per_page=1" --output "$api_response"); then
           echo "interlock: GitHub releases API request failed" >&2; exit 1
         fi
         ;;
