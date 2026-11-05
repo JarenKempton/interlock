@@ -7,18 +7,16 @@ native runtime acceptance on the target platform.
 
 ## Install
 
-Select a published version from [GitHub Releases](https://github.com/JarenKempton/interlock/releases).
-Replace `<version-without-v>` below with that version. Prereleases require an
-explicit version because GitHub's latest-release route excludes them.
+The installers select the newest stable release, or the newest prerelease when
+no stable release exists. Prerelease installation prints a warning to stderr.
+Set `INTERLOCK_VERSION` explicitly to install a particular published version.
+If the GitHub releases API cannot resolve a version, installation stops.
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://interlock.build/install.sh | \
-  INTERLOCK_VERSION='<version-without-v>' sh
+curl -fsSL https://interlock.build/install.sh | sh
 ```
 
 ```powershell
-$env:INTERLOCK_VERSION = '<version-without-v>'
 irm https://interlock.build/install.ps1 | iex
 ```
 

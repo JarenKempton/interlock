@@ -60,6 +60,7 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
       <section id="install" class="sec" aria-labelledby="install-title">
         <div class="wrap narrow">
           <h2 id="install-title">{sections.install}</h2>
+          <p class="release-note">{install.notice}</p>
           <fieldset class="platforms">
             <legend class="sr-only">Platform</legend>
             {
@@ -298,16 +299,6 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
     text-align: center;
     overflow: hidden;
   }
-  .hero::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 48px 48px;
-    mask-image: radial-gradient(ellipse 60% 70% at 50% 0%, #000 30%, transparent 75%);
-    pointer-events: none;
-  }
   .hero-in {
     position: relative;
   }
@@ -336,17 +327,17 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
     border-color: var(--accent-line);
   }
   .stage-sec {
-    border-block: 1px solid var(--line);
-    background:
-      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
-      var(--bg);
+    --hero-line: var(--line-2);
   }
   .stage-frame {
     max-width: 120rem;
     margin-inline: auto;
-    border-inline: 1px solid var(--line);
-    background: color-mix(in oklab, var(--bg) 70%, transparent);
+    border: 1px solid var(--hero-line);
+    overflow: hidden;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+      var(--bg);
   }
   .frames {
     display: none;
@@ -476,7 +467,12 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
     margin: 0 0 2.25rem;
   }
   #install h2 {
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .release-note {
+    margin: 0 0 1.5rem;
+    color: var(--fg-2);
+    font-size: 0.875rem;
   }
   .ways {
     display: grid;
@@ -559,8 +555,8 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
     min-width: 0;
     margin: 0;
     padding: 0.8rem 1rem;
-    overflow-x: auto;
-    white-space: pre;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
     font: 500 0.875rem/1.5 var(--mono);
     color: var(--fg);
   }
@@ -570,6 +566,7 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
   }
   .cmd .copy {
     flex: none;
+    align-self: flex-start;
     margin: 0.4rem;
   }
 </style>
