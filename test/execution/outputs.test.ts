@@ -76,6 +76,7 @@ test(
       const plan = pickupResultSchema.parse(dry.output);
       const replacements: [string, string][] = [
         [resolve(import.meta.dirname, "../../src/cli.ts"), "<cli>"],
+        [`${f.state}.defaults`, "<state>.defaults"],
         [f.state, "<state>"],
         [plan.claimHome.url, "<claim-home-url>"],
         [plan.claimHome.home, "<claim-home>"],
