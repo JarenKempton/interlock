@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { run } from "../../src/cli.ts";
 import { laneResultSchema, laneSchema } from "../../src/domain/lane.ts";
@@ -182,6 +182,7 @@ test(
     expect(
       normalize(completed, [
         [retirementId, "<retirement-id>"],
+        [await realpath(f.repo.root), "<root>"],
         [f.repo.root, "<root>"],
         [f.repo.head, "<head>"],
         [lane.value.createdAt, "<time>"],
