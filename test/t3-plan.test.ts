@@ -25,10 +25,36 @@ test("with no user choices the implementer inherits the calling thread's provide
   });
 });
 
+test("without selections or a catalog the host supplies defaults", () => {
+  expect(planT3Models(configuration())).toEqual({
+    implementer: undefined,
+    reviewers: {},
+    runtimeMode: undefined,
+    interactionMode: undefined,
+  });
+});
+
+test.each([
+  { harness: "codex" },
+  { model: "test-model" },
+  { effort: "high" },
+  { context_window: "large" },
+  { runtime_mode: "auto" },
+  { interaction_mode: "plan" },
+  { reviewers: "correctness" },
+  { reviewers: "correctness", reviewer_model: "review-model" },
+  { reviewers: "correctness", reviewer_harness: "claudeAgent" },
+  { reviewers: "correctness", reviewer_effort: "high" },
+])("explicit selections require a catalog: %j", (user) => {
+  expect(() => planT3Models(configuration(user), undefined, reviewChoicesFrom(user))).toThrow(
+    "t3_catalog_required",
+  );
+});
+
 test("user effort overrides the inherited option", () => {
   expect(
     planT3Models(configuration({ effort: "low" }), validateT3Catalog(catalogEnvelope())).implementer
-      .options,
+      ?.options,
   ).toEqual({ reasoningEffort: "low" });
 });
 
