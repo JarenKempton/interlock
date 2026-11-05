@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,7 +32,9 @@ import { GitClaimLock } from "../src/adapters/claims/git-lock.ts";
 import { BunGitCommandExecutor } from "../src/adapters/workspaces/git.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { actorRefSchema, claimRefSchema } from "../src/domain/identifiers.ts";
-import { checkedGit } from "./fixtures/git-remote.ts";
+import { checkedGit, GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
+
+setDefaultTimeout(GIT_TEST_TIMEOUT_MS);
 
 const ticket = ticketRefSchema.parse("jira:x:W:ticket:JWB-878");
 const runRef = runRefSchema.parse("interlock-run:submit");
