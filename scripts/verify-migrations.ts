@@ -15,8 +15,7 @@ for (const file of files) {
     .digest("hex");
 }
 const write = process.argv.includes("--write");
-if (!write && !existsSync(hashesPath))
-  throw new Error(`Missing ${hashesPath}; run bun run db:hash`);
+if (!write && !existsSync(hashesPath)) throw new Error(`Missing ${hashesPath}; run vp run db:hash`);
 const committed = existsSync(hashesPath)
   ? z.record(z.string(), z.string()).parse(JSON.parse(readFileSync(hashesPath, "utf8")))
   : {};

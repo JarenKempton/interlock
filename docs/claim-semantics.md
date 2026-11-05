@@ -11,10 +11,10 @@ Tracker assignment names the responsible human. A run identifies one execution;
 a claim binds that run, ticket, and owner to an exact pre-claim snapshot.
 Local state alone never establishes ownership.
 
-| Claim state | Meaning |
-| --- | --- |
-| `active` | Held by the claim lock and mirrored by the tracker |
-| `released` | Explicit, verified restoration of the pre-claim fields |
+| Claim state | Meaning                                                |
+| ----------- | ------------------------------------------------------ |
+| `active`    | Held by the claim lock and mirrored by the tracker     |
+| `released`  | Explicit, verified restoration of the pre-claim fields |
 
 Each claim records a lease expiry. Nothing renews it, and expiry never
 authorizes release, reassignment, or a takeover: the claim stays held until it
@@ -41,12 +41,12 @@ claim write. No workspace or agent side effect precedes the verified lock and
 Jira mirror. Verified compensation marks the run `compensated` and its local
 claim `released`; an uncertain outcome retains recovery evidence.
 
-| From | Operation | Verified result | Failure path |
-| --- | --- | --- | --- |
-| `planning` | Complete preflights; capture snapshot | `claiming` | No tracker mutation |
-| `claiming` | Conditional claim and readback | `claimed` | Definite collision ends `collision`; ambiguous result enters compensation |
-| `claimed` | Prepare workspace | `workspace_prepared` | Compensation |
-| `workspace_prepared` | Persist the `claimed` run | `prepared` | Compensation |
+| From                 | Operation                             | Verified result      | Failure path                                                              |
+| -------------------- | ------------------------------------- | -------------------- | ------------------------------------------------------------------------- |
+| `planning`           | Complete preflights; capture snapshot | `claiming`           | No tracker mutation                                                       |
+| `claiming`           | Conditional claim and readback        | `claimed`            | Definite collision ends `collision`; ambiguous result enters compensation |
+| `claimed`            | Prepare workspace                     | `workspace_prepared` | Compensation                                                              |
+| `workspace_prepared` | Persist the `claimed` run             | `prepared`           | Compensation                                                              |
 
 Compensation persists `compensating`, then attempts guarded restoration and
 readback of the original tracker snapshot. Only verified restoration permits
@@ -155,7 +155,7 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   Tests fail when the shape drifts from the current version's file, when
   `CLAIM_RECORD_VERSION` is not the highest committed version, or when a
   committed file changes. A format change adds a new version file and bumps the
-  constant; `bun run contracts:write` writes the new file and hashes only files
+  constant; `vp run contracts:write` writes the new file and hashes only files
   without an entry.
 
 [Lock tests](../test/git-claim-lock.test.ts) and

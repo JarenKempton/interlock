@@ -8,7 +8,12 @@ hands the ticket to an agent in a T3 Code lane: one lane, one ticket, one pull
 request. Preserve tracker, host, model, and workspace independence in all core
 packages.
 
-The implementation language is TypeScript and the build/runtime tool is Bun.
+The implementation language is TypeScript. Vite+ (`vp`) is the toolchain entry
+point: `vp env` manages the Node.js version pinned in `.node-version` for Vite+,
+Oxlint, and Oxfmt. Bun is the pinned package manager and the runtime for the
+application, tests, and compiled executable. Install with `vp install`; run tasks
+with `vp run <name>`. `vp run test` runs `bun test`, never Node-based `vp test`.
+Task definitions, lint rules, and formatting live in `vite.config.ts`.
 Bun-specific behavior belongs in narrow platform modules; portable domain and
 transaction logic should remain ordinary TypeScript.
 
@@ -28,7 +33,11 @@ transaction logic should remain ordinary TypeScript.
 - Keep public protocol changes backward compatible within a protocol major.
 - Use argument arrays with `Bun.spawn`; never compose shell commands.
 - Add tests for every state-machine transition and failure compensation path.
-- Run `bun test`, `bun run typecheck`, and `bun run check` before handoff.
+- Run `vp check`, `vp run test`, and `vp run typecheck` before handoff.
+- Follow the target tree and layer rules in [architecture](docs/architecture.md).
+- Existing lint exemptions in `tooling/lint-baseline.json` may only shrink; never
+  add files or rules. Split folders by concept before exceeding 12 handwritten
+  files. Generated migrations are exempt.
 - Do not add a live tracker mutation until fake-adapter tests prove collision,
   verification, compensation, and ambiguous-failure behavior.
 

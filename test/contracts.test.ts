@@ -84,12 +84,10 @@ test("a removed optional Lane field in its shared definition fails every lane ac
     );
   };
   const after = contractSet(
-    surfaces.map(
-      (surface): ContractSurface => ({
-        ...surface,
-        document: () => z.record(z.string(), z.unknown()).parse(withoutField(surface.document())),
-      }),
-    ),
+    surfaces.map((surface): ContractSurface => ({
+      ...surface,
+      document: () => z.record(z.string(), z.unknown()).parse(withoutField(surface.document())),
+    })),
   );
   const failing = surfaces.filter((surface) => {
     const file = contractFileName(surface);

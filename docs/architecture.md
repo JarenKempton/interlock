@@ -9,21 +9,82 @@ executable behavior stays at platform boundaries.
 
 ## Code navigation
 
-| Responsibility | Source |
-| --- | --- |
-| Action registration and runtime services | [Application](../src/application.ts), [runtime services](../src/runtime-services.ts) |
-| Input validation, invocation, help, completion | [CLI](../src/cli/) |
-| Shared tracker facts and user settings | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml) |
-| Entities, references, capabilities, adapter interfaces | [Domain](../src/domain/) |
-| Adapter conformance suites | [Conformance](../src/conformance/) |
-| Pickup, T3 launch plan, launch prompt | [Execution](../src/execution/) |
-| Run history, receipts, recovery evidence | [Persistence](../src/persistence/) |
-| Claim lock, Jira tracker, Git workspaces | [Adapters](../src/adapters/) |
+| Responsibility                                         | Source                                                                                    |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Action registration and runtime services               | [Application](../src/application.ts), [runtime services](../src/runtime-services.ts)      |
+| Input validation, invocation, help, completion         | [CLI](../src/cli/)                                                                        |
+| Shared tracker facts and user settings                 | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml) |
+| Entities, references, capabilities, adapter interfaces | [Domain](../src/domain/)                                                                  |
+| Adapter conformance suites                             | [Conformance](../src/conformance/)                                                        |
+| Pickup, T3 launch plan, launch prompt                  | [Execution](../src/execution/)                                                            |
+| Run history, receipts, recovery evidence               | [Persistence](../src/persistence/)                                                        |
+| Claim lock, Jira tracker, Git workspaces               | [Adapters](../src/adapters/)                                                              |
 
 Actions declare their inputs, description, and handler together.
 Invocation, help, completion, and the manual derive from those registrations.
 Use `--help` for the available command surface. An adapter class or configuration
 field alone does not establish an executable user workflow.
+
+## Target tree and naming
+
+The target layout below is enforced incrementally; existing files are not moved
+by the toolchain migration. JWB-944 reorganizes them. Concept folders are singular,
+adapter categories plural, and vendor names occur only under `adapters/`.
+
+```text
+src/
+  main.ts
+  app/                         application, runtime services, tracker registry
+  domain/<concept>/            refs, tracker, claim, lane, submission
+  execution/<use-case>/        pickup, claim, lane
+  adapters/
+    trackers/<vendor>/
+    git/
+    github/
+    hosts/t3/
+  conformance/
+  cli/
+  mcp/
+  configuration/
+  persistence/
+  sign-in/
+  distribution/
+test/                          mirrors src/ path for path
+  fixtures/<concept>/
+```
+
+Files and folders use kebab-case; types use PascalCase and methods camelCase.
+Use snake_case only on the wire and in configuration. A filename does not repeat
+its containing folder's name. Tests mirror source paths; fixtures group by concept.
+Handwritten code folders under `src/`, `test/`, `scripts/`, and `tooling/` contain
+at most 12 files. Generated `src/persistence/migrations/` is exempt. The independent
+site project and generated contracts are outside the CLI lint scope.
+
+| Layer       | Allowed dependencies across layers                 |
+| ----------- | -------------------------------------------------- |
+| domain      | domain and zod only; no platform or vendor imports |
+| execution   | domain only                                        |
+| adapters    | domain and shared adapter helpers; never execution |
+| persistence | domain                                             |
+| cli, mcp    | app and execution                                  |
+| app         | any layer                                          |
+
+Imports within the same layer are allowed, but no import cycles are allowed.
+Other support layers retain their existing dependencies until their contracts are
+narrowed. The entry point imports app. Boundary classification uses directories,
+not filename heuristics, and resolves TypeScript imports through
+`eslint-import-resolver-typescript`.
+
+[Vite+ configuration](../vite.config.ts) enables native Oxlint filename, cycle,
+and strict TypeScript rules, `eslint-plugin-boundaries`, and the local
+[structure plugin](../tooling/structure.mjs). Existing violations are explicitly
+listed by rule and file in [the baseline](../tooling/lint-baseline.json); only those
+file/rule pairs are exempt. An already oversized folder lists its existing members,
+not an increased limit, so adding another file fails. New code must satisfy the
+rules without growing exemptions. Remove entries when fixing or deleting files.
+The baseline rule compares against `INTERLOCK_LINT_BASE` in CI (the PR base branch,
+or the previous commit on main), and `HEAD` locally. A missing/unreadable comparison
+fails closed; the initial Biome-to-Oxlint migration is the sole bootstrap case.
 
 ## Coordination
 
@@ -60,19 +121,19 @@ Public surfaces are frozen as JSON Schema under [`contracts/`](../contracts/):
 each action's input and output (one snapshot covers its MCP tool and CLI
 `--json`), `interlock.toml`, user and personal settings, and the claim record.
 Every action declares a zod `result`; a result that does not match fails the
-action before anything is rendered or returned. `bun run contracts:write`
+action before anything is rendered or returned. `vp run contracts:write`
 regenerates the current major's snapshot from zod and hashes it in
 `contracts/hashes.json`. Schemas repeated across snapshots live once in
 `contracts/definitions.json`, keyed by the SHA-256 of their resolved content
 and referenced by `$ref`; comparisons resolve them first, so a change to a
 shared schema is reported for every surface that uses it. The writer refuses a
 breaking change, and so does
-`bun run contracts:check <base-ref>` in CI: a removed or renamed field, a newly
+`vp run contracts:check <base-ref>` in CI: a removed or renamed field, a newly
 required field, a narrowed type or a removed enum value needs a new major
 (`version` on the action, or the surface's version constant), and every earlier
 snapshot stays hash-locked. Additive optional changes rewrite the current
 major. The rules are in the [classifier](../src/conformance/contract-diff.ts).
-`bun run db:hash` likewise only adds hashes for new migrations.
+`vp run db:hash` likewise only adds hashes for new migrations.
 
 ## Verification
 

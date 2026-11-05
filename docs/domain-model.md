@@ -5,15 +5,15 @@ and the contracts below define the portable contract. Adapters translate vendor 
 
 ## Identity
 
-| Kind | Form | Meaning |
-| --- | --- | --- |
-| tracker | `<adapter>:<instance>` | One configured tracker installation |
-| workspace | `<tracker-ref>:<workspace-id>` | Dependency and policy boundary |
-| group | `<workspace-ref>:group:<native-id>` | Optional container of maps |
-| map | `<workspace-ref>:map:<native-id>` | Ordered collection of tickets |
-| ticket | `<workspace-ref>:ticket:<native-id>` | One unit of work |
-| run | `interlock-run:<id>` | Local execution identity |
-| claim | `interlock-claim:<id>` | Ownership held by the claim lock, mirrored by the tracker |
+| Kind      | Form                                 | Meaning                                                   |
+| --------- | ------------------------------------ | --------------------------------------------------------- |
+| tracker   | `<adapter>:<instance>`               | One configured tracker installation                       |
+| workspace | `<tracker-ref>:<workspace-id>`       | Dependency and policy boundary                            |
+| group     | `<workspace-ref>:group:<native-id>`  | Optional container of maps                                |
+| map       | `<workspace-ref>:map:<native-id>`    | Ordered collection of tickets                             |
+| ticket    | `<workspace-ref>:ticket:<native-id>` | One unit of work                                          |
+| run       | `interlock-run:<id>`                 | Local execution identity                                  |
+| claim     | `interlock-claim:<id>`               | Ownership held by the claim lock, mirrored by the tracker |
 
 Qualification prevents collisions across tracker installations. A ticket
 belongs to at most one map (its parent); its blockers can sit anywhere, and
