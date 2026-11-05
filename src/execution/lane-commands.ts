@@ -6,6 +6,7 @@ import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
 import { defineAction } from "../cli/definition.ts";
 import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { ticketRefSchema } from "../domain/identifiers.ts";
+import { parseRef } from "../domain/reference.ts";
 import { type LaneResult, laneActionSchema, laneResultSchema, laneSchema } from "../domain/lane.ts";
 import { claimRef, laneRef, runRef } from "../persistence/command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
@@ -22,6 +23,8 @@ const laneResult = laneResultSchema(laneSchema);
 
 export function laneActions(services: RuntimeServices) {
   const lane = positional(text("Recorded lane reference.", "LANE"));
+  const ticket = optional(text("Ticket key or tracker reference.", "TICKET"));
+  const selector = { lane: optional(lane), ticket };
   const state = optional(text("Local execution database path.", "PATH"));
   const service = (store: Parameters<Parameters<typeof withExecutionStore>[2]>[0]) =>
     new LaneService({
@@ -41,11 +44,24 @@ export function laneActions(services: RuntimeServices) {
     withExecutionStore(services, executionStatePath(services, path), async (store) =>
       operation(service(store)),
     );
+  const selected = <T>(
+    input: { lane?: string | undefined; ticket?: string | undefined; state?: string | undefined },
+    operation: (
+      laneService: LaneService,
+      id: Parameters<LaneService["get"]>[0],
+    ) => Promise<LaneResult<T>> | LaneResult<T>,
+  ) =>
+    withLane(input.state, (laneService) => {
+      const result = laneService.resolve({
+        ...input,
+        ...(input.lane ? { lane: String(laneRef(input.lane)) } : {}),
+      });
+      return result.ok ? operation(laneService, result.value.id) : result;
+    });
   const apply = (
-    id: string,
-    path: string | undefined,
+    input: { lane?: string | undefined; ticket?: string | undefined; state?: string | undefined },
     command: Parameters<LaneService["apply"]>[1],
-  ) => withLane(path, (laneService) => laneService.apply(laneRef(id), command));
+  ) => selected(input, (laneService, id) => laneService.apply(id, command));
   return {
     create: defineAction({
       description: "Create a queued lane for a ticket or a one-off local task.",
@@ -88,37 +104,45 @@ export function laneActions(services: RuntimeServices) {
     }),
     list: defineAction({
       description: "List durable local lanes.",
-      input: { state },
+      input: { state, ticket },
       result: z.array(laneSchema),
-      handler: (input) => withLane(input.state, (laneService) => laneService.list()),
+      handler: (input) =>
+        withLane(input.state, (laneService) =>
+          laneService
+            .list()
+            .filter(
+              (lane) =>
+                !input.ticket ||
+                lane.ticket === input.ticket ||
+                (lane.ticket && parseRef(lane.ticket).nativeId === input.ticket),
+            ),
+        ),
     }),
     show: defineAction({
       description: "Inspect a durable local lane.",
-      input: { lane, state },
+      input: { ...selector, state },
       result: laneResult,
-      handler: (input) =>
-        withLane(input.state, (laneService) => laneService.get(laneRef(input.lane))),
+      handler: (input) => selected(input, (laneService, id) => laneService.get(id)),
       exitCode,
     }),
     next: defineAction({
       description: "Return exactly one next action for a lane.",
-      input: { lane, state },
+      input: { ...selector, state },
       result: laneResultSchema(laneActionSchema),
-      handler: (input) =>
-        withLane(input.state, (laneService) => laneService.next(laneRef(input.lane))),
+      handler: (input) => selected(input, (laneService, id) => laneService.next(id)),
       exitCode,
     }),
     claim: defineAction({
       description: "Claim a queued lane with its run and claim identity.",
       input: {
-        lane,
+        ...selector,
         run: optional(text("Run reference.", "RUN")),
         claim: optional(text("Claim reference.", "CLAIM")),
         state,
       },
       result: laneResult,
       handler: (input) =>
-        apply(input.lane, input.state, {
+        apply(input, {
           type: "claim",
           run: runRef(input.run ?? `lane-${randomUUID()}`),
           claim: claimRef(input.claim ?? `lane-${randomUUID()}`),
@@ -127,16 +151,16 @@ export function laneActions(services: RuntimeServices) {
     }),
     start: defineAction({
       description: "Move a claimed lane to implementing.",
-      input: { lane, state },
+      input: { ...selector, state },
       result: laneResult,
-      handler: (input) => apply(input.lane, input.state, { type: "start" }),
+      handler: (input) => apply(input, { type: "start" }),
       exitCode,
     }),
     submit: defineAction({
       description:
         "Push the lane's recorded branch at a head commit and open or update its one pull request.",
       input: {
-        lane,
+        ...selector,
         head: text("Head commit the evidence covers.", "HEAD"),
         gate: text("Evidence gate name.", "GATE"),
         "evidence-url": text("Evidence URL for the gate at the head commit.", "URL"),
@@ -146,8 +170,8 @@ export function laneActions(services: RuntimeServices) {
       },
       result: laneResult,
       handler: (input) =>
-        withLane(input.state, (laneService) =>
-          laneService.submit(laneRef(input.lane), {
+        selected(input, (laneService, id) =>
+          laneService.submit(id, {
             head: input.head,
             evidence: [{ gate: input.gate, head: input.head, url: input["evidence-url"] }],
             ...(input.title ? { title: input.title } : {}),
@@ -158,15 +182,15 @@ export function laneActions(services: RuntimeServices) {
     }),
     review: defineAction({
       description: "Move a submitted lane to reviewing.",
-      input: { lane, state },
+      input: { ...selector, state },
       result: laneResult,
-      handler: (input) => apply(input.lane, input.state, { type: "begin_review" }),
+      handler: (input) => apply(input, { type: "begin_review" }),
       exitCode,
     }),
     verdict: defineAction({
       description: "Record a review verdict bound to the submitted head commit.",
       input: {
-        lane,
+        ...selector,
         head: text("Head commit reviewed.", "HEAD"),
         decision: choice("Review decision.", ["approved", "changes_requested"] as const),
         findings: optional(text("Finding for changes_requested.", "FINDING")),
@@ -174,7 +198,7 @@ export function laneActions(services: RuntimeServices) {
       },
       result: laneResult,
       handler: (input) =>
-        apply(input.lane, input.state, {
+        apply(input, {
           type: "verdict",
           head: input.head,
           decision: input.decision,
@@ -203,20 +227,19 @@ export function laneActions(services: RuntimeServices) {
     attention: defineAction({
       description: "Route a lane to the user with a reason.",
       input: {
-        lane,
+        ...selector,
         reason: text("Reason the lane needs the user.", "REASON"),
         state,
       },
       result: laneResult,
-      handler: (input) =>
-        apply(input.lane, input.state, { type: "attention", reason: input.reason }),
+      handler: (input) => apply(input, { type: "attention", reason: input.reason }),
       exitCode,
     }),
     resume: defineAction({
       description: "Resume a lane from attention to its previous state.",
-      input: { lane, state },
+      input: { ...selector, state },
       result: laneResult,
-      handler: (input) => apply(input.lane, input.state, { type: "resume" }),
+      handler: (input) => apply(input, { type: "resume" }),
       exitCode,
     }),
     promote: defineAction({
@@ -228,10 +251,13 @@ export function laneActions(services: RuntimeServices) {
       },
       result: laneResult,
       handler: (input) =>
-        apply(input.lane, input.state, {
-          type: "promote",
-          ticket: ticketRefSchema.parse(input.ticket),
-        }),
+        apply(
+          { lane: input.lane, state: input.state },
+          {
+            type: "promote",
+            ticket: ticketRefSchema.parse(input.ticket),
+          },
+        ),
       exitCode,
     }),
   };

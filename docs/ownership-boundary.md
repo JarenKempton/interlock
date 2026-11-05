@@ -26,8 +26,15 @@ Output shapes belong to each action's definition.
 
 ### Pickup handoff
 
-The in-thread T3 caller queries `orchestrator_capabilities` immediately before
-pickup, including searches for configured models omitted from the short catalog.
+With no explicit harness, model, options, modes or reviewer settings,
+`pickup KEY --dry-run --json` needs no catalog. Its plan and launch message
+state that T3 uses the calling thread's or project's defaults; `modelSelection`
+and mode overrides are omitted. The recorded run uses `host-default` as its
+unresolved harness identity, not a claim that a particular harness was verified.
+
+Explicit selections still require the in-thread T3 caller to query
+`orchestrator_capabilities` immediately before pickup, including searches for
+configured models omitted from the short catalog.
 It supplies the returned catalog as `{ "host": "t3", "observedAt": "<UTC ISO time>",
 "catalog": <tool structured result> }` through `--t3-catalog PATH` or stdin with
 `--t3-catalog -`. This is a trusted caller boundary: the CLI checks the supplied
@@ -38,7 +45,7 @@ The catalog age is checked again synchronously at claim-push dispatch, after
 remote reads and local commit preparation. An expired catalog prevents that
 push; this does not guarantee availability during the subsequent network call.
 
-`pickup KEY --dry-run --json --t3-catalog PATH` reads configuration and Jira and
+`pickup KEY --dry-run --json` (with `--t3-catalog PATH` for explicit selections) reads configuration and Jira and
 returns a plan without creating a ledger, workspace or claim. The work repo is
 the current directory or `--repo PATH`; worktrees go under
 `<repo parent>/worktrees/<repo name>/KEY` and branch from the origin's default
@@ -56,14 +63,21 @@ fail closed. Jira search supplies ordering; a subsequent direct issue read
 supplies current fields, so search index lag cannot reopen completed tickets or
 hide reopened blockers.
 
-The implementer uses the user's `harness` and `model`, or the calling thread's
-when unset, checked against exact harness instance/model IDs and advertised
+When a catalog is supplied, the implementer uses the user's `harness` and `model`,
+or the calling thread's when unset, checked against exact harness instance/model IDs and advertised
 option values. Inherited T3 model options apply only to the same harness
 instance and model; `effort` and `context_window` override them. The plan's
 `reviewers` object has one checked selection per lens in the user's
 `reviewers` setting, using the implementer's selection unless `reviewer_harness`,
 `reviewer_model` or `reviewer_effort` is set; with no lenses it is empty.
 Pickup starts no reviewer.
+
+Lane commands that select a recorded lane accept either its positional reference
+or `--ticket KEY` (also a full tracker reference), never both. A ticket must
+match exactly one lane, including completed lanes; zero matches return
+`lane_not_found`, multiple matches return `claim_collision`. `lane list --ticket`
+filters the list. `lane create` and `lane promote` retain their existing ticket
+arguments pending their removal in JWB-948.
 
 The launch message carries the lane procedure, with the exact Interlock
 invocation and ledger pickup used: `lane attach` before any work, commits on

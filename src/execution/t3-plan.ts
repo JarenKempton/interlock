@@ -4,11 +4,34 @@ export { validateT3Catalog } from "../adapters/hosts/t3.ts";
 
 export function planT3Models(
   configuration: ResolvedConfiguration,
-  input: T3Catalog,
+  input?: T3Catalog,
   review: ReviewChoices = { lenses: [] },
 ) {
   const { settings } = configuration;
   if (settings.host !== "t3") throw new Error("Requested host is unavailable; pickup supports T3");
+  if (!input) {
+    const explicit = [
+      settings.harness,
+      settings.model,
+      settings.effort,
+      settings.context_window,
+      settings.runtime_mode,
+      settings.interaction_mode,
+      review.harness,
+      review.model,
+      review.effort,
+    ];
+    if (explicit.some((value) => value !== undefined) || review.lenses.length)
+      throw new Error(
+        "t3_catalog_required: Explicit harness, model, mode or reviewer settings require a fresh --t3-catalog",
+      );
+    return {
+      implementer: undefined,
+      reviewers: {},
+      runtimeMode: undefined,
+      interactionMode: undefined,
+    };
+  }
   const catalog = input.catalog;
   const runtimeMode = settings.runtime_mode ?? catalog.runtimeMode;
   const interactionMode = settings.interaction_mode ?? catalog.interactionMode;

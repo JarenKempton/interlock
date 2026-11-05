@@ -378,14 +378,10 @@ export class LaneService {
     }
   }
 
-  async complete(input: { lane?: string; ticket?: string }): Promise<LaneResult<Lane>> {
+  resolve(input: { lane?: string | undefined; ticket?: string | undefined }): LaneResult<Lane> {
     if (Boolean(input.lane) === Boolean(input.ticket))
       return fail("gates_unmet", "Provide exactly one lane reference or --ticket KEY");
-    if (input.lane)
-      return this.apply(laneRefSchema.parse(input.lane), {
-        type: "complete",
-        trackerDoneVerified: false,
-      });
+    if (input.lane) return this.get(laneRefSchema.parse(input.lane));
     const matches = this.#store
       .listLanes()
       .filter(
@@ -393,15 +389,17 @@ export class LaneService {
           lane.ticket &&
           (lane.ticket === input.ticket || parseRef(lane.ticket).nativeId === input.ticket),
       );
-    const tickets = new Set(matches.map((lane) => lane.ticket));
-    const active = matches.filter((lane) => lane.state !== "done");
-    if (tickets.size > 1 || active.length > 1)
+    if (matches.length > 1)
       return fail("claim_collision", "Ticket resolves to multiple lanes; use its lane reference");
-    const ticket = matches[0]?.ticket;
-    const lane = active[0] ?? (ticket ? this.#store.laneForTicket(ticket) : undefined);
+    const lane = matches[0];
     return lane
-      ? this.#complete(lane)
+      ? this.get(lane.id)
       : fail("lane_not_found", `Lane not found for ticket: ${input.ticket}`);
+  }
+
+  async complete(input: { lane?: string; ticket?: string }): Promise<LaneResult<Lane>> {
+    const resolved = this.resolve(input);
+    return resolved.ok ? this.#complete(resolved.value) : resolved;
   }
 
   async #complete(lane: Lane): Promise<LaneResult<Lane>> {

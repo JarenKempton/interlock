@@ -42,7 +42,9 @@ export function runActions(services: RuntimeServices) {
         repo: optional(text("Work repo; defaults to the current directory.", "PATH")),
         branch: optional(text("Branch name; defaults to the branch user setting.", "NAME")),
         state,
-        "t3-catalog": text("Fresh in-thread T3 catalog envelope; use - for stdin.", "PATH"),
+        "t3-catalog": optional(
+          text("Fresh T3 catalog for explicit selections; use - for stdin.", "PATH"),
+        ),
         "dry-run": flag("Print the launch plan without mutations."),
       },
       result: pickupResultSchema,

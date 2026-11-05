@@ -55,16 +55,7 @@ test(
     };
     try {
       await f.saveJira();
-      const args = [
-        "pickup",
-        "TEST-492",
-        "--config",
-        f.config,
-        "--repo",
-        f.remote.alice,
-        "--t3-catalog",
-        f.t3Catalog,
-      ];
+      const args = ["pickup", "TEST-492", "--config", f.config, "--repo", f.remote.alice];
       const before = await readFile(resolve(f.root, "jira.json"), "utf8");
       const dry = await command([...args, "--dry-run"]);
       expect(dry).toMatchObject({
@@ -81,6 +72,7 @@ test(
       expect((await command(["runs", "list"]))[0]).toMatchObject({
         ref: picked.run,
         status: "claimed",
+        harness: "host-default",
         workspace: { branch: "task/TEST-492" },
       });
       const remote = new GitClaimLock({

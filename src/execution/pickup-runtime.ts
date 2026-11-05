@@ -67,14 +67,17 @@ const pickupPlanSchema = z.strictObject({
   worktree: z.string(),
   branch: z.string(),
   title: z.string(),
-  modelSelection: modelSelectionSchema,
+  modelSelection: modelSelectionSchema.optional(),
   reviewers: z.record(z.string(), modelSelectionSchema),
   prompt: z.string(),
-  hostVerification: z.strictObject({
-    source: z.literal("caller-supplied-t3-catalog"),
-    observedAt: z.string(),
-    sessionId: z.string(),
-  }),
+  hostVerification: z.union([
+    z.strictObject({ source: z.literal("host-defaults"), message: z.string() }),
+    z.strictObject({
+      source: z.literal("caller-supplied-t3-catalog"),
+      observedAt: z.string(),
+      sessionId: z.string(),
+    }),
+  ]),
   instructions: z.array(
     z.strictObject({ path: z.string(), resolvedPath: z.string(), version: z.string() }),
   ),
@@ -90,9 +93,9 @@ const pickupPlanSchema = z.strictObject({
   launch: z.strictObject({
     title: z.string(),
     message: z.string(),
-    modelSelection: modelSelectionSchema,
-    runtimeMode: z.string(),
-    interactionMode: z.string(),
+    modelSelection: modelSelectionSchema.optional(),
+    runtimeMode: z.string().optional(),
+    interactionMode: z.string().optional(),
     workspaceStrategy: z.strictObject({
       type: z.literal("existing_worktree"),
       worktreePath: z.string(),
@@ -127,7 +130,7 @@ export interface PickupInput {
   repo?: string | undefined;
   branch?: string | undefined;
   state?: string | undefined;
-  t3Catalog: string;
+  t3Catalog?: string | undefined;
   dryRun?: boolean | undefined;
 }
 
@@ -320,13 +323,18 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     (await git.run(["git", "check-ref-format", "--branch", branch], repositoryPath)).exitCode !== 0
   )
     throw new Error(`Branch ${branch} is not a valid Git branch name`);
-  const rawCatalog: unknown = JSON.parse(
-    input.t3Catalog === "-"
-      ? await Bun.stdin.text()
-      : readFileSync(resolve(cwd, input.t3Catalog), "utf8"),
-  );
+  const rawCatalog: unknown =
+    input.t3Catalog === undefined
+      ? undefined
+      : JSON.parse(
+          input.t3Catalog === "-"
+            ? await Bun.stdin.text()
+            : readFileSync(resolve(cwd, input.t3Catalog), "utf8"),
+        );
   const clock = services.execution?.clock ?? { now: () => new Date() };
-  const catalog = validateT3Catalog(rawCatalog, clock.now());
+  const verifyCatalog = () =>
+    rawCatalog === undefined ? undefined : validateT3Catalog(rawCatalog, clock.now());
+  const catalog = verifyCatalog();
   const models = planT3Models(configuration, catalog, reviewChoicesFrom(user));
   const jira = await executionTracker(
     settings.jira_site,
@@ -376,20 +384,24 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     configCommit: claimHome.configCommit,
   };
   const instructions = loadConfigurationInstructions(configuration, ticket.kind);
-  const prompt = buildLaunchPrompt(ticket, {
-    tracker: settings.jira_site,
-    ...(instructions.runtimeContract
-      ? { runtimeContract: instructions.runtimeContract.resolvedPath }
-      : {}),
-    ...(instructions.roleTemplate ? { roleTemplate: instructions.roleTemplate.content } : {}),
-    lane: {
-      command: RELEASE_BUILD ? ["interlock"] : ["bun", resolve(import.meta.dir, "../cli.ts")],
-      ...(input.state ? { state: resolve(statePath) } : {}),
-      reviewers: Object.fromEntries(
-        Object.entries(models.reviewers).map(([lens, target]) => [lens, t3Target(target)]),
-      ),
-    },
-  });
+  const defaultsMessage =
+    "T3 uses the calling thread's or project's default harness, model and modes; modelSelection is omitted and no catalog selection is verified.";
+  const prompt =
+    (catalog ? "" : `${defaultsMessage}\n\n`) +
+    buildLaunchPrompt(ticket, {
+      tracker: settings.jira_site,
+      ...(instructions.runtimeContract
+        ? { runtimeContract: instructions.runtimeContract.resolvedPath }
+        : {}),
+      ...(instructions.roleTemplate ? { roleTemplate: instructions.roleTemplate.content } : {}),
+      lane: {
+        command: RELEASE_BUILD ? ["interlock"] : ["bun", resolve(import.meta.dir, "../cli.ts")],
+        ...(input.state ? { state: resolve(statePath) } : {}),
+        reviewers: Object.fromEntries(
+          Object.entries(models.reviewers).map(([lens, target]) => [lens, t3Target(target)]),
+        ),
+      },
+    });
   const plan: PickupPlan = {
     version: 1,
     repository: repository.name,
@@ -397,14 +409,16 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     worktree: worktree.path,
     branch: worktree.branch,
     title: `${input.key}: ${ticket.title ?? input.key}`,
-    modelSelection: models.implementer,
+    ...(models.implementer ? { modelSelection: models.implementer } : {}),
     reviewers: models.reviewers,
     prompt,
-    hostVerification: {
-      source: "caller-supplied-t3-catalog",
-      observedAt: catalog.observedAt,
-      sessionId: catalog.catalog.parentSessionId,
-    },
+    hostVerification: catalog
+      ? {
+          source: "caller-supplied-t3-catalog",
+          observedAt: catalog.observedAt,
+          sessionId: catalog.catalog.parentSessionId,
+        }
+      : { source: "host-defaults", message: defaultsMessage },
     instructions: Object.values(instructions).map(({ content: _content, ...source }) => source),
     claimHome: {
       home: claimHome.home.identity,
@@ -418,7 +432,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     launch: {
       title: `${input.key}: ${ticket.title ?? input.key}`,
       message: prompt,
-      modelSelection: models.implementer,
+      ...(models.implementer ? { modelSelection: models.implementer } : {}),
       runtimeMode: models.runtimeMode,
       interactionMode: models.interactionMode,
       workspaceStrategy: {
@@ -428,7 +442,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       },
     },
   };
-  validateT3Catalog(rawCatalog, clock.now());
+  verifyCatalog();
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" } satisfies PickupResult;
   await workspace.refreshBase();
   return withExecutionStore(services, statePath, async (store) => {
@@ -444,11 +458,11 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       },
     });
     const { claimLock } = claimCoordination(repository, mirror, services, claimHome.home, () => {
-      validateT3Catalog(rawCatalog, clock.now());
+      verifyCatalog();
     });
     const validateTicket = async (current: Ticket) => {
       await eligible(current);
-      validateT3Catalog(rawCatalog, clock.now());
+      verifyCatalog();
     };
     const ledger: Ledger = {
       saveRun(run) {
@@ -486,8 +500,8 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       ticket: ref,
       owner: jira.owner,
       host: adapterRefSchema.parse("t3"),
-      harness: adapterRefSchema.parse(models.implementer.harness),
-      model: models.implementer.model,
+      harness: adapterRefSchema.parse(models.implementer?.harness ?? "host-default"),
+      ...(models.implementer ? { model: models.implementer.model } : {}),
     });
     const claimHomeSaved = store.saveClaimHomeIfAbsent(claimHome.home.url);
     return {

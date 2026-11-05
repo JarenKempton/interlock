@@ -223,7 +223,7 @@ test("ambiguous transition that is verified Done by readback can complete", asyn
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
 });
 
-test("a done lane that once used the same path does not block completion", async () => {
+test("a ticket with an earlier done lane requires an explicit lane reference", async () => {
   const lane = await mergedLane();
   changeStore(lane, (store) => {
     const otherRun = runRefSchema.parse("interlock-run:earlier");
@@ -237,9 +237,13 @@ test("a done lane that once used the same path does not block completion", async
       createdAt: "2020-01-01T00:00:00Z",
     });
   });
-  const completed = await lane.complete();
+  expect((await lane.complete()).result).toMatchObject({
+    ok: false,
+    refusal: { code: "claim_collision" },
+  });
+  const completed = await lane.complete({ lane: lane.id });
   expect(completed.result).toMatchObject({ ok: true, value: { state: "done", id: lane.id } });
-  expect(await lane.complete()).toEqual(completed);
+  expect(await lane.complete({ lane: lane.id })).toEqual(completed);
 });
 
 const jwb = (key: string) => ticketRefSchema.parse(`jira:x:JWB:ticket:${key}`);
