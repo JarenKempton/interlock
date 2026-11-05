@@ -61,7 +61,7 @@ release_tag() {
           }
         }
         if (depth == release_depth && draft == "false" && pre == prerelease && selected == "") {
-          if (tag !~ /^"v?[0-9][A-Za-z0-9.+-]*"$/) fail()
+          if (tag !~ /^"v?[0-9][A-Za-z0-9.+-]*"$/ && !(pre == "true" && tag == "\"nightly\"")) fail()
           selected = substr(tag, 2, length(tag) - 2)
         }
         token()
@@ -128,6 +128,9 @@ else
       printf 'Installing Interlock %s (pre-release)\n' "$VERSION" >&2
     fi
     tag=$VERSION
+  elif [ "$VERSION" = nightly ]; then
+    tag=nightly
+    printf 'Installing Interlock nightly (pre-release)\n' >&2
   elif [ "$VERSION" = latest ]; then
     echo "interlock: INTERLOCK_VERSION is required for prerelease installation" >&2
     exit 1

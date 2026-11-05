@@ -238,6 +238,31 @@ for (const shell of shells) {
       expect(readFileSync(join(f.root, "curl.log"), "utf8")).toContain("/releases/download/1.2.3/");
     });
 
+    installerTest("nightly downloads the rolling tag without API resolution", () => {
+      const f = fixture();
+      binary(f);
+      const result = runInstaller(f, shell, { INTERLOCK_VERSION: "nightly" });
+      expect(result.exitCode).toBe(0);
+      const log = readFileSync(join(f.root, "curl.log"), "utf8");
+      expect(log).toContain("/releases/download/nightly/");
+      expect(log).not.toContain("api.github.com");
+      expect(result.stderr.toString()).toContain("(pre-release)");
+    });
+
+    installerTest("default accepts nightly when it is the newest prerelease", () => {
+      const f = fixture();
+      binary(f);
+      writeFileSync(join(f.downloads, "latest"), '{"message":"Not Found"}');
+      writeFileSync(join(f.downloads, "latest.status"), "404");
+      writeFileSync(join(f.downloads, "releases"), JSON.stringify([release("nightly", true)]));
+      const result = runInstaller(f, shell);
+      expect(result.exitCode).toBe(0);
+      expect(readFileSync(join(f.root, "curl.log"), "utf8")).toContain(
+        "/releases/download/nightly/",
+      );
+      expect(result.stderr.toString()).toContain("Installing Interlock nightly (pre-release)");
+    });
+
     installerTest("explicit latest retains its existing rejection", () => {
       const f = fixture();
       const result = runInstaller(f, shell, { INTERLOCK_VERSION: "latest" });

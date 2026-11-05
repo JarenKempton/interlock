@@ -66,7 +66,7 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
             {
               install.platforms.map((p, i) => (
                 <label>
-                  <input type="radio" name="platform" value={p.id} data-command={p.command} checked={i === 0} />
+                  <input type="radio" name="platform" value={p.id} data-command={p.command} data-nightly-command={p.nightlyCommand} checked={i === 0} />
                   <span>{p.label}</span>
                 </label>
               ))
@@ -75,6 +75,11 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
           <div class="cmd">
             <pre tabindex="0" aria-label="Install command"><code data-install>{install.platforms[0].command}</code></pre>
             <button type="button" class="copy" data-copy={install.platforms[0].command} data-install-copy>Copy</button>
+          </div>
+          <p class="release-note">Nightly · unreleased main build</p>
+          <div class="cmd">
+            <pre tabindex="0" aria-label="Nightly install command"><code data-nightly>{install.platforms[0].nightlyCommand}</code></pre>
+            <button type="button" class="copy" data-copy={install.platforms[0].nightlyCommand} data-nightly-copy>Copy</button>
           </div>
         </div>
       </section>
@@ -122,6 +127,8 @@ import { product, hero, install, steps, principle, plane, footer, sections, stag
         r.addEventListener("change", () => {
           document.querySelector("[data-install]").textContent = r.dataset.command;
           document.querySelector("[data-install-copy]").dataset.copy = r.dataset.command;
+          document.querySelector("[data-nightly]").textContent = r.dataset.nightlyCommand;
+          document.querySelector("[data-nightly-copy]").dataset.copy = r.dataset.nightlyCommand;
         }),
       );
       document.addEventListener("click", (e) => {

@@ -44,13 +44,16 @@ if (-not $BaseUrl) {
                 ($_.draft -is [bool]) -and (-not $_.draft) -and
                 ($_.prerelease -is [bool]) -and ($_.prerelease -eq $prerelease)
             } | Select-Object -First 1
-            if (-not $release -or $release.tag_name -cnotmatch '^v?[0-9][A-Za-z0-9.+-]*$') { throw 'Missing release tag' }
+            if (-not $release -or (($release.tag_name -cnotmatch '^v?[0-9][A-Za-z0-9.+-]*$') -and -not ($prerelease -and $release.tag_name -ceq 'nightly'))) { throw 'Missing release tag' }
             $Version = $release.tag_name
         } catch {
             throw 'interlock: GitHub releases API returned no valid installable release'
         }
         if ($prerelease) { [Console]::Error.WriteLine("Installing Interlock $Version (pre-release)") }
         $tag = $Version
+    } elseif ($Version -ceq 'nightly') {
+        $tag = 'nightly'
+        [Console]::Error.WriteLine('Installing Interlock nightly (pre-release)')
     } elseif ($Version -eq 'latest') {
         throw 'interlock: INTERLOCK_VERSION is required for prerelease installation'
     } else {
