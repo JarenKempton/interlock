@@ -1,8 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 
-const baselinePath = "tooling/lint-baseline.json";
 const portable = (path) => path.split(sep).join("/");
 
 export function baselineGrowth(current, previous) {
@@ -103,32 +101,17 @@ export default {
                   report(`Remove missing baseline member: ${folder}/${file}`);
               }
             }
-            const ref = process.env.INTERLOCK_LINT_BASE || "HEAD";
-            try {
-              const paths = execFileSync(
-                "git",
-                ["ls-tree", "--name-only", ref, "--", baselinePath, "biome.json"],
-                { cwd: context.cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-              )
-                .trim()
-                .split("\n");
-              if (!paths.includes(baselinePath)) {
-                if (!paths.includes("biome.json"))
-                  report(`Baseline missing at ${ref}; cannot verify shrink-only exemptions.`);
-                return;
-              }
-              const previous = JSON.parse(
-                execFileSync("git", ["show", `${ref}:${baselinePath}`], {
-                  cwd: context.cwd,
-                  encoding: "utf8",
-                  stdio: ["ignore", "pipe", "pipe"],
-                }),
+            const comparison = context.settings["structure/comparison"];
+            if (!comparison || comparison.error) {
+              report(
+                comparison?.error ||
+                  "Missing baseline comparison; cannot verify shrink-only exemptions.",
               );
-              for (const entry of baselineGrowth(baseline, previous))
-                report(`Baseline may only shrink: ${entry}`);
-            } catch (error) {
-              report(`Cannot verify baseline against ${ref}: ${error.message}`);
+              return;
             }
+            if (comparison.baseline === null) return;
+            for (const entry of baselineGrowth(baseline, comparison.baseline))
+              report(`Baseline may only shrink: ${entry}`);
           },
         };
       },

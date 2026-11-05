@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import structure, { baselineGrowth, folderViolations } from "../../tooling/structure.mjs";
+import { readBaseline } from "../../tooling/baseline.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const empty = { violations: {}, folders: {} };
@@ -82,25 +83,21 @@ describe("structure baseline", () => {
     const context = {
       cwd,
       filename: join(cwd, "vite.config.ts"),
-      settings: { "structure/baseline": baseline },
+      settings: {
+        "structure/baseline": baseline,
+        "structure/comparison": readBaseline(cwd, "HEAD"),
+      },
       report: (report) => reports.push(report.data.message),
     };
-    const saved = process.env.INTERLOCK_LINT_BASE;
-    try {
-      process.env.INTERLOCK_LINT_BASE = "HEAD";
-      structure.rules["baseline-no-growth"].create(context).Program({});
-      expect(reports).toContain("Remove missing baseline file: src/missing.ts");
-      expect(reports).toContain(
-        "Baseline may only shrink: violations: import/no-cycle: src/extra.ts",
-      );
-      reports.length = 0;
-      process.env.INTERLOCK_LINT_BASE = "missing-ref";
-      structure.rules["baseline-no-growth"].create(context).Program({});
-      expect(reports.join("\n")).toContain("Cannot verify baseline against missing-ref");
-    } finally {
-      if (saved === undefined) delete process.env.INTERLOCK_LINT_BASE;
-      else process.env.INTERLOCK_LINT_BASE = saved;
-    }
+    structure.rules["baseline-no-growth"].create(context).Program({});
+    expect(reports).toContain("Remove missing baseline file: src/missing.ts");
+    expect(reports).toContain(
+      "Baseline may only shrink: violations: import/no-cycle: src/extra.ts",
+    );
+    reports.length = 0;
+    context.settings["structure/comparison"] = readBaseline(cwd, "missing-ref");
+    structure.rules["baseline-no-growth"].create(context).Program({});
+    expect(reports.join("\n")).toContain("Cannot verify baseline against missing-ref");
   });
 });
 

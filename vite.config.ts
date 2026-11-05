@@ -1,5 +1,8 @@
 import { defineConfig } from "vite-plus";
 import baseline from "./tooling/lint-baseline.json";
+import { readBaseline } from "./tooling/baseline.ts";
+
+const comparison = readBaseline(process.cwd(), process.env.INTERLOCK_LINT_BASE || "HEAD");
 
 const layers = [
   "domain",
@@ -132,6 +135,7 @@ export default defineConfig({
     },
     settings: {
       "structure/baseline": baseline,
+      "structure/comparison": comparison,
       "boundaries/include": ["src/**/*.ts"],
       "boundaries/elements": layers.map((type) => ({ type, pattern: `src/${type}` })),
       "boundaries/files": [{ category: "entry", pattern: "src/main.ts" }],
