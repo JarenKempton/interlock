@@ -12,17 +12,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.11
-      - run: bun install --frozen-lockfile
+          fetch-depth: 0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.5.0
+          run-install: false
+      - run: vp install --frozen-lockfile
       - name: Validate strict SemVer prerelease tag
         env:
           TAG: ${{ github.ref_name }}
-        run: bun scripts/release-version.ts "$TAG"
-      - run: bun test
-      - run: bun run typecheck
-      - run: bun run check
+        run: vp run release:version "$TAG"
+      - run: vp run test
+      - run: vp run typecheck
+      - run: vp run check
 
   build:
     needs: verify
@@ -51,10 +54,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.11
-      - run: bun install --frozen-lockfile
+          fetch-depth: 0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.5.0
+          run-install: false
+      - run: vp install --frozen-lockfile
       - name: Build versioned standalone executable
         shell: bash
         env:
@@ -66,7 +72,7 @@ jobs:
           set -euo pipefail
           VERSION="${VERSION#v}"
           mkdir -p dist
-          bun build src/cli.ts --compile --target="$TARGET" \
+          vp run build:release --target="$TARGET" \
             --define "INTERLOCK_BUILD_VERSION=\"$VERSION\"" \
             --define "INTERLOCK_BUILD_RELEASES_URL=\"$RELEASES_URL\"" --outfile="dist/$ASSET"
       - uses: actions/upload-artifact@v4

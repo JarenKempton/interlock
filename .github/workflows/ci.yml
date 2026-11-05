@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  INTERLOCK_LINT_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^' }}
+
 jobs:
   test:
     strategy:
@@ -16,24 +19,27 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.11
-      - run: bun install --frozen-lockfile
+          fetch-depth: 0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.5.0
+          run-install: false
+      - run: vp install --frozen-lockfile
       - if: runner.os != 'Linux'
-        run: bun test
+        run: vp run test
         env:
           INTERLOCK_TEST_OS_CREDENTIAL_STORE: "1"
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y gnome-keyring libsecret-1-0 dbus-daemon
-          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && bun test'
+          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && vp run test'
         env:
           INTERLOCK_TEST_OS_CREDENTIAL_STORE: "1"
-      - run: bun run typecheck
-      - run: bun run check
-      - run: bun run db:check
+      - run: vp run typecheck
+      - run: vp run check
+      - run: vp run db:check
       - name: Fail on unversioned breaking contract changes
         if: github.event_name == 'pull_request'
         shell: bash
@@ -41,12 +47,12 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
-          bun run contracts:check "origin/$BASE_REF"
-      - run: bun run db:generate
+          vp run contracts:check "origin/$BASE_REF"
+      - run: vp run db:generate
       - name: Fail if schema and migrations disagree
         shell: bash
         run: git diff --exit-code
-      - run: bun run build
+      - run: vp run build
       - name: Compiled binary migrates fresh and existing ledgers
         shell: bash
         run: |
@@ -77,19 +83,22 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.11
-      - run: bun install --frozen-lockfile
-      - run: bun scripts/test-shard.ts ${{ matrix.shard }} 4
+          fetch-depth: 0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.5.0
+          run-install: false
+      - run: vp install --frozen-lockfile
+      - run: vp run test:shard ${{ matrix.shard }} 4
         env:
           INTERLOCK_TEST_OS_CREDENTIAL_STORE: "1"
       - if: matrix.shard == 1
-        run: bun run typecheck
+        run: vp run typecheck
       - if: matrix.shard == 1
-        run: bun run check
+        run: vp run check
       - if: matrix.shard == 1
-        run: bun run db:check
+        run: vp run db:check
       - name: Fail on unversioned breaking contract changes
         if: matrix.shard == 1 && github.event_name == 'pull_request'
         shell: bash
@@ -97,15 +106,15 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
-          bun run contracts:check "origin/$BASE_REF"
+          vp run contracts:check "origin/$BASE_REF"
       - if: matrix.shard == 1
-        run: bun run db:generate
+        run: vp run db:generate
       - name: Fail if schema and migrations disagree
         if: matrix.shard == 1
         shell: bash
         run: git diff --exit-code
       - if: matrix.shard == 1
-        run: bun run build
+        run: vp run build
       - name: Compiled binary migrates fresh and existing ledgers
         if: matrix.shard == 1
         shell: bash
@@ -140,11 +149,8 @@ jobs:
         working-directory: site
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
-          node-version: 24
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.11
-      - run: bun install --frozen-lockfile
-      - run: bun run check:deploy
+          version: 1.5.0
+      - run: vp install --frozen-lockfile
+      - run: vp run check:deploy

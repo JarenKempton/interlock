@@ -22,14 +22,15 @@ See [distribution](docs/distribution.md) for versions, checksums and install des
 
 ## Try it
 
-From this checkout, with [Bun](https://bun.sh) installed:
+From this checkout, with [Vite+](https://viteplus.dev/guide/) installed
+(`vp env` manages the pinned Node.js tooling runtime and Bun package manager):
 
 ```sh
-bun install
-bun run src/cli.ts --help
-bun run src/cli.ts login jira
-bun run src/cli.ts doctor
-bun run src/cli.ts config show
+vp install
+vp run dev --help
+vp run dev login jira
+vp run dev doctor
+vp run dev config show
 ```
 
 `login jira` keeps your Jira credentials in the OS credential store; `doctor`
@@ -47,9 +48,9 @@ pickable and claimed statuses (default `To Do` and `In Progress`). Unset agent
 and model follow the calling T3 thread.
 
 ```sh
-bun run src/cli.ts config edit --set model your-model
-bun run src/cli.ts config edit --set pickable_statuses "To Do, Ready"
-bun run src/cli.ts config edit --follow model
+vp run dev config edit --set model your-model
+vp run dev config edit --set pickable_statuses "To Do, Ready"
+vp run dev config edit --follow model
 ```
 
 `reviewers` takes a comma-separated list of review lenses (for example
@@ -74,13 +75,13 @@ sources without writing configuration or initializing the database.
 | Understand execution                            | [Execution](src/execution/) and [portable contracts](src/domain/contracts.ts)                                                         |
 | Understand boundaries and contracts             | [Architecture](docs/architecture.md)                                                                                                  |
 | Install releases or configure shell integration | [Distribution](docs/distribution.md)                                                                                                  |
-| Change the landing page                         | [site/](site/): Astro, served as Worker static assets; `bun run dev` inside it                                                        |
+| Change the landing page                         | [site/](site/): Astro, served as Worker static assets; `vp run dev` inside it                                                         |
 
 ```sh
-bun test
-bun run typecheck
-bun run check
-bun run build
+vp run test
+vp run typecheck
+vp check
+vp run build
 ```
 
 The build writes a standalone executable to `dist/interlock`.

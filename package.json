@@ -3,35 +3,10 @@
   "version": "0.1.0-dev",
   "private": true,
   "description": "Claims tracker tickets and prepares Git worktrees for agents in T3 Code lanes.",
-  "type": "module",
   "bin": {
     "interlock": "./src/cli.ts"
   },
-  "scripts": {
-    "dev": "bun run src/cli.ts",
-    "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "check": "biome check .",
-    "format": "biome format --write .",
-    "build": "bun build ./src/cli.ts --compile --outfile ./dist/interlock",
-    "db:generate": "drizzle-kit generate",
-    "db:check": "bun scripts/verify-migrations.ts",
-    "db:hash": "bun scripts/verify-migrations.ts --write",
-    "contracts:write": "bun scripts/write-contracts.ts",
-    "contracts:check": "bun scripts/check-contracts.ts",
-    "sample-ledger": "bun scripts/create-sample-ledger.ts",
-    "completions": "bun run ./src/cli.ts completions",
-    "man": "bun run ./src/cli.ts man"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.5.13",
-    "@types/bun": "^1.3.11",
-    "drizzle-kit": "0.31.9",
-    "typescript": "^5.9.2"
-  },
-  "engines": {
-    "bun": ">=1.3.0"
-  },
+  "type": "module",
   "dependencies": {
     "@optique/core": "1.2.6",
     "@optique/man": "1.2.6",
@@ -39,5 +14,17 @@
     "drizzle-orm": "0.45.2",
     "drizzle-zod": "0.8.3",
     "zod": "4.6.2"
-  }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "drizzle-kit": "0.31.9",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-boundaries": "7.4.2",
+    "typescript": "^5.9.2",
+    "vite-plus": "1.5.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "packageManager": "bun@1.3.11"
 }
