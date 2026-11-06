@@ -42,6 +42,10 @@ The [POSIX](../scripts/install.sh) and [PowerShell](../scripts/install.ps1)
 installers select the platform asset and verify its SHA-256 checksum before
 replacement. The site build copies these source scripts into its static assets;
 there is no separate maintained installer copy. Set `INTERLOCK_INSTALL_DIR` to choose the destination.
+
+The landing page shows the newest stable tag, or the newest prerelease tag when
+no stable exists, read from Git tags at build time. After a release publishes,
+deploy the site from `main` with tags fetched: `vp run deploy` inside `site/`.
 Unsupported platforms, missing checksums, and digest mismatches leave an
 existing executable intact.
 
