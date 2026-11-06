@@ -125,11 +125,19 @@ describe("host launch workspace", () => {
 
   test("proven non-launch fails so pickup can compensate", async () => {
     const host = new FakeHost();
-    host.launchResult = { state: "ambiguous", reason: "start failed", acknowledged: false };
+    host.launchResult = {
+      state: "ambiguous",
+      reason: "t3 thread start failed: the project has no default model",
+      acknowledged: false,
+    };
     const { workspace } = subject(host);
     const error = await workspace.prepare(plan).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(HostLaunchUnresolvedError);
+    expect(error).toMatchObject({
+      message:
+        "Host launch did not start a session: t3 thread start failed: the project has no default model; nothing",
+    });
     expect(host.calls).toEqual(["launch", "recover"]);
   });
 
@@ -138,7 +146,7 @@ describe("host launch workspace", () => {
     host.launchResult = { state: "ambiguous", reason: "exit 0", acknowledged: true };
     const { workspace } = subject(host);
     expect((await rejection(workspace.prepare(plan))).message).toContain(
-      "The host reported a launch that recovery cannot find: nothing",
+      "The host reported a launch that recovery cannot find: exit 0; nothing",
     );
   });
 
@@ -158,7 +166,7 @@ describe("host launch workspace", () => {
     host.recoverResult = new Error("still unreachable");
     const { workspace } = subject(host);
     expect((await rejection(workspace.prepare(plan))).message).toContain(
-      "Host launch is unresolved: still unreachable",
+      "Host launch is unresolved: T3 server is not reachable; still unreachable",
     );
   });
 

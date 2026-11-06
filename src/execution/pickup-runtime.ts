@@ -29,7 +29,7 @@ import {
   reviewChoicesFrom,
   type UserSettings,
 } from "../configuration/schema.ts";
-import { RELEASE_BUILD } from "../distribution/version.ts";
+import { selfCommand } from "../distribution/version.ts";
 import type { ClaimHome } from "../domain/claim-home.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
@@ -436,7 +436,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
         : {}),
       ...(instructions.roleTemplate ? { roleTemplate: instructions.roleTemplate.content } : {}),
       lane: {
-        command: RELEASE_BUILD ? ["interlock"] : ["bun", resolve(import.meta.dir, "../cli.ts")],
+        command: selfCommand(),
         ...(input.state ? { state: resolve(statePath) } : {}),
         reviewers: Object.fromEntries(
           Object.entries(models.reviewers).map(([lens, target]) => [lens, t3Target(target)]),
