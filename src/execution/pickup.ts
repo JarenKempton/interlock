@@ -7,6 +7,7 @@ import type {
   WorkspaceAdapter,
 } from "../domain/contracts.ts";
 import { ClaimCollisionError } from "../domain/contracts.ts";
+import { HostLaunchUnresolvedError } from "../domain/host/capability.ts";
 import {
   type Claim,
   capabilities,
@@ -172,21 +173,48 @@ export class PickupCoordinator {
       await this.#options.ledger.commitClaim(claim, receipt);
 
       const prepared = await this.#options.workspace.prepare(plan);
-      receipt.state = "workspace_prepared";
-      receipt.workspace = prepared;
-      await this.#options.ledger.recordStep(runRef, "workspace_prepared", receipt);
+      try {
+        receipt.state = "workspace_prepared";
+        receipt.workspace = prepared;
+        await this.#options.ledger.recordStep(runRef, "workspace_prepared", receipt);
 
-      run.workspace = prepared;
-      run.status = "claimed";
-      run.updatedAt = this.#options.clock.now().toISOString();
-      if (request.model) run.model = request.model;
-      receipt.ok = true;
-      await this.#options.ledger.commitRun(run, "prepared", receipt);
-      return receipt;
+        run.workspace = prepared;
+        run.status = "claimed";
+        run.updatedAt = this.#options.clock.now().toISOString();
+        if (request.model) run.model = request.model;
+        receipt.ok = true;
+        await this.#options.ledger.commitRun(run, "prepared", receipt);
+        return receipt;
+      } catch (error) {
+        if (!this.#options.workspace.startsSession) throw error;
+        throw new HostLaunchUnresolvedError(
+          `A session started but pickup could not record it: ${message(error)}`,
+        );
+      }
     } catch (error) {
       if (error instanceof PickupResultError) throw error;
+      if (error instanceof HostLaunchUnresolvedError) return this.#unresolved(run, receipt, error);
       return this.#compensate(run, receipt, snapshot, request.owner, error);
     }
+  }
+
+  async #unresolved(
+    run: Run,
+    receipt: PickupReceipt,
+    cause: HostLaunchUnresolvedError,
+  ): Promise<never> {
+    receipt.ok = false;
+    receipt.state = "recovery_required";
+    receipt.recoveryCommand = `interlock runs export ${receipt.run}`;
+    run.status = "recovery_required";
+    run.updatedAt = this.#options.clock.now().toISOString();
+    await this.#options.ledger.saveRecoveryRequired(run, receipt, cause, {
+      command: receipt.recoveryCommand,
+      tracker: "claimed",
+      session: "unresolved",
+      ledger: "recorded",
+    });
+    throw new PickupResultError(receipt, cause);
   }
 
   async #compensate(

@@ -4,6 +4,8 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
+import type { T3Process } from "../adapters/hosts/t3/cli.ts";
+import { type T3LaneBinding, type T3LaunchPlan, T3HostPort } from "../adapters/hosts/t3/port.ts";
 import {
   JiraTrackerAdapter,
   type JiraTransport,
@@ -31,13 +33,16 @@ import { RELEASE_BUILD } from "../distribution/version.ts";
 import type { ClaimHome } from "../domain/claim-home.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
+import { HostRefusal } from "../domain/host/capability.ts";
 import {
   actorRefSchema,
   adapterRefSchema,
   claimRefSchema,
+  laneRefSchema,
   runRefSchema,
   ticketRefSchema,
 } from "../domain/identifiers.ts";
+import { createLane } from "../domain/lane.ts";
 import type { RepositorySpec, RunRef, Ticket } from "../domain/model.ts";
 import { ticketKeyMatches } from "../domain/submission.ts";
 import { lockExecution } from "../persistence/execution-lock.ts";
@@ -51,7 +56,8 @@ import { pickupEligibility } from "./eligibility.ts";
 import { journalJiraWrite } from "./jira-write-journal.ts";
 import { buildLaunchPrompt } from "./launch-prompt.ts";
 import { PickupCoordinator } from "./pickup.ts";
-import { planT3Models, validateT3Catalog } from "./t3-plan.ts";
+import { HostLaunchWorkspace } from "./pickup/host-launch.ts";
+import { planHostLaunchModels, planT3Models, validateT3Catalog } from "./t3-plan.ts";
 
 const modelSelectionSchema = z.strictObject({
   harness: z.string(),
@@ -113,6 +119,17 @@ export const pickupResultSchema = z.discriminatedUnion("dryRun", [
     run: runRefSchema,
     claim: claimRefSchema,
     claimHomeSaved: z.boolean(),
+    session: z
+      .strictObject({
+        id: z.string(),
+        lane: laneRefSchema,
+        link: z.string().optional(),
+        environment: z.string(),
+        harness: z.string(),
+        worktree: z.string(),
+        branch: z.string(),
+      })
+      .optional(),
   }),
 ]);
 export type PickupResult = z.infer<typeof pickupResultSchema>;
@@ -122,6 +139,11 @@ export interface ExecutionPlatform {
   git?: GitCommandExecutor;
   clock?: Clock;
   openStore?: (path: string) => StateStore;
+  t3?: {
+    process?: T3Process;
+    server?: () => Promise<unknown>;
+    sleep?: (ms: number) => Promise<void>;
+  };
 }
 
 export interface PickupInput {
@@ -132,6 +154,7 @@ export interface PickupInput {
   state?: string | undefined;
   t3Catalog?: string | undefined;
   dryRun?: boolean | undefined;
+  launch?: boolean | undefined;
 }
 
 export class PickupRefusal extends Error {
@@ -196,6 +219,21 @@ export function executionTarget(configuration: ExecutionConfiguration, repositor
     jiraSite: configuration.project.tracker.jira.site,
     claimedStatus: "In Progress",
   };
+}
+
+async function branchKnown(git: GitCommandExecutor, cwd: string, branch: string) {
+  const local = await git.run(
+    ["git", "show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
+    cwd,
+  );
+  if (local.exitCode === 0) return true;
+  const remote = await git.run(
+    ["git", "ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`],
+    cwd,
+  );
+  if (remote.exitCode === 0) return true;
+  if (remote.exitCode === 2) return false;
+  throw new Error(`Cannot read origin branches: ${remote.stderr.trim()}`);
 }
 
 async function gitOutput(git: GitCommandExecutor, argv: readonly string[], cwd: string) {
@@ -335,7 +373,10 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   const verifyCatalog = () =>
     rawCatalog === undefined ? undefined : validateT3Catalog(rawCatalog, clock.now());
   const catalog = verifyCatalog();
-  const models = planT3Models(configuration, catalog, reviewChoicesFrom(user));
+  const models =
+    input.launch && !catalog
+      ? planHostLaunchModels(configuration, reviewChoicesFrom(user))
+      : planT3Models(configuration, catalog, reviewChoicesFrom(user));
   const jira = await executionTracker(
     settings.jira_site,
     input.key.slice(0, input.key.lastIndexOf("-")),
@@ -443,8 +484,47 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     },
   };
   verifyCatalog();
+  let binding: T3LaneBinding | undefined;
+  const branchExists = (name: string) => branchKnown(git, repositoryPath, name);
+  const t3 = services.execution?.t3;
+  const host = input.launch
+    ? new T3HostPort({
+        project: repositoryPath,
+        ...(user.t3_cli ? { cli: user.t3_cli } : {}),
+        ...(t3?.process ? { process: t3.process } : {}),
+        ...(t3?.server ? { server: t3.server } : {}),
+        ...(t3?.sleep ? { sleep: t3.sleep } : {}),
+        lanes: (query) =>
+          binding &&
+          ("lane" in query ? query.lane === binding.lane : query.ticket === binding.ticket)
+            ? [binding]
+            : [],
+        branchExists,
+      })
+    : undefined;
+  if (host) {
+    if (
+      Object.keys(models.implementer?.options ?? {}).length ||
+      settings.runtime_mode ||
+      settings.interaction_mode
+    )
+      throw new HostRefusal(
+        "host_unsupported",
+        "t3 thread start binds only the harness and model; unset model options and modes or launch through T3",
+      );
+    await host.preflight();
+    if (await branchExists(worktree.branch))
+      throw new HostRefusal("branch_exists", `Branch ${worktree.branch} already exists`);
+  }
   if (input.dryRun) return { ...plan, dryRun: true, state: "planned" } satisfies PickupResult;
   await workspace.refreshBase();
+  const baseCommit = host
+    ? await gitOutput(
+        git,
+        ["git", "rev-parse", "--verify", `refs/remotes/origin/${repository.baseBranch}^{commit}`],
+        repositoryPath,
+      )
+    : undefined;
   return withExecutionStore(services, statePath, async (store) => {
     let journalRun: RunRef | undefined;
     const mirror = new JiraTrackerAdapter({
@@ -484,11 +564,51 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
         });
       },
     };
+    let launcher: HostLaunchWorkspace<T3LaunchPlan> | undefined;
+    if (host && baseCommit) {
+      const existing = store.laneForTicket(ref);
+      const queued = existing?.state === "queued" && !existing.run ? existing : undefined;
+      if (existing && existing.state !== "done" && !queued)
+        throw new Error(`claim_collision: ${input.key} already has lane ${existing.id}`);
+      const created = queued
+        ? { lane: queued }
+        : createLane(
+            { id: laneRefSchema.parse(`interlock-lane:${randomUUID()}`), ticket: ref },
+            clock.now().toISOString(),
+          );
+      if (!queued) store.saveLane(created.lane);
+      binding = { lane: created.lane.id, ticket: ref, key: input.key };
+      launcher = new HostLaunchWorkspace({
+        workspace,
+        host,
+        plan: {
+          ...binding,
+          project: repositoryPath,
+          title: plan.title,
+          message: prompt,
+          baseCommit,
+          branch: worktree.branch,
+          ...(models.implementer
+            ? {
+                modelSelection: {
+                  instanceId: models.implementer.instanceId,
+                  model: models.implementer.model,
+                },
+              }
+            : {}),
+        },
+        operation: [created.lane.id, "launch"],
+        record(state, evidence) {
+          if (!journalRun) throw new Error("Host launch requires a recorded run");
+          store.recordStep(journalRun, state, { evidence, plan });
+        },
+      });
+    }
     const receipt = await new PickupCoordinator({
       tracker: mirror,
       claimLock,
       validateTicket,
-      workspace,
+      workspace: launcher ?? workspace,
       ledger,
       clock,
       claimTarget,
@@ -504,13 +624,28 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       ...(models.implementer ? { model: models.implementer.model } : {}),
     });
     const claimHomeSaved = store.saveClaimHomeIfAbsent(claimHome.home.url);
+    const launched = launcher?.launched;
     return {
       ...plan,
+      ...(launched?.workspace ? { worktree: launched.workspace.path } : {}),
       dryRun: false,
       state: "claimed",
       run: receipt.run,
       claim: receipt.claim,
       claimHomeSaved,
+      ...(launched?.workspace
+        ? {
+            session: {
+              id: launched.session.session,
+              lane: launched.session.lane,
+              ...(launched.link ? { link: launched.link } : {}),
+              environment: launched.session.environment,
+              harness: launched.session.harness,
+              worktree: launched.workspace.path,
+              branch: launched.workspace.branch,
+            },
+          }
+        : {}),
     } satisfies PickupResult;
   });
 }

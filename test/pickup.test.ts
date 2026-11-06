@@ -28,6 +28,7 @@ import type {
   MirrorRestore,
   Tracker,
 } from "../src/domain/tracker.ts";
+import { HostLaunchUnresolvedError } from "../src/domain/host/capability.ts";
 import { PickupCoordinator, PickupResultError } from "../src/execution/pickup.ts";
 import { StateStore } from "../src/persistence/state.ts";
 import { fakeLockFixture } from "./fixtures/portable-lock.ts";
@@ -307,6 +308,44 @@ describe("pickup coordinator", () => {
     const { coordinator: subject, tracker } = coordinator(new FakeTracker(), workspace);
     expect((await failure(subject)).receipt.state).toBe("compensated");
     expect(tracker.restoreCalls).toBe(1);
+  });
+
+  test("an unresolved host launch keeps the claim and requires recovery", async () => {
+    const workspace = new FakeWorkspace();
+    workspace.prepareError = new HostLaunchUnresolvedError("T3 thread ended failed");
+    const item = coordinator(new FakeTracker(), workspace);
+
+    const result = await failure(item.coordinator);
+
+    expect(result.receipt.state).toBe("recovery_required");
+    expect(item.tracker.restoreCalls).toBe(0);
+    expect(item.ledger.steps).not.toContain("compensating");
+    expect(item.ledger.recoveryRun?.status).toBe("recovery_required");
+    expect((await item.claimLock.read(request.ticket)).record?.claim).toBe(
+      claimRefSchema.parse("interlock-claim:test"),
+    );
+  });
+
+  test("a ledger failure after a session started keeps the claim instead of compensating", async () => {
+    const workspace = Object.assign(new FakeWorkspace(), { startsSession: true as const });
+    const item = coordinator(new FakeTracker(), workspace);
+    item.ledger.recordStepErrorState = "workspace_prepared";
+    item.ledger.recordStepError = new Error("disk full");
+
+    const result = await failure(item.coordinator);
+
+    expect(result.receipt.state).toBe("recovery_required");
+    expect(result.message).toContain("A session started but pickup could not record it: disk full");
+    expect(item.tracker.restoreCalls).toBe(0);
+    expect(item.ledger.steps).not.toContain("compensating");
+  });
+
+  test("the same ledger failure without a started session compensates", async () => {
+    const item = coordinator();
+    item.ledger.recordStepErrorState = "workspace_prepared";
+    item.ledger.recordStepError = new Error("disk full");
+    expect((await failure(item.coordinator)).receipt.state).toBe("compensated");
+    expect(item.tracker.restoreCalls).toBe(1);
   });
 
   test("ledger failure while entering compensation does not strand the tracker claim", async () => {

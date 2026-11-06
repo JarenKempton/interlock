@@ -5,27 +5,27 @@ and the contracts below define the portable contract. Adapters translate vendor 
 
 ## Glossary
 
-| Term        | Meaning                                                                                                                                                              |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tracker     | The system of record for tickets (Jira, GitHub Issues, Linear, beads).                                                                                               |
-| Namespace   | The tracker's dependency and policy boundary: a Jira project, GitHub owner/repository, or Linear team.                                                               |
-| Map         | Tickets linked by blockers.                                                                                                                                          |
-| Frontier    | The unclaimed tickets in a map whose blockers are all done.                                                                                                          |
-| Claim       | Exclusive ownership of one ticket, held in a git ref in the claim home. The tracker only mirrors it.                                                                 |
-| Claim home  | The git remote that holds the claim refs.                                                                                                                            |
-| Project     | One repository plus where its work runs.                                                                                                                             |
-| Machine     | A computer that work runs on, local or reached over the network (a laptop, SB1, a VPS).                                                                              |
-| Isolation   | The boundary inside a machine where the agent executes (none, container, microVM).                                                                                   |
-| Environment | Machine + isolation, the exact place a lane's processes run.                                                                                                         |
-| Host        | Runs harness sessions and lets a person watch, steer or take over (the T3 Code server; tmux and headless are other hosts). T3 is always the host, never the harness. |
-| Harness     | The agent program the host launches (Claude Code, Codex, Pi).                                                                                                        |
-| Model       | The LLM a harness uses, with its options (for example, effort).                                                                                                      |
-| Session     | One running harness conversation inside a host (a T3 thread).                                                                                                        |
-| Workspace   | The checkout for one ticket inside the environment (a git worktree on task/KEY).                                                                                     |
-| Lane        | Interlock's record that ties one ticket, claim, workspace, session and pull request together through their lifecycle.                                                |
-| Gate        | A lane step that waits on an external fact (PR merged, review verdict on the head, tracker Done).                                                                    |
-| Supervisor  | The long-running Interlock process, one per environment.                                                                                                             |
-| Client      | Where a person or another program talks to Interlock (CLI, MCP, skills).                                                                                             |
+| Term        | Meaning                                                                                                                                                                                         |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tracker     | The system of record for tickets (Jira, GitHub Issues, Linear, beads).                                                                                                                          |
+| Namespace   | The tracker's dependency and policy boundary: a Jira project, GitHub owner/repository, or Linear team.                                                                                          |
+| Map         | Tickets linked by blockers.                                                                                                                                                                     |
+| Frontier    | The unclaimed tickets in a map whose blockers are all done.                                                                                                                                     |
+| Claim       | Exclusive ownership of one ticket, held in a git ref in the claim home. The tracker only mirrors it.                                                                                            |
+| Claim home  | The git remote that holds the claim refs.                                                                                                                                                       |
+| Project     | One repository plus where its work runs.                                                                                                                                                        |
+| Machine     | A computer that work runs on, local or reached over the network (a laptop, SB1, a VPS).                                                                                                         |
+| Isolation   | The boundary inside a machine where the agent executes (none, container, microVM).                                                                                                              |
+| Environment | Machine + isolation, the exact place a lane's processes run.                                                                                                                                    |
+| Host        | Runs harness sessions and lets a person watch, steer or take over (the T3 Code server; tmux and headless are other hosts). T3 is always the host, never the harness.                            |
+| Harness     | The agent program the host launches (Claude Code, Codex, Pi).                                                                                                                                   |
+| Model       | The LLM a harness uses, with its options (for example, effort).                                                                                                                                 |
+| Session     | One running harness conversation inside a host (a T3 thread).                                                                                                                                   |
+| Workspace   | The checkout for one ticket inside the environment (a git worktree on task/KEY). Interlock prepares it, or the host creates it on a host launch; Interlock verifies and records it before work. |
+| Lane        | Interlock's record that ties one ticket, claim, workspace, session and pull request together through their lifecycle.                                                                           |
+| Gate        | A lane step that waits on an external fact (PR merged, review verdict on the head, tracker Done).                                                                                               |
+| Supervisor  | The long-running Interlock process, one per environment.                                                                                                                                        |
+| Client      | Where a person or another program talks to Interlock (CLI, MCP, skills).                                                                                                                        |
 
 “Agent” is informal prose for a harness session, never a configuration key or schema field.
 
@@ -89,8 +89,10 @@ See [claim semantics](claim-semantics.md).
 
 ## Lane
 
-T3 Code hosts the session through its in-thread MCP tools; Interlock prepares
-launch arguments but never launches or stops a harness session. Lane actions return a value or a
+T3 Code hosts the session. Pickup either returns launch arguments for the
+caller's in-thread MCP tools, or, with `--launch`, launches the session itself
+through the verified t3 CLI (see [host capability](#engine-ready-contracts)).
+Interlock never stops a harness session. Lane actions return a value or a
 refusal with a machine-readable code. `lane attach --ticket REF`, run from the
 worktree before any work, finds the ticket's one claimed run and its active
 claim, verifies the current directory is that run's worktree root on its
@@ -173,17 +175,48 @@ presence of these types.
   the ticket's qualified namespace reference; a host session's completion is
   not evidence that the PR merged or the tracker reached Done. Existing
   `LaneEvidence` is submission evidence, not a rename of this richer contract.
-- **Host capability** ([type](../src/domain/host/capability.ts)): launch a harness
-  session from a pickup plan, find sessions by lane or ticket, steer a session
-  by sending a message, and recover after an ambiguous launch. The generic
-  plan keeps vendor launch arguments outside the domain. Session identity
-  includes its environment, host and harness; the environment's supervisor
-  coordinates it. Launch and steer carry operation identity; recovery reuses
-  the launch's identity and plan. Find returns all matches, and an empty search
-  is not proof that launch failed. Recovery distinguishes a found session,
-  proven non-launch and an unresolved outcome; only proven non-launch permits
-  another launch attempt. Adapters must prove these semantics before advertising
-  support.
+- **Host capability** ([type](../src/domain/host/capability.ts)): preflight the
+  host, launch a harness session from a pickup plan, find sessions by lane or
+  ticket, read one, steer it by sending a message, and recover after an
+  ambiguous launch. The generic plan keeps vendor launch arguments outside the
+  domain. Session identity includes its environment, host and harness; the
+  environment's supervisor coordinates it. Launch and steer carry operation
+  identity; recovery reuses the launch's identity and plan. Find returns all
+  matches, and an empty search is not proof that launch failed. Recovery
+  distinguishes a found session, proven non-launch and an unresolved outcome;
+  only proven non-launch permits another launch attempt. An ambiguous launch
+  records whether the host acknowledged it; recovery that finds nothing after an
+  acknowledged launch stays unresolved. Adapters must prove these semantics
+  before advertising support.
+
+  The [T3 adapter](../src/adapters/hosts/t3/port.ts) implements it with
+  `t3 thread start`, `list`, `show` and `send`; messages go on stdin, never in
+  arguments. Preflight requires the t3 CLI to run, the server's
+  `/.well-known/t3/environment` to report the same `major.minor.patch` and
+  orchestration protocol 2, and `thread list` to resolve the repository's T3
+  project. Launch passes the repository's main checkout as the project, so the
+  T3 project that owns the repository is resolved by path from any caller. It
+  binds `--worktree` to the exact fetched base commit, never a branch name,
+  `--branch` to the lane branch and, when one is selected, `--provider`
+  and `--model`. The CLI cannot bind model options or modes, so `--launch`
+  refuses them. A launch counts only after `thread show` reads the thread back
+  in the same project with the plan's title, selected harness and model, a
+  healthy status, the lane branch and a worktree path. Exit 0 without a readable thread, a failed thread, or
+  another branch is ambiguous. Recovery reads the project's threads by the
+  plan's title; it proves non-launch only when no such thread and no lane
+  branch exist, locally or on origin. Steer is not idempotent: an unconfirmed
+  send is reported as ambiguous and never resent automatically.
+
+  `pickup KEY --launch` runs host preflight and refuses an existing lane branch
+  before claiming, then creates or reuses the ticket's queued lane, claims, and
+  launches once under `[lane, "launch"]`. T3 creates the worktree; pickup
+  records its path and branch on the run, and `lane attach` still verifies the
+  worktree, branch and claim before work. A proven non-launch, or a host refusal
+  raised before `thread start`, compensates the claim. An unresolved launch
+  keeps the claim, marks the run `recovery_required` and is never retried for
+  that claim. Once the host reports a session, any later pickup failure,
+  including a ledger write, is unresolved rather than compensated. Neither deletes a
+  thread, branch or worktree.
 
 ## Conformance
 
