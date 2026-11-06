@@ -80,6 +80,7 @@ export interface WorkspacePlan {
 }
 
 export interface WorkspaceAdapter {
+  readonly startsSession?: true;
   preflight(ticket: Ticket): Promise<void>;
   plan(ticket: Ticket): Promise<WorkspacePlan>;
   prepare(plan: WorkspacePlan): Promise<PreparedWorkspace>;

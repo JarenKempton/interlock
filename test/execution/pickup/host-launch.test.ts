@@ -71,7 +71,7 @@ class FakeHost implements HostCapability<string> {
   }
 }
 
-function subject(host = new FakeHost()) {
+function subject(host = new FakeHost(), failing?: string) {
   const records: string[] = [];
   const workspace = new HostLaunchWorkspace({
     workspace: {
@@ -84,6 +84,7 @@ function subject(host = new FakeHost()) {
     plan: "plan",
     operation: [lane, "launch"],
     record: (state) => {
+      if (state === failing) throw new Error("ledger unavailable");
       records.push(state);
     },
   });
@@ -164,6 +165,21 @@ describe("host launch workspace", () => {
   test("a branch refusal before starting is not a launch", async () => {
     const host = new FakeHost();
     host.launchResult = new HostRefusal("branch_exists", "Branch task/W-1 already exists");
+    const { workspace } = subject(host);
+    expect(await rejection(workspace.prepare(plan))).toBeInstanceOf(HostRefusal);
+    expect(host.calls).toEqual(["launch"]);
+  });
+
+  test("a session that cannot be recorded is unresolved, not compensated", async () => {
+    const { workspace } = subject(new FakeHost(), "host_launched");
+    const error = await rejection(workspace.prepare(plan));
+    expect(error).toBeInstanceOf(HostLaunchUnresolvedError);
+    expect(error.message).toContain("thread-1 started but could not be recorded");
+  });
+
+  test("any host refusal from launch happens before a side effect and is not recovered", async () => {
+    const host = new FakeHost();
+    host.launchResult = new HostRefusal("host_unavailable", "Cannot verify branch task/W-1");
     const { workspace } = subject(host);
     expect(await rejection(workspace.prepare(plan))).toBeInstanceOf(HostRefusal);
     expect(host.calls).toEqual(["launch"]);

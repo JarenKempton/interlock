@@ -106,9 +106,21 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
   }): Promise<HostLaunchResult> {
     const { plan } = request;
     if (!/^[0-9a-f]{40}$/.test(plan.baseCommit))
-      throw new Error("A host launch needs the exact fetched base commit");
-    if (await this.#options.branchExists(plan.branch))
-      throw new HostRefusal("branch_exists", `Branch ${plan.branch} already exists`);
+      throw new HostRefusal(
+        "host_unsupported",
+        "A host launch needs the exact fetched base commit",
+      );
+    let exists: boolean;
+    try {
+      exists = await this.#options.branchExists(plan.branch);
+    } catch (error) {
+      throw new HostRefusal(
+        "host_unavailable",
+        `Cannot verify branch ${plan.branch}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (exists) throw new HostRefusal("branch_exists", `Branch ${plan.branch} already exists`);
+    const environment = await this.#environmentId();
     const started = await this.#t3(
       [
         "thread",
@@ -138,7 +150,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
             : `t3 thread start failed: ${detail(started)}`,
         acknowledged: started.exitCode === 0,
       };
-    return this.#readback(plan, launched.threadId, launched.projectId);
+    return this.#readback(environment, plan, launched.threadId, launched.projectId);
   }
 
   async find(query: { lane: LaneRef } | { ticket: TicketRef }): Promise<readonly HostSession[]> {
@@ -181,6 +193,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
     plan: T3LaunchPlan;
   }): Promise<HostRecoveryResult> {
     const { plan } = request;
+    const environment = await this.#environmentId();
     const threads = await this.#list(plan.project);
     if (!threads) return { state: "ambiguous", reason: "T3 thread list is unreadable" };
     const candidates = threads.filter((thread) => thread.title === plan.title);
@@ -196,13 +209,14 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
       return { state: "ambiguous", reason: `${candidates.length} T3 threads match ${plan.title}` };
     const [candidate] = candidates;
     if (!candidate) return { state: "ambiguous", reason: "T3 thread list changed" };
-    const result = await this.#readback(plan, candidate.threadId, candidate.projectId);
+    const result = await this.#readback(environment, plan, candidate.threadId, candidate.projectId);
     return result.state === "launched"
       ? { ...result, state: "found" }
       : { state: "ambiguous", reason: result.reason };
   }
 
   async #readback(
+    environment: string,
     plan: T3LaunchPlan,
     threadId: string,
     projectId: string,
@@ -210,7 +224,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
     const attempts = this.#options.readbackAttempts ?? 60;
     const sleep = this.#options.sleep ?? ((ms: number) => Bun.sleep(ms));
     const unresolved = { state: "ambiguous", acknowledged: true } as const;
-    let last = "no readable thread";
+    let last = `T3 thread ${threadId} is not readable`;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (attempt > 0) await sleep(1_000);
       const shown = await this.#show(threadId);
@@ -235,7 +249,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
           reason: `T3 thread ${threadId} is on ${thread.branch}, not ${plan.branch}`,
         };
       if (thread.branch === plan.branch && thread.worktreePath !== null) {
-        const found = session(await this.#environmentId(), plan, thread);
+        const found = session(environment, plan, thread);
         return { state: "launched", session: found, view: view(found, shown) };
       }
       last = `T3 thread ${threadId} has no bound worktree (${thread.status})`;

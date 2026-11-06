@@ -214,6 +214,24 @@ describe("T3 host launch", () => {
     expect(t3.commands()).not.toContain("thread start");
   });
 
+  test("a branch check that cannot read origin refuses before starting a thread", async () => {
+    const t3 = ready();
+    const subject = new T3HostPort({
+      project: "/repo",
+      cli: "/bin/t3",
+      process: t3,
+      server: async () => descriptor,
+      lanes: () => [],
+      branchExists: async () => {
+        throw new Error("Cannot read origin branches");
+      },
+    });
+    expect(
+      (await rejection(subject.launch({ operation: [lane, "launch"], plan }))).message,
+    ).toContain("host_unavailable: Cannot verify branch task/W-1: Cannot read origin branches");
+    expect(t3.commands()).not.toContain("thread start");
+  });
+
   test("exit 0 without a readable thread is ambiguous", async () => {
     const t3 = ready().on("thread start", { exitCode: 0, stdout: "", stderr: WARN });
     expect(await port(t3).launch({ operation: [lane, "launch"], plan })).toEqual({
@@ -229,7 +247,7 @@ describe("T3 host launch", () => {
       .on("thread show", fail("Thread not found"));
     expect(await port(t3).launch({ operation: [lane, "launch"], plan })).toEqual({
       state: "ambiguous",
-      reason: "no readable thread",
+      reason: "T3 thread thread-1 is not readable",
       acknowledged: true,
     });
     expect(t3.commands().filter((command) => command === "thread show")).toHaveLength(3);

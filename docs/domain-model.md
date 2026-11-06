@@ -211,9 +211,11 @@ presence of these types.
   before claiming, then creates or reuses the ticket's queued lane, claims, and
   launches once under `[lane, "launch"]`. T3 creates the worktree; pickup
   records its path and branch on the run, and `lane attach` still verifies the
-  worktree, branch and claim before work. A proven non-launch compensates the
-  claim. An unresolved launch keeps the claim, marks the run
-  `recovery_required` and is never retried for that claim. Neither deletes a
+  worktree, branch and claim before work. A proven non-launch, or a host refusal
+  raised before `thread start`, compensates the claim. An unresolved launch
+  keeps the claim, marks the run `recovery_required` and is never retried for
+  that claim. Once the host reports a session, any later pickup failure,
+  including a ledger write, is unresolved rather than compensated. Neither deletes a
   thread, branch or worktree.
 
 ## Conformance

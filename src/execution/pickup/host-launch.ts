@@ -17,6 +17,7 @@ export interface HostLaunchWorkspaceOptions<Plan> {
 }
 
 export class HostLaunchWorkspace<Plan> implements WorkspaceAdapter {
+  readonly startsSession = true;
   readonly #options: HostLaunchWorkspaceOptions<Plan>;
   #attempted = false;
   #launched: HostSessionView | undefined;
@@ -52,7 +53,7 @@ export class HostLaunchWorkspace<Plan> implements WorkspaceAdapter {
       outcome =
         launched.state === "launched" ? { ...launched, state: "found" } : await this.#recover();
     } catch (error) {
-      if (error instanceof HostRefusal && error.code === "branch_exists") throw error;
+      if (error instanceof HostRefusal) throw error;
       outcome = await this.#recover();
     }
     if (outcome.state === "not_launched" && acknowledged)
@@ -68,7 +69,17 @@ export class HostLaunchWorkspace<Plan> implements WorkspaceAdapter {
         `Session ${outcome.session.session} is not bound to ${plan.branch}`,
       );
     this.#launched = outcome.view;
-    await this.#options.record("host_launched", { operation, session: outcome.session, workspace });
+    try {
+      await this.#options.record("host_launched", {
+        operation,
+        session: outcome.session,
+        workspace,
+      });
+    } catch (error) {
+      throw new HostLaunchUnresolvedError(
+        `Session ${outcome.session.session} started but could not be recorded: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     return { path: workspace.path, branch: workspace.branch, ticket: plan.ticket };
   }
 

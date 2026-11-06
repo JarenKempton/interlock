@@ -326,6 +326,28 @@ describe("pickup coordinator", () => {
     );
   });
 
+  test("a ledger failure after a session started keeps the claim instead of compensating", async () => {
+    const workspace = Object.assign(new FakeWorkspace(), { startsSession: true as const });
+    const item = coordinator(new FakeTracker(), workspace);
+    item.ledger.recordStepErrorState = "workspace_prepared";
+    item.ledger.recordStepError = new Error("disk full");
+
+    const result = await failure(item.coordinator);
+
+    expect(result.receipt.state).toBe("recovery_required");
+    expect(result.message).toContain("A session started but pickup could not record it: disk full");
+    expect(item.tracker.restoreCalls).toBe(0);
+    expect(item.ledger.steps).not.toContain("compensating");
+  });
+
+  test("the same ledger failure without a started session compensates", async () => {
+    const item = coordinator();
+    item.ledger.recordStepErrorState = "workspace_prepared";
+    item.ledger.recordStepError = new Error("disk full");
+    expect((await failure(item.coordinator)).receipt.state).toBe("compensated");
+    expect(item.tracker.restoreCalls).toBe(1);
+  });
+
   test("ledger failure while entering compensation does not strand the tracker claim", async () => {
     const workspace = new FakeWorkspace();
     workspace.prepareError = new Error("prepare failed");
