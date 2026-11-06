@@ -18,6 +18,7 @@ import t3code from "./logos/t3code.svg?raw";
 import tmux from "./logos/tmux.svg?raw";
 import vps from "./logos/vps.svg?raw";
 import workstation from "./logos/workstation.svg?raw";
+import { currentRelease } from "./lib/release.ts";
 
 export interface Chip {
   name: string;
@@ -51,14 +52,17 @@ export const hero = {
   drive: {
     title: "You or your agent.",
     body: "Both start the same lane. You review and merge.",
-    terminal: { label: "Terminal", text: 'interlock pickup TEST-492 --t3-catalog "$T3_CATALOG"' },
+    terminal: { label: "Terminal", text: 'interlock pickup TEST-492' },
     agent: { label: "Agent, example request", text: "Pick up TEST-492 and open the pull request when it's ready." },
   },
 };
 
 const installerUrl = "https://interlock.build";
+const release = currentRelease();
 
 export const install = {
+  release: `${release.stable ? "Stable" : "Pre-release"} · ${release.tag}`,
+  releaseUrl: `https://github.com/JarenKempton/interlock/releases/tag/${release.tag}`,
   notice: "Latest stable by default · tagged pre-release while no stable exists · nightly only by request",
   platforms: [
     {
@@ -112,7 +116,7 @@ export const steps = [
     title: "Complete",
     actor: "You, then Interlock",
     caption:
-      "You merge. lane complete verifies Done in the tracker, closes the lane, and removes the worktree and branch. A dirty tree or an unmerged branch is refused, and nothing is removed.",
+      "You merge. lane complete verifies the merge, moves the ticket to Done, and leaves the worktree and branch in place.",
   },
 ] as const;
 
@@ -213,7 +217,7 @@ export const footer = {
 };
 
 export const stageCommands = [
-  { label: "Claim and prepare", from: 0, to: 5.5, text: 'interlock pickup TEST-492 --t3-catalog "$T3_CATALOG"' },
-  { label: "Submit", from: 10, to: 16, text: 'interlock lane submit "$LANE" --artifact "$PR_URL" --head "$HEAD" --gate test --evidence-url "$EVIDENCE_URL"' },
+  { label: "Claim and prepare", from: 0, to: 5.5, text: 'interlock pickup TEST-492' },
+  { label: "Submit", from: 10, to: 16, text: 'interlock lane submit "$LANE" --head "$HEAD" --gate test --evidence-url "$EVIDENCE_URL"' },
   { label: "Complete after merge", from: 16.5, to: 19.5, text: 'interlock lane complete "$LANE"' },
 ];
