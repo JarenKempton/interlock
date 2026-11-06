@@ -14,6 +14,7 @@ import type { OperationIdentity } from "../../../domain/operation/identity.ts";
 import {
   bunT3Process,
   descriptorSchema,
+  hostT3Cli,
   launchedSchema,
   listSchema,
   parseJson,
@@ -66,7 +67,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
 
   constructor(options: T3HostPortOptions) {
     this.#options = options;
-    this.#cli = options.cli ?? "t3";
+    this.#cli = options.cli ?? hostT3Cli();
     this.#process = options.process ?? bunT3Process;
   }
 

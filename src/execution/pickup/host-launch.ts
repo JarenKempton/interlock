@@ -47,22 +47,29 @@ export class HostLaunchWorkspace<Plan> implements WorkspaceAdapter {
     await this.#options.record("host_launching", { operation });
     let outcome: Awaited<ReturnType<HostCapability<Plan>["recover"]>>;
     let acknowledged = true;
+    let launchFailure = "";
+    const because = (text: string) =>
+      launchFailure && launchFailure !== text ? `${launchFailure}; ${text}` : text;
     try {
       const launched = await host.launch({ operation, plan: this.#options.plan });
-      if (launched.state === "ambiguous") acknowledged = launched.acknowledged;
+      if (launched.state === "ambiguous") {
+        acknowledged = launched.acknowledged;
+        launchFailure = launched.reason;
+      }
       outcome =
         launched.state === "launched" ? { ...launched, state: "found" } : await this.#recover();
     } catch (error) {
       if (error instanceof HostRefusal) throw error;
+      launchFailure = error instanceof Error ? error.message : String(error);
       outcome = await this.#recover();
     }
     if (outcome.state === "not_launched" && acknowledged)
       throw new HostLaunchUnresolvedError(
-        `The host reported a launch that recovery cannot find: ${outcome.evidence}`,
+        `The host reported a launch that recovery cannot find: ${because(outcome.evidence)}`,
       );
     if (outcome.state === "not_launched")
-      throw new Error(`Host launch did not start a session: ${outcome.evidence}`);
-    if (outcome.state === "ambiguous") throw new HostLaunchUnresolvedError(outcome.reason);
+      throw new Error(`Host launch did not start a session: ${because(outcome.evidence)}`);
+    if (outcome.state === "ambiguous") throw new HostLaunchUnresolvedError(because(outcome.reason));
     const workspace = outcome.view.workspace;
     if (!workspace || workspace.branch !== plan.branch || !workspace.path)
       throw new HostLaunchUnresolvedError(

@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 declare const INTERLOCK_BUILD_VERSION: string | undefined;
 export const RELEASE_BUILD = typeof INTERLOCK_BUILD_VERSION === "string";
 export const VERSION =
@@ -7,3 +9,9 @@ export const VERSION =
 declare const INTERLOCK_BUILD_RELEASES_URL: string | undefined;
 export const RELEASES_URL =
   typeof INTERLOCK_BUILD_RELEASES_URL === "string" ? INTERLOCK_BUILD_RELEASES_URL : undefined;
+
+export function selfCommand(module = import.meta.dir, executable = process.execPath): string[] {
+  return /^(\/\$bunfs|[A-Za-z]:[\\/]~BUN)([\\/]|$)/.test(module)
+    ? [executable]
+    : ["bun", resolve(module, "../cli.ts")];
+}

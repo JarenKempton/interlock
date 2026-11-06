@@ -61,7 +61,7 @@ returning arguments for a caller to launch, so a plain shell can dispatch a
 lane. It uses host defaults; the user's `harness` (a T3 provider instance id)
 and `model` without a catalog; or a catalog's selection without options or
 modes. Readback verifies the thread runs the selected harness and model. A T3
-project with no default model needs both settings. The `t3_cli` user setting selects the CLI (default `t3` on `PATH`);
+project with no default model needs both settings. The `t3_cli` user setting selects the CLI (default `$T3CODE_CLI_PATH`, the server-matched CLI T3 Code exposes to its threads and terminals, else `t3` on `PATH`);
 preflight refuses a CLI whose version differs from the running server. The
 claimed result adds `session` with the thread id, link, environment, harness,
 worktree and branch, and `worktree` is the host-created path; its `launch`
