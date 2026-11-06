@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { T3CommandResult, T3Process } from "../../../src/adapters/hosts/t3/cli.ts";
 import { createApplication } from "../../../src/application.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git-remote.ts";
@@ -99,7 +99,7 @@ test(
     expect(start.slice(0, 9)).toEqual([
       "thread",
       "start",
-      f.remote.alice,
+      join(f.root, basename(f.remote.alice)),
       "-",
       "--title",
       "TEST-492: Prepare a real pickup",
