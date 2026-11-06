@@ -4,7 +4,7 @@ import {
   reviewChoicesFrom,
   type UserSettings,
 } from "../src/configuration/schema.ts";
-import { planT3Models, validateT3Catalog } from "../src/execution/t3-plan.ts";
+import { planHostLaunchModels, planT3Models, validateT3Catalog } from "../src/execution/t3-plan.ts";
 import { catalogEnvelope } from "./fixtures/pickup-runtime.ts";
 
 function configuration(user: UserSettings = {}) {
@@ -144,4 +144,29 @@ test("an unverifiable reviewer fails closed, and reviewer choices without lenses
 test("review lenses must be distinct lowercase names", () => {
   for (const reviewers of ["Correctness", "a,a", "has space", ","])
     expect(() => configuration({ reviewers })).toThrow("Invalid configuration");
+});
+
+test("a host launch binds an explicit harness and model without a catalog", () => {
+  const user = { harness: "claudeAgent", model: "claude-haiku-5-5" };
+  expect(planHostLaunchModels(configuration(user), reviewChoicesFrom(user)).implementer).toEqual({
+    harness: "claudeAgent",
+    instanceId: "claudeAgent",
+    model: "claude-haiku-5-5",
+    options: {},
+  });
+  expect(planHostLaunchModels(configuration()).implementer).toBeUndefined();
+});
+
+test.each([
+  { harness: "claudeAgent" },
+  { model: "claude-haiku-5-5" },
+  { harness: "claudeAgent", model: "claude-haiku-5-5", effort: "high" },
+  { context_window: "large" },
+  { runtime_mode: "auto" },
+  { interaction_mode: "plan" },
+  { reviewers: "correctness" },
+])("a host launch refuses what t3 thread start cannot bind: %j", (user) => {
+  expect(() => planHostLaunchModels(configuration(user), reviewChoicesFrom(user))).toThrow(
+    "host_unsupported",
+  );
 });

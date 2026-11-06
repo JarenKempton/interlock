@@ -56,6 +56,17 @@ the argument object for `t3_thread_launch`, including `existing_worktree`, title
 message and model selection. The caller invokes that tool and retains its
 returned thread identity; pickup does not launch an agent or claim it did.
 
+`pickup KEY --launch` launches the lane itself through the t3 CLI instead of
+returning arguments for a caller to launch, so a plain shell can dispatch a
+lane. It uses host defaults; the user's `harness` (a T3 provider instance id)
+and `model` without a catalog; or a catalog's selection without options or
+modes. Readback verifies the thread runs the selected harness and model. A T3
+project with no default model needs both settings. The `t3_cli` user setting selects the CLI (default `t3` on `PATH`);
+preflight refuses a CLI whose version differs from the running server. The
+claimed result adds `session` with the thread id, link, environment, harness,
+worktree and branch, and `worktree` is the host-created path; its `launch`
+object is not for reuse. See the [host capability](domain-model.md#engine-ready-contracts).
+
 Pickup checks eligibility (open, unassigned, in a pickable status, every blocker
 closed) before claiming and again before writing the mirror. A parent epic is
 not required. Unfinished or unreadable blockers

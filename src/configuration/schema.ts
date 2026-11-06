@@ -82,6 +82,7 @@ export const userSettingsSchema = z
     branch: branchTemplate,
     pickable_statuses: statusList,
     claimed_status: configText,
+    t3_cli: configText,
   })
   .partial();
 export type UserSettings = z.infer<typeof userSettingsSchema>;
@@ -95,6 +96,7 @@ export const CHOICE_KEYS = [
   "branch",
   "pickable_statuses",
   "claimed_status",
+  "t3_cli",
 ] as const satisfies readonly UserSettingKey[];
 
 function statuses(value: string): string[] {

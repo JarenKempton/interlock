@@ -32,6 +32,17 @@ Harness sessions report through structured operations; prose does not authorize
 a state transition. Validation and review evidence identify the revision
 examined. PR review automation is an optional integration outside core.
 
+## Amendment: host launches
+
+Lanes may also be launched by a core process through a verified host CLI,
+without an agent in the loop. The launch follows the same claim-before-work
+order: host preflight runs before claiming, and the launch is the first host
+side effect after the claim. The host may create the workspace on a host
+launch; Interlock verifies and records it before work. The host must be
+verified by version and readback, not assumed; on failure the launch refuses
+and never falls back to another host or a headless harness. One claim gets at
+most one launch, and an unresolved launch keeps the claim for recovery.
+
 ## Rationale
 
 A Git ref gives every tracker the same conditional claim, including trackers

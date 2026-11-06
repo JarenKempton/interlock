@@ -7,6 +7,7 @@ import type {
   WorkspaceAdapter,
 } from "../domain/contracts.ts";
 import { ClaimCollisionError } from "../domain/contracts.ts";
+import { HostLaunchUnresolvedError } from "../domain/host/capability.ts";
 import {
   type Claim,
   capabilities,
@@ -185,8 +186,28 @@ export class PickupCoordinator {
       return receipt;
     } catch (error) {
       if (error instanceof PickupResultError) throw error;
+      if (error instanceof HostLaunchUnresolvedError) return this.#unresolved(run, receipt, error);
       return this.#compensate(run, receipt, snapshot, request.owner, error);
     }
+  }
+
+  async #unresolved(
+    run: Run,
+    receipt: PickupReceipt,
+    cause: HostLaunchUnresolvedError,
+  ): Promise<never> {
+    receipt.ok = false;
+    receipt.state = "recovery_required";
+    receipt.recoveryCommand = `interlock runs export ${receipt.run}`;
+    run.status = "recovery_required";
+    run.updatedAt = this.#options.clock.now().toISOString();
+    await this.#options.ledger.saveRecoveryRequired(run, receipt, cause, {
+      command: receipt.recoveryCommand,
+      tracker: "claimed",
+      session: "unresolved",
+      ledger: "recorded",
+    });
+    throw new PickupResultError(receipt, cause);
   }
 
   async #compensate(

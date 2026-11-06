@@ -35,7 +35,8 @@ export function runActions(services: RuntimeServices) {
   return {
     pickup: defineAction({
       version: 2,
-      description: "Claim a ticket, prepare its worktree, and return T3 launch arguments.",
+      description:
+        "Claim a ticket, prepare its worktree, and return T3 launch arguments, or launch the lane with --launch.",
       input: {
         key: positional(text("Jira ticket key.", "KEY")),
         config: optional(text("Shared interlock.toml path; defaults to the work repo's.", "PATH")),
@@ -46,6 +47,7 @@ export function runActions(services: RuntimeServices) {
           text("Fresh T3 catalog for explicit selections; use - for stdin.", "PATH"),
         ),
         "dry-run": flag("Print the launch plan without mutations."),
+        launch: flag("Launch the lane through the t3 CLI after claiming."),
       },
       result: pickupResultSchema,
       handler: (input) =>
@@ -57,6 +59,7 @@ export function runActions(services: RuntimeServices) {
           state: input.state,
           t3Catalog: input["t3-catalog"],
           dryRun: input["dry-run"],
+          launch: input.launch,
         }),
     }),
     runs: {
