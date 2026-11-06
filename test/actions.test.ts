@@ -134,6 +134,7 @@ test("Optique completes schema enum values through the real shell transport with
     "branch",
     "pickable_statuses",
     "claimed_status",
+    "t3_cli",
     "jira_site",
     "all",
   ]);

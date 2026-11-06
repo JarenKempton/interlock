@@ -19,6 +19,7 @@ executable behavior stays at platform boundaries.
 | Pickup, T3 launch plan, launch prompt                  | [Execution](../src/execution/)                                                            |
 | Run history, receipts, recovery evidence               | [Persistence](../src/persistence/)                                                        |
 | Claim lock, Jira tracker, Git workspaces               | [Adapters](../src/adapters/)                                                              |
+| T3 host port through the t3 CLI                        | [T3 host adapter](../src/adapters/hosts/t3/), [host launch](../src/execution/pickup/)     |
 
 Actions declare their inputs, description, and handler together.
 Invocation, help, completion, and the manual derive from those registrations.
@@ -111,6 +112,9 @@ at the origin's default branch as fetched just before claiming, never at the
 possibly stale local branch of the same name. Preparation verifies the
 exact repository/path/branch mapping before reuse and preserves dirty work.
 Interlock never deletes a workspace. See the [Git adapter](../src/adapters/workspaces/git.ts).
+With `pickup --launch`, the T3 host creates `task/KEY` from the fetched origin
+base commit instead, and pickup records the worktree it reports; see the
+[host capability](domain-model.md#engine-ready-contracts).
 
 ## Contracts and decisions
 

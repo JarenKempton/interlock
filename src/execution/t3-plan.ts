@@ -62,6 +62,44 @@ export function planT3Models(
   return { implementer, reviewers, runtimeMode, interactionMode };
 }
 
+export function planHostLaunchModels(
+  configuration: ResolvedConfiguration,
+  review: ReviewChoices = { lenses: [] },
+) {
+  const { settings } = configuration;
+  if (settings.host !== "t3") throw new Error("Requested host is unavailable; pickup supports T3");
+  const unbindable = [
+    settings.effort,
+    settings.context_window,
+    settings.runtime_mode,
+    settings.interaction_mode,
+    review.harness,
+    review.model,
+    review.effort,
+  ];
+  if (unbindable.some((value) => value !== undefined) || review.lenses.length)
+    throw new Error(
+      "host_unsupported: t3 thread start binds only the harness and model; unset effort, context_window, modes and reviewers, or launch through T3",
+    );
+  if ((settings.harness === undefined) !== (settings.model === undefined))
+    throw new Error("host_unsupported: --launch needs both harness and model, or neither");
+  const reviewers: Record<string, ReturnType<typeof selectModel>> = {};
+  return {
+    implementer:
+      settings.harness && settings.model
+        ? {
+            harness: settings.harness,
+            instanceId: settings.harness,
+            model: settings.model,
+            options: {},
+          }
+        : undefined,
+    reviewers,
+    runtimeMode: undefined,
+    interactionMode: undefined,
+  };
+}
+
 function selectModel(
   catalog: T3Catalog["catalog"],
   runtimeMode: string,
