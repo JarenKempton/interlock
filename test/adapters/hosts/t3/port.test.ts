@@ -103,6 +103,28 @@ describe("T3 host preflight", () => {
     expect(hostT3Cli({})).toBe("t3");
   });
 
+  test("a port without a configured CLI runs the one T3 Code exposes", async () => {
+    const previous = process.env.T3CODE_CLI_PATH;
+    process.env.T3CODE_CLI_PATH = "/home/me/.t3/bin/t3";
+    try {
+      const t3 = ready();
+      await new T3HostPort({
+        project: "/repo",
+        process: t3,
+        server: async () => descriptor,
+        lanes: () => [],
+        branchExists: async () => false,
+      }).preflight();
+      expect(t3.calls.map(({ argv }) => argv[0])).toEqual([
+        "/home/me/.t3/bin/t3",
+        "/home/me/.t3/bin/t3",
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.T3CODE_CLI_PATH;
+      else process.env.T3CODE_CLI_PATH = previous;
+    }
+  });
+
   test("accepts a CLI and server with the same version and protocol", async () => {
     const t3 = ready();
     await port(t3).preflight();

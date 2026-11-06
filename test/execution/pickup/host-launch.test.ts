@@ -160,6 +160,16 @@ describe("host launch workspace", () => {
     expect(host.calls).toEqual(["launch", "recover"]);
   });
 
+  test("a recovery that repeats the launch reason reports it once", async () => {
+    const host = new FakeHost();
+    host.launchResult = { state: "ambiguous", reason: "thread ended failed", acknowledged: true };
+    host.recoverResult = { state: "ambiguous", reason: "thread ended failed" };
+    const { workspace } = subject(host);
+    expect((await rejection(workspace.prepare(plan))).message).toBe(
+      "Host launch is unresolved: thread ended failed",
+    );
+  });
+
   test("a launch that throws after starting is recovered, not compensated", async () => {
     const host = new FakeHost();
     host.launchResult = new Error("T3 server is not reachable");
