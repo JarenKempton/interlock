@@ -260,7 +260,9 @@ async function mainCheckout(git: GitCommandExecutor, directory: string) {
 async function jiraRead<T>(transport: JiraTransport, path: string, schema: z.ZodType<T>) {
   const result = await transport.request("GET", `/rest/api/3/${path}`);
   if (result.status === 401)
-    throw new Error("Jira rejected the credentials (401); run interlock login jira or update JIRA_API_TOKEN");
+    throw new Error(
+      "Jira rejected the credentials (401); run interlock login jira or update JIRA_API_TOKEN",
+    );
   const parsed = schema.safeParse(result.body);
   if (result.status !== 200 || !parsed.success) throw new Error(`Jira ${path} discovery failed`);
   return parsed.data;
