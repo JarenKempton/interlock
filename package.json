@@ -8,6 +8,7 @@
   },
   "type": "module",
   "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
     "@optique/core": "1.2.6",
     "@optique/man": "1.2.6",
     "@optique/zod": "1.2.6",
