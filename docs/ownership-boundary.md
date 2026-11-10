@@ -88,8 +88,7 @@ Lane commands that select a recorded lane accept either its positional reference
 or `--ticket KEY` (also a full tracker reference), never both. A ticket must
 match exactly one lane, including completed lanes; zero matches return
 `lane_not_found`, multiple matches return `claim_collision`. `lane list --ticket`
-filters the list. `lane create` and `lane promote` retain their existing ticket
-arguments pending their removal in JWB-948.
+filters the list.
 
 The launch message carries the lane procedure, with the exact Interlock
 invocation and ledger pickup used: `lane attach` before any work, commits on

@@ -12,6 +12,7 @@ import {
 } from "../../../src/domain/refs/identifiers.ts";
 import {
   createLane,
+  isUnattached,
   type Lane,
   nextLaneAction,
   transitionLane,
@@ -33,16 +34,15 @@ const proof = {
 };
 const now = "2026-01-01T00:00:00.000Z";
 const ticketRef = ticketRefSchema.parse("jira:x:W:ticket:A-1");
-const otherTicketRef = ticketRefSchema.parse("jira:x:W:ticket:A-2");
 const evidence = [{ gate: "test", head: "abc", url: "https://example.test/1" }];
 
+const attach = { type: "attach", run: "interlock-run:1", claim: "interlock-claim:1" } as const;
+
 function domainLane(maxReviewRounds = 3): Lane {
-  const created = createLane(
-    { id: laneRefSchema.parse("interlock-lane:domain"), ticket: ticketRef, maxReviewRounds },
-    now,
-  );
-  if (created.refusal) throw new Error(created.refusal.message);
-  return created.lane;
+  return {
+    ...createLane({ id: laneRefSchema.parse("interlock-lane:domain"), ticket: ticketRef }, now),
+    maxReviewRounds,
+  };
 }
 
 function drive(lane: Lane, ...commands: Parameters<typeof transitionLane>[1][]): Lane {
@@ -56,11 +56,7 @@ function drive(lane: Lane, ...commands: Parameters<typeof transitionLane>[1][]):
 }
 
 function implementing(lane: Lane): Lane {
-  return drive(
-    lane,
-    { type: "claim", run: "interlock-run:1", claim: "interlock-claim:1" },
-    { type: "start" },
-  );
+  return drive(lane, attach);
 }
 
 function submitted(lane: Lane, head = "abc"): Lane {
@@ -85,29 +81,27 @@ function approved(lane: Lane): Lane {
   );
 }
 
-test("create requires a ticket or title and a positive round limit", () => {
-  expect(createLane({ id: laneRefSchema.parse("interlock-lane:x") }, now).refusal?.code).toBe(
-    "gates_unmet",
-  );
-  expect(
-    createLane(
-      { id: laneRefSchema.parse("interlock-lane:x"), title: "One off", maxReviewRounds: 0 },
-      now,
-    ).refusal?.code,
-  ).toBe("gates_unmet");
-  const local = createLane({ id: laneRefSchema.parse("interlock-lane:x"), title: "One off" }, now);
-  expect(local.refusal).toBeUndefined();
-  expect(local.lane.state).toBe("queued");
-  expect(local.lane.ticket).toBeUndefined();
+test("create starts an unattached implementing lane that attach binds once", () => {
+  const lane = domainLane();
+  expect(lane).toMatchObject({ ticket: ticketRef, state: "implementing", maxReviewRounds: 3 });
+  expect(lane.run).toBeUndefined();
+  expect(isUnattached(lane)).toBe(true);
+  const attached = drive(lane, attach);
+  expect(attached).toMatchObject({
+    state: "implementing",
+    run: "interlock-run:1",
+    claim: "interlock-claim:1",
+  });
+  expect(isUnattached(attached)).toBe(false);
+  expect(transitionLane(attached, attach, now).refusal?.code).toBe("invalid_transition");
+  const held = drive(lane, { type: "attention", reason: "session_missing" });
+  expect(transitionLane(held, attach, now).refusal?.code).toBe("invalid_transition");
 });
 
 test("happy path walks every state and next returns exactly one action per state", () => {
   let lane = domainLane();
-  expect(nextLaneAction(lane)).toEqual({ kind: "claim", lane: lane.id });
-  lane = drive(lane, { type: "claim", run: "interlock-run:1", claim: "interlock-claim:1" });
-  expect(lane.state).toBe("claimed");
-  expect(nextLaneAction(lane).kind).toBe("implement");
-  lane = drive(lane, { type: "start" });
+  expect(nextLaneAction(lane)).toEqual({ kind: "implement", lane: lane.id });
+  lane = drive(lane, attach);
   expect(lane.state).toBe("implementing");
   expect(nextLaneAction(lane).kind).toBe("implement");
   lane = drive(lane, {
@@ -128,10 +122,16 @@ test("happy path walks every state and next returns exactly one action per state
   expect(nextLaneAction(lane).kind).toBe("none");
 });
 
+test("an unattached lane cannot submit", () => {
+  expect(
+    transitionLane(domainLane(), { type: "submit", artifact: "a", head: "abc", evidence }, now)
+      .refusal?.code,
+  ).toBe("invalid_transition");
+});
+
 test("every out-of-state transition is refused with a machine-readable code", () => {
   const lane = domainLane();
   const commands: Parameters<typeof transitionLane>[1][] = [
-    { type: "start" },
     { type: "submit", artifact: "a", head: "abc", evidence },
     { type: "begin_review" },
     { type: "verdict", head: "abc", decision: "approved", findings: [] },
@@ -148,7 +148,7 @@ test("every out-of-state transition is refused with a machine-readable code", ()
     proof,
     trackerDoneVerified: true,
   });
-  for (const command of commands) {
+  for (const command of [...commands, attach]) {
     expect(transitionLane(done, command, now).refusal?.code).toBe("invalid_transition");
   }
 });
@@ -375,13 +375,15 @@ function makeService(tracker?: LaneTrackerPort) {
   };
 }
 
-async function serviceLaneToApproved(service: LaneService, ticket?: string) {
-  const created = service.create(ticket ? { ticket } : { title: "One off" });
-  if (!created.ok) throw new Error(created.refusal.message);
-  const id = created.value.id;
+function attachedLane(store: StateStore, id = "interlock-lane:test-1"): Lane {
+  const lane = implementing(createLane({ id: laneRefSchema.parse(id), ticket: ticketRef }, now));
+  store.saveLane(lane);
+  return lane;
+}
+
+async function serviceLaneToApproved(service: LaneService, store: StateStore) {
+  const id = attachedLane(store).id;
   for (const command of [
-    { type: "claim", run: "interlock-run:1", claim: "interlock-claim:1" },
-    { type: "start" },
     { type: "submit", artifact: "https://example.test/pr/1", head: "abc", evidence },
     { type: "begin_review" },
     { type: "verdict", head: "abc", decision: "approved", findings: [] },
@@ -396,13 +398,13 @@ test("service persists lanes and refuses unknown lanes", async () => {
   const { service, store, path, cleanup } = makeService();
   try {
     const missing = await service.apply(laneRefSchema.parse("interlock-lane:missing"), {
-      type: "start",
+      type: "begin_review",
     });
     expect(missing).toEqual({
       ok: false,
       refusal: { code: "lane_not_found", message: expect.any(String) },
     });
-    const id = await serviceLaneToApproved(service);
+    const id = await serviceLaneToApproved(service, store);
     expect(service.get(id)).toMatchObject({ ok: true, value: { state: "approved" } });
     expect(service.next(id)).toEqual({ ok: true, value: { kind: "verify_done", lane: id } });
     store.close();
@@ -420,37 +422,11 @@ test("service persists lanes and refuses unknown lanes", async () => {
   }
 });
 
-test("service refuses a second active lane for a ticket and promotion collisions", async () => {
-  const { service, cleanup } = makeService();
-  try {
-    expect(service.create({ ticket: String(ticketRef) }).ok).toBe(true);
-    const duplicate = service.create({ ticket: String(ticketRef) });
-    expect(duplicate).toMatchObject({ ok: false, refusal: { code: "claim_collision" } });
-    const local = service.create({ title: "Local task" });
-    if (!local.ok) throw new Error("local lane");
-    const promoted = await service.apply(local.value.id, {
-      type: "promote",
-      ticket: otherTicketRef,
-    });
-    expect(promoted).toMatchObject({ ok: true, value: { ticket: otherTicketRef } });
-    expect(
-      await service.apply(local.value.id, { type: "promote", ticket: otherTicketRef }),
-    ).toMatchObject({ ok: false, refusal: { code: "invalid_transition" } });
-    const secondLocal = service.create({ title: "Another local" });
-    if (!secondLocal.ok) throw new Error("second local lane");
-    expect(
-      await service.apply(secondLocal.value.id, { type: "promote", ticket: ticketRef }),
-    ).toMatchObject({ ok: false, refusal: { code: "claim_collision" } });
-  } finally {
-    cleanup();
-  }
-});
-
 test("completion without a recorded run refuses before tracker writes", async () => {
   const tracker = new FakeTracker();
-  const { service, cleanup } = makeService(tracker);
+  const { service, store, cleanup } = makeService(tracker);
   try {
-    const id = await serviceLaneToApproved(service, String(ticketRef));
+    const id = await serviceLaneToApproved(service, store);
     expect(
       await service.apply(id, { type: "complete", proof, trackerDoneVerified: false }),
     ).toMatchObject({ ok: false, refusal: { code: "unsupported_capability" } });
@@ -460,7 +436,7 @@ test("completion without a recorded run refuses before tracker writes", async ()
   }
 });
 
-test("CLI runs a one-off lane and refuses completion without an owned claim", async () => {
+test("CLI reviews an attached lane and refuses completion without an owned claim", async () => {
   const directory = mkdtempSync(join(tmpdir(), "interlock-lane-cli-"));
   const statePath = join(directory, "interlock.db");
   const seed = new StateStore(statePath);
@@ -475,6 +451,12 @@ test("CLI runs a one-off lane and refuses completion without an owned claim", as
     createdAt: now,
     updatedAt: now,
   });
+  const seeded = drive(
+    createLane({ id: laneRefSchema.parse("interlock-lane:cli"), ticket: ticketRef }, now),
+    { type: "attach", run: "interlock-run:cli", claim: "interlock-claim:cli" },
+    { type: "submit", artifact: "https://example.test/pr/1", head: "abc", evidence },
+  );
+  seed.saveLane(seeded);
   seed.close();
   const artifacts: ArtifactHost = {
     prepare: async (workspace, head) => ({
@@ -494,26 +476,8 @@ test("CLI runs a one-off lane and refuses completion without an owned claim", as
       const code = await runCli(args, (text) => output.push(text), services);
       return { code, value: JSON.parse(output.join("\n")) };
     };
-    const created = await call(["lane", "create", "--title", "Local CLI task", "--json"]);
-    expect(created.code).toBe(0);
-    const id: string = created.value.value.id;
-    expect(created.value.value.state).toBe("queued");
-    expect((await call(["lane", "next", id, "--json"])).value.value.kind).toBe("claim");
-    expect((await call(["lane", "start", id, "--json"])).code).toBe(1);
-    await call(["lane", "claim", id, "--run", "interlock-run:cli", "--json"]);
-    await call(["lane", "start", id, "--json"]);
-    await call([
-      "lane",
-      "submit",
-      id,
-      "--head",
-      "abc",
-      "--gate",
-      "test",
-      "--evidence-url",
-      "https://example.test/1",
-      "--json",
-    ]);
+    const id: string = seeded.id;
+    expect((await call(["lane", "next", id, "--json"])).value.value.kind).toBe("review");
     await call(["lane", "review", id, "--json"]);
     const verdict = await call([
       "lane",

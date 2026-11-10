@@ -1,11 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { GitHubArtifactHost } from "../../adapters/github/artifact.ts";
 import { BunGitCommandExecutor } from "../../adapters/git/workspace.ts";
 import { defineAction } from "../action.ts";
 import { choice, flag, optional, positional, text } from "../../cli/schema.ts";
-import { ticketRefSchema } from "../../domain/refs/identifiers.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 import {
   type LaneResult,
@@ -13,7 +11,7 @@ import {
   laneResultSchema,
   laneSchema,
 } from "../../domain/lane/lifecycle.ts";
-import { claimRef, laneRef, runRef } from "../command-store.ts";
+import { laneRef } from "../command-store.ts";
 import type { StateStore } from "../../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { RecordedAttachAuthority } from "./attachment.ts";
@@ -74,27 +72,6 @@ export function laneActions(services: RuntimeServices) {
     command: Parameters<LaneService["apply"]>[1],
   ) => selected(input, (laneService, id) => laneService.apply(id, command));
   return {
-    create: defineAction({
-      description: "Create a queued lane for a ticket or a one-off local task.",
-      input: {
-        ticket: optional(text("Tracker ticket reference.", "TICKET")),
-        title: optional(text("One-off task title.", "TITLE")),
-        "max-review-rounds": optional(text("Maximum review rounds before attention.", "ROUNDS")),
-        state,
-      },
-      result: laneResult,
-      handler: (input) =>
-        withLane(input.state, (laneService) =>
-          laneService.create({
-            ...(input.ticket ? { ticket: input.ticket } : {}),
-            ...(input.title ? { title: input.title } : {}),
-            ...(input["max-review-rounds"]
-              ? { maxReviewRounds: Number(input["max-review-rounds"]) }
-              : {}),
-          }),
-        ),
-      exitCode,
-    }),
     attach: defineAction({
       description:
         "Verify the claimed run's worktree, branch and remote claim, then bind the ticket's lane to it before work starts.",
@@ -141,30 +118,6 @@ export function laneActions(services: RuntimeServices) {
       input: { ...selector, state },
       result: laneResultSchema(laneActionSchema),
       handler: (input) => selected(input, (laneService, id) => laneService.next(id)),
-      exitCode,
-    }),
-    claim: defineAction({
-      description: "Claim a queued lane with its run and claim identity.",
-      input: {
-        ...selector,
-        run: optional(text("Run reference.", "RUN")),
-        claim: optional(text("Claim reference.", "CLAIM")),
-        state,
-      },
-      result: laneResult,
-      handler: (input) =>
-        apply(input, {
-          type: "claim",
-          run: runRef(input.run ?? `lane-${randomUUID()}`),
-          claim: claimRef(input.claim ?? `lane-${randomUUID()}`),
-        }),
-      exitCode,
-    }),
-    start: defineAction({
-      description: "Move a claimed lane to implementing.",
-      input: { ...selector, state },
-      result: laneResult,
-      handler: (input) => apply(input, { type: "start" }),
       exitCode,
     }),
     submit: defineAction({
@@ -260,24 +213,6 @@ export function laneActions(services: RuntimeServices) {
       input: { ...selector, state },
       result: laneResult,
       handler: (input) => apply(input, { type: "resume" }),
-      exitCode,
-    }),
-    promote: defineAction({
-      description: "Promote a one-off lane to a tracker ticket.",
-      input: {
-        lane,
-        ticket: text("Tracker ticket reference.", "TICKET"),
-        state,
-      },
-      result: laneResult,
-      handler: (input) =>
-        apply(
-          { lane: input.lane, state: input.state },
-          {
-            type: "promote",
-            ticket: ticketRefSchema.parse(input.ticket),
-          },
-        ),
       exitCode,
     }),
   };
