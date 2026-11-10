@@ -580,3 +580,24 @@ test("without --only, lanes whose tickets are outside the project maps are ignor
   expect(world.lanesById.get(foreign.id)?.state).toBe("approved");
   expect(world.lanesById.get(busy.id)?.state).toBe("implementing");
 });
+
+test("a map that cannot be listed for scoping blocks every launch that tick", async () => {
+  const world = new World();
+  const busy = world.lane("JWB-2", "implementing");
+  world.view(busy, "running", 1);
+  world.ticket("JWB-3");
+  const list = world.frontier;
+  let calls = 0;
+  world.frontier = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error("jira_unavailable");
+    return list();
+  };
+
+  const report = await superviseTick(world, { ...policy, parallelism: 1 });
+
+  expect(world.log).toEqual([]);
+  expect(report.failures).toEqual([
+    { step: "scope", message: `${map}: jira_unavailable; no launches this tick` },
+  ]);
+});

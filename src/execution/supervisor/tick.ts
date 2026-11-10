@@ -183,21 +183,31 @@ class Tick {
   }
 
   allowed(ticket: TicketRef): boolean {
-    const key = parseRef(ticket).nativeId;
-    return !this.policy.only || (key !== undefined && this.policy.only.includes(key));
+    if (!this.policy.only) return true;
+    try {
+      const key = parseRef(ticket).nativeId;
+      return key !== undefined && this.policy.only.includes(key);
+    } catch {
+      return false;
+    }
   }
 
-  async scope(): Promise<Set<TicketRef>> {
-    const scope = new Set<TicketRef>();
+  async scope(): Promise<{ tickets: Set<TicketRef>; complete: boolean }> {
+    const tickets = new Set<TicketRef>();
+    let complete = true;
     for (const project of this.policy.projects) {
       try {
         for (const ticket of await this.ports.frontier(project))
-          if (this.allowed(ticket.ref)) scope.add(ticket.ref);
+          if (this.allowed(ticket.ref)) tickets.add(ticket.ref);
       } catch (error) {
-        this.report.failures.push({ step: "scope", message: errorMessage(error) });
+        complete = false;
+        this.report.failures.push({
+          step: "scope",
+          message: `${project.map}: ${errorMessage(error)}; no launches this tick`,
+        });
       }
     }
-    return scope;
+    return { tickets, complete };
   }
 
   scoped(scope: ReadonlySet<TicketRef>): readonly SupervisedLane[] {
@@ -217,7 +227,10 @@ class Tick {
       try {
         tickets = await this.ports.frontier(project);
       } catch (error) {
-        this.report.failures.push({ step: "frontier", message: errorMessage(error) });
+        this.report.failures.push({
+          step: "frontier",
+          message: `${project.map}: ${errorMessage(error)}`,
+        });
         continue;
       }
       for (const ticket of [...tickets].sort((a, b) => a.order - b.order)) {
@@ -303,7 +316,7 @@ export async function superviseTick(
   policy: SupervisorPolicy,
 ): Promise<TickReport> {
   const tick = new Tick(ports, policy);
-  const scope = await tick.scope();
+  const { tickets: scope, complete } = await tick.scope();
   for (const supervised of tick.scoped(scope)) {
     const { lane } = supervised;
     if (!lane.ticket || !supervised.run) continue;
@@ -318,6 +331,6 @@ export async function superviseTick(
       tick.report.failures.push({ lane: lane.id, step: lane.state, message: errorMessage(error) });
     }
   }
-  await tick.frontier(scope);
+  if (complete) await tick.frontier(scope);
   return tick.report;
 }

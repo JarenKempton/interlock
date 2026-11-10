@@ -202,8 +202,8 @@ can replay them. No action gains a capability by the presence of these types.
   target (`reviewer_harness`, `reviewer_model` and `reviewer_effort`, or the
   implementer's harness and model) goes into the lane procedure, T3 validates it
   when the lane delegates the review, and a rejected target routes the lane to
-  attention instead of a substitute review. A launch counts only after `thread show` reads the thread back
-  in the same project with the plan's title, selected harness and model, a
+  attention instead of a substitute review. A launch counts only after
+  `thread show` reads the thread back in the same project with the plan's title, selected harness and model, a
   healthy status, the lane branch and a worktree path. Exit 0 without a readable thread, a failed thread, or
   another branch is ambiguous. Recovery reads the project's threads by the
   plan's title; it proves non-launch only when no such thread and no lane
@@ -227,23 +227,24 @@ can replay them. No action gains a capability by the presence of these types.
 supervisor ([tick](../src/execution/supervisor/tick.ts)). It acts only on
 tickets its maps list, and with `--only KEY[,KEY]` only on those tickets: other
 lanes in the ledger are never completed, resumed, steered or counted toward
-`--parallelism`. Each tick, in order:
+`--parallelism`. A map's children must belong to the map's own tracker project.
+When a map cannot be listed, the tick launches nothing. Each tick, in order:
 
 1. **Completion.** For an approved or merged lane it reads GitHub merge state.
    When merged, it re-reads the ticket, its blockers and the remote claim ref,
    then runs `lane complete`, whose receipts cover the merge proof, the Done
    readback, the mirror removal and the claim release.
-2. **Sessions.** For a claimed or implementing lane, or a launched lane that
-   has not attached yet, it reads the host session recorded at launch, or the
-   one thread titled with the ticket key when none was recorded. A session whose status and
-   last message have not changed for `--stall-minutes` is resumed with a host
-   message under `[lane, "resume:N"]`, journaled before it is sent, up to a
-   resume allowance per stall window. A lane update, such as a person resuming
-   it from attention, starts a new window. A session that is missing,
-   duplicated or unreadable for three ticks in a row, a run that needs
-   recovery, an unconfirmed resume, a pending resume found after a restart, or a stall past
-   the allowance moves the lane to attention. Submitted and reviewing lanes are
-   not resumed: they wait on checks and a person.
+2. **Sessions.** For a claimed or implementing lane, or a launched lane that has
+   not attached yet, it reads the host session recorded at launch, or the one
+   thread titled with the ticket key when none was recorded. A session whose
+   status and last message have not changed for `--stall-minutes` is resumed
+   with a host message under `[lane, "resume:N"]`, journaled before it is sent,
+   up to a resume allowance per stall window. A lane update, such as a person
+   resuming it from attention, starts a new window. A session that is missing,
+   duplicated or unreadable for three ticks in a row, a run that needs recovery,
+   an unconfirmed resume, a pending resume found after a restart, or a stall
+   past the allowance moves the lane to attention. Submitted and reviewing lanes
+   are not resumed: they wait on checks and a person.
 3. **Frontier.** It lists each map's tickets in rank order and launches each
    open, unassigned, pickable ticket whose blockers are closed, with no held
    claim and no lane in the ledger, through `pickup --launch`, until the number
