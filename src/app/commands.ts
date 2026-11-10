@@ -62,6 +62,9 @@ const supervisorInput = {
       "M",
     ),
   ),
+  only: optional(
+    text("Comma-separated ticket keys; the supervisor acts only on these tickets.", "KEY"),
+  ),
   interval: optional(text(`Seconds between ticks (default ${DEFAULTS.intervalSeconds}).`, "S")),
   state: optional(text("Local execution database path.", "PATH")),
 };
@@ -70,6 +73,7 @@ type SupervisorInput = {
   project: string;
   parallelism?: string | undefined;
   "stall-minutes"?: string | undefined;
+  only?: string | undefined;
   interval?: string | undefined;
   state?: string | undefined;
 };
@@ -109,9 +113,25 @@ export function parseProjects(value: string, jiraSite: string | undefined): Supe
   return projects;
 }
 
+export function parseOnly(value: string | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  const keys = value
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+  const invalid = keys.filter((key) => !/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(key));
+  if (keys.length === 0 || invalid.length)
+    throw new Error(
+      `--only needs comma-separated ticket keys, not ${invalid.join(", ") || "nothing"}`,
+    );
+  return [...new Set(keys)];
+}
+
 function policyFrom(input: SupervisorInput, statePath: string): SupervisorPolicy {
+  const only = parseOnly(input.only);
   return {
     projects: parseProjects(input.project, readUserSettings(statePath).jira_site),
+    ...(only ? { only } : {}),
     parallelism: positiveInteger(input.parallelism, DEFAULTS.parallelism, "parallelism"),
     stallAfterMs:
       positiveInteger(input["stall-minutes"], DEFAULTS.stallMinutes, "stall-minutes") * 60_000,
@@ -246,6 +266,7 @@ export function supervisorActions(services: RuntimeServices) {
             input.project,
             ...(input.parallelism ? ["--parallelism", input.parallelism] : []),
             ...(input["stall-minutes"] ? ["--stall-minutes", input["stall-minutes"]] : []),
+            ...(input.only ? ["--only", input.only] : []),
             ...(input.interval ? ["--interval", input.interval] : []),
             ...(input.state ? ["--state", resolve(input.state)] : []),
           ];

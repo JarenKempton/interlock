@@ -2,6 +2,7 @@ import { type GateEvidence, observedValue, trackerSource } from "../../domain/ga
 import type { HostSessionView } from "../../domain/host/capability.ts";
 import type { LaneRefusalCode, LaneState } from "../../domain/lane.ts";
 import type { LaneRef, Ticket, TicketRef } from "../../domain/model.ts";
+import { parseRef } from "../../domain/reference.ts";
 import { readHumanEdits } from "./holds.ts";
 import type {
   JournalEntry,
@@ -181,9 +182,40 @@ class Tick {
     this.ports.journal.record(lane, { kind: "progress", mark });
   }
 
-  async frontier(): Promise<void> {
-    const lanes = this.ports.lanes().filter(({ lane }) => lane.ticket);
-    const live = lanes.filter((supervised) => supervised.live);
+  allowed(ticket: TicketRef): boolean {
+    if (!this.policy.only) return true;
+    try {
+      const key = parseRef(ticket).nativeId;
+      return key !== undefined && this.policy.only.includes(key);
+    } catch {
+      return false;
+    }
+  }
+
+  async scope(): Promise<{ tickets: Set<TicketRef>; complete: boolean }> {
+    const tickets = new Set<TicketRef>();
+    let complete = true;
+    for (const project of this.policy.projects) {
+      try {
+        for (const ticket of await this.ports.frontier(project))
+          if (this.allowed(ticket.ref)) tickets.add(ticket.ref);
+      } catch (error) {
+        complete = false;
+        this.report.failures.push({
+          step: "scope",
+          message: `${project.map}: ${errorMessage(error)}; no launches this tick`,
+        });
+      }
+    }
+    return { tickets, complete };
+  }
+
+  scoped(scope: ReadonlySet<TicketRef>): readonly SupervisedLane[] {
+    return this.ports.lanes().filter(({ lane }) => lane.ticket && scope.has(lane.ticket));
+  }
+
+  async frontier(scope: ReadonlySet<TicketRef>): Promise<void> {
+    const live = this.scoped(scope).filter((supervised) => supervised.live);
     const laned = new Map<TicketRef, boolean>();
     for (const { lane } of live)
       if (lane.ticket)
@@ -195,12 +227,15 @@ class Tick {
       try {
         tickets = await this.ports.frontier(project);
       } catch (error) {
-        this.report.failures.push({ step: "frontier", message: errorMessage(error) });
+        this.report.failures.push({
+          step: "frontier",
+          message: `${project.map}: ${errorMessage(error)}`,
+        });
         continue;
       }
       for (const ticket of [...tickets].sort((a, b) => a.order - b.order)) {
         if (active >= this.policy.parallelism) return;
-        if (ticket.state !== "open") continue;
+        if (ticket.state !== "open" || !this.allowed(ticket.ref)) continue;
         const onlyDone = laned.get(ticket.ref);
         if (onlyDone !== undefined) {
           if (onlyDone) this.report.held.push({ ticket: ticket.ref, reason: "reopened" });
@@ -281,7 +316,8 @@ export async function superviseTick(
   policy: SupervisorPolicy,
 ): Promise<TickReport> {
   const tick = new Tick(ports, policy);
-  for (const supervised of ports.lanes()) {
+  const { tickets: scope, complete } = await tick.scope();
+  for (const supervised of tick.scoped(scope)) {
     const { lane } = supervised;
     if (!lane.ticket || !supervised.run) continue;
     try {
@@ -295,6 +331,6 @@ export async function superviseTick(
       tick.report.failures.push({ lane: lane.id, step: lane.state, message: errorMessage(error) });
     }
   }
-  await tick.frontier();
+  if (complete) await tick.frontier(scope);
   return tick.report;
 }

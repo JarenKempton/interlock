@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
-import { basename, join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { createApplication } from "../../../src/application.ts";
+import { StateStore } from "../../../src/persistence/state.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git-remote.ts";
 import { inspect, lock, pickupRuntimeFixtures, ref } from "../../fixtures/pickup-runtime-suite.ts";
 import { rejection } from "../../fixtures/rejection.ts";
@@ -70,6 +72,31 @@ test(
     expect(attached).toMatchObject({ ok: true, value: { state: "implementing" } });
     if (result.dryRun || !("value" in attached)) throw new Error("expected a claimed lane");
     expect(result.session?.lane).toBe(attached.value.id);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "--launch hands configured reviewer targets to the lane instead of a human review",
+  async () => {
+    const f = await fixture();
+    mkdirSync(dirname(f.state), { recursive: true });
+    const store = new StateStore(f.state);
+    store.updateUserSettings((settings) => ({
+      ...settings,
+      reviewers: "correctness",
+      reviewer_harness: "claudeAgent",
+      reviewer_model: "claude-sonnet-5-5",
+      reviewer_effort: "high",
+    }));
+    store.close();
+    const { t3, input } = launchable(f);
+    await createApplication(f.services).pickup.execute({ ...input, state: f.state });
+    expect(t3.prompt).toContain(
+      'correctness: target {"providerInstanceId":"claudeAgent","model":"claude-sonnet-5-5","options":{"effort":"high"}}',
+    );
+    expect(t3.prompt).toContain("--reason reviewer_unavailable");
+    expect(t3.prompt).not.toContain("review_required");
   },
   GIT_TEST_TIMEOUT_MS,
 );

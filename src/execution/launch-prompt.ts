@@ -67,7 +67,7 @@ export function laneProcedure(ticket: Ticket, lane: LaneProcedure): string {
   const lenses = Object.entries(lane.reviewers);
   const review = lenses.length
     ? [
-        `5. Run ${run("lane", "review", "LANE", "--json")}. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.`,
+        `5. Run ${run("lane", "review", "LANE", "--json")}. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings. If T3 rejects a target, run ${run("lane", "attention", "LANE", "--reason", "reviewer_unavailable")} and stop; never substitute another reviewer or review the change yourself.`,
         ...lenses.map(([lens, target]) => `   - ${lens}: target ${JSON.stringify(target)}`),
         `6. Record one verdict for that head: ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")} only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.`,
       ]

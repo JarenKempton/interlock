@@ -73,27 +73,40 @@ export function planHostLaunchModels(
     settings.context_window,
     settings.runtime_mode,
     settings.interaction_mode,
-    review.harness,
-    review.model,
-    review.effort,
   ];
-  if (unbindable.some((value) => value !== undefined) || review.lenses.length)
+  if (unbindable.some((value) => value !== undefined))
     throw new Error(
-      "host_unsupported: t3 thread start binds only the harness and model; unset effort, context_window, modes and reviewers, or launch through T3",
+      "host_unsupported: t3 thread start binds only the harness and model; unset effort, context_window and modes, or launch through T3",
     );
   if ((settings.harness === undefined) !== (settings.model === undefined))
     throw new Error("host_unsupported: --launch needs both harness and model, or neither");
+  const implementer =
+    settings.harness && settings.model
+      ? {
+          harness: settings.harness,
+          instanceId: settings.harness,
+          model: settings.model,
+          options: {},
+        }
+      : undefined;
   const reviewers: Record<string, ReturnType<typeof selectModel>> = {};
+  if (review.lenses.length) {
+    const harness = review.harness ?? implementer?.instanceId;
+    const model = review.model ?? implementer?.model;
+    if (!harness || !model)
+      throw new Error(
+        "host_unsupported: reviewers on --launch need reviewer_harness and reviewer_model, or an implementer harness and model",
+      );
+    const reviewer = {
+      harness,
+      instanceId: harness,
+      model,
+      options: review.effort ? { effort: review.effort } : {},
+    };
+    for (const lens of review.lenses) reviewers[lens] = reviewer;
+  }
   return {
-    implementer:
-      settings.harness && settings.model
-        ? {
-            harness: settings.harness,
-            instanceId: settings.harness,
-            model: settings.model,
-            options: {},
-          }
-        : undefined,
+    implementer,
     reviewers,
     runtimeMode: undefined,
     interactionMode: undefined,

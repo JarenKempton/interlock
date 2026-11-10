@@ -165,8 +165,40 @@ test.each([
   { runtime_mode: "auto" },
   { interaction_mode: "plan" },
   { reviewers: "correctness" },
+  { reviewers: "correctness", reviewer_model: "claude-sonnet-5-5" },
 ])("a host launch refuses what t3 thread start cannot bind: %j", (user) => {
   expect(() => planHostLaunchModels(configuration(user), reviewChoicesFrom(user))).toThrow(
     "host_unsupported",
   );
+});
+
+test("a host launch passes configured reviewer targets through for T3 to validate", () => {
+  const user = {
+    reviewers: "correctness,security",
+    reviewer_harness: "claudeAgent",
+    reviewer_model: "claude-sonnet-5-5",
+    reviewer_effort: "high",
+  };
+  const target = {
+    harness: "claudeAgent",
+    instanceId: "claudeAgent",
+    model: "claude-sonnet-5-5",
+    options: { effort: "high" },
+  };
+  expect(planHostLaunchModels(configuration(user), reviewChoicesFrom(user)).reviewers).toEqual({
+    correctness: target,
+    security: target,
+  });
+
+  const inherited = { harness: "claudeAgent", model: "claude-haiku-5-5", reviewers: "correctness" };
+  expect(
+    planHostLaunchModels(configuration(inherited), reviewChoicesFrom(inherited)).reviewers,
+  ).toEqual({
+    correctness: {
+      harness: "claudeAgent",
+      instanceId: "claudeAgent",
+      model: "claude-haiku-5-5",
+      options: {},
+    },
+  });
 });
