@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { T3CommandResult, T3Process } from "../../../../src/adapters/hosts/t3/cli.ts";
+import {
+  hostT3Cli,
+  type T3CommandResult,
+  type T3Process,
+} from "../../../../src/adapters/hosts/t3/cli.ts";
 import { type T3LaunchPlan, T3HostPort } from "../../../../src/adapters/hosts/t3/port.ts";
 import { laneRefSchema, ticketRefSchema } from "../../../../src/domain/identifiers.ts";
 import { rejection } from "../../../fixtures/rejection.ts";
@@ -53,13 +57,16 @@ class FakeT3 implements T3Process {
     return this;
   }
 
-  async run(argv: readonly string[], stdin?: string) {
+  async run(raw: readonly string[], stdin?: string) {
+    const quiet = raw[1] === "--log-level" && raw[2] === "error";
+    const argv = quiet ? [raw[0] ?? "", ...raw.slice(3)] : raw;
     this.calls.push(stdin === undefined ? { argv } : { argv, stdin });
     const command = argv.slice(1, 3).join(" ");
     const queue = this.replies.get(command) ?? this.replies.get(argv[1] ?? "");
     const reply = queue && queue.length > 1 ? queue.shift() : queue?.[0];
     if (!reply) return fail(`unexpected ${argv.join(" ")}`);
-    return typeof reply === "function" ? reply(stdin) : reply;
+    const result = typeof reply === "function" ? reply(stdin) : reply;
+    return quiet ? result : { ...result, stdout: `${WARN}\n${result.stdout}` };
   }
 
   commands() {
@@ -93,6 +100,58 @@ const ready = () =>
     .on("thread list", ok([]));
 
 describe("T3 host preflight", () => {
+  test("uses the CLI T3 Code exposes to its threads before t3 on PATH", () => {
+    expect(hostT3Cli({ T3CODE_CLI_PATH: "/home/me/.t3/bin/t3" })).toBe("/home/me/.t3/bin/t3");
+    expect(hostT3Cli({ T3CODE_CLI_PATH: "" })).toBe("t3");
+    expect(hostT3Cli({})).toBe("t3");
+  });
+
+  test("quiets t3 logging so a WARN line on stdout never precedes the JSON", async () => {
+    const raw: (readonly string[])[] = [];
+    const t3 = ready();
+    const recording: T3Process = {
+      run: (argv, stdin) => {
+        raw.push(argv);
+        return t3.run(argv, stdin);
+      },
+    };
+    expect((await t3.run(["/bin/t3", "thread", "list"])).stdout).toStartWith(`${WARN}\n[`);
+    await new T3HostPort({
+      project: "/repo",
+      cli: "/bin/t3",
+      process: recording,
+      server: async () => descriptor,
+      lanes: () => [],
+      branchExists: async () => false,
+    }).preflight();
+    expect(raw.map((argv) => argv.slice(0, 4))).toEqual([
+      ["/bin/t3", "--log-level", "error", "--version"],
+      ["/bin/t3", "--log-level", "error", "thread"],
+    ]);
+  });
+
+  test("a port without a configured CLI runs the one T3 Code exposes", async () => {
+    const previous = process.env.T3CODE_CLI_PATH;
+    process.env.T3CODE_CLI_PATH = "/home/me/.t3/bin/t3";
+    try {
+      const t3 = ready();
+      await new T3HostPort({
+        project: "/repo",
+        process: t3,
+        server: async () => descriptor,
+        lanes: () => [],
+        branchExists: async () => false,
+      }).preflight();
+      expect(t3.calls.map(({ argv }) => argv[0])).toEqual([
+        "/home/me/.t3/bin/t3",
+        "/home/me/.t3/bin/t3",
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.T3CODE_CLI_PATH;
+      else process.env.T3CODE_CLI_PATH = previous;
+    }
+  });
+
   test("accepts a CLI and server with the same version and protocol", async () => {
     const t3 = ready();
     await port(t3).preflight();

@@ -29,6 +29,10 @@ export const bunT3Process: T3Process = {
   },
 };
 
+export function hostT3Cli(env: Record<string, string | undefined> = process.env): string {
+  return env.T3CODE_CLI_PATH || "t3";
+}
+
 const runtimeStateSchema = z.object({ origin: z.url() });
 
 export async function readT3ServerDescriptor(

@@ -23,7 +23,10 @@ class ScriptedT3 implements T3Process {
 
   constructor(readonly f: Fixture) {}
 
-  async run(argv: readonly string[], stdin?: string): Promise<T3CommandResult> {
+  async run(raw: readonly string[], stdin?: string): Promise<T3CommandResult> {
+    if (raw[1] !== "--log-level" || raw[2] !== "error")
+      return { exitCode: 1, stdout: "", stderr: "unquieted t3 call" };
+    const argv = [raw[0] ?? "", ...raw.slice(3)];
     this.calls.push(argv.slice(1));
     const [, command, subcommand] = argv;
     const ok = (value: unknown) => ({ exitCode: 0, stdout: JSON.stringify(value), stderr: "" });

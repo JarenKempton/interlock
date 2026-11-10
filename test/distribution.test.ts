@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createApplication } from "../src/application.ts";
 import {
@@ -6,6 +7,7 @@ import {
   parseCompletionShell,
 } from "../src/cli/completions.ts";
 import { manPage } from "../src/cli/manpage.ts";
+import { selfCommand } from "../src/distribution/version.ts";
 
 describe("distribution documentation", () => {
   test.each(["bash", "zsh", "fish"] as const)("emits %s completion", (shell) => {
@@ -47,4 +49,19 @@ test("generated manual retains operational contracts alongside available command
   expect(page).toContain("interlock.db");
   expect(page).toContain("config show");
   expect(page).not.toContain("Stop a recorded run");
+});
+
+describe("self command", () => {
+  test("a source run invokes the absolute source entry through bun", () => {
+    expect(selfCommand()).toEqual(["bun", resolve(import.meta.dir, "../src/cli.ts")]);
+  });
+
+  test.each(["/$bunfs/root", "B:\\~BUN\\root", "B:/~BUN/root"])(
+    "a compiled build in %s invokes its own executable",
+    (module) => {
+      expect(selfCommand(module, "/opt/interlock/bin/interlock")).toEqual([
+        "/opt/interlock/bin/interlock",
+      ]);
+    },
+  );
 });
