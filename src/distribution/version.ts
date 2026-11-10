@@ -13,5 +13,5 @@ export const RELEASES_URL =
 export function selfCommand(module = import.meta.dir, executable = process.execPath): string[] {
   return /^(\/\$bunfs|[A-Za-z]:[\\/]~BUN)([\\/]|$)/.test(module)
     ? [executable]
-    : ["bun", resolve(module, "../cli.ts")];
+    : ["bun", resolve(module, "../main.ts")];
 }

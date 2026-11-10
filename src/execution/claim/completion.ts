@@ -1,4 +1,4 @@
-import type { ClaimLock, ClaimLockRecord } from "../../domain/claim-lock.ts";
+import type { ClaimLock, ClaimLockRecord } from "../../domain/claim/lock.ts";
 import type { Claim, Run } from "../../domain/model.ts";
 
 export function completionRecordMatches(record: ClaimLockRecord | null, claim: Claim): boolean {

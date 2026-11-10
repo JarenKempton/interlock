@@ -8,7 +8,7 @@ import {
   type HostSessionView,
   type HostSteerResult,
 } from "../../../domain/host/capability.ts";
-import { adapterRefSchema } from "../../../domain/identifiers.ts";
+import { adapterRefSchema } from "../../../domain/refs/identifiers.ts";
 import type { LaneRef, TicketRef } from "../../../domain/model.ts";
 import type { OperationIdentity } from "../../../domain/operation/identity.ts";
 import {

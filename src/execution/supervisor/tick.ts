@@ -1,8 +1,8 @@
 import { type GateEvidence, observedValue, trackerSource } from "../../domain/gate/evidence.ts";
 import type { HostSessionView } from "../../domain/host/capability.ts";
-import type { LaneRefusalCode, LaneState } from "../../domain/lane.ts";
+import type { LaneRefusalCode, LaneState } from "../../domain/lane/lifecycle.ts";
 import type { LaneRef, Ticket, TicketRef } from "../../domain/model.ts";
-import { parseRef } from "../../domain/reference.ts";
+import { parseRef } from "../../domain/refs/parse.ts";
 import { readHumanEdits } from "./holds.ts";
 import type {
   JournalEntry,

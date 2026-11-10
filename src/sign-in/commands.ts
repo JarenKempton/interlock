@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { defineAction } from "../cli/definition.ts";
-import { withStore } from "../persistence/command-store.ts";
-import type { RuntimeServices } from "../runtime-services.ts";
+import { defineAction } from "../app/action.ts";
+import { withStore } from "../app/command-store.ts";
+import type { RuntimeServices } from "../app/runtime-services.ts";
 import {
   credentialName,
   savedSite,
@@ -10,6 +10,7 @@ import {
   type TrackerName,
   trackerSignIns,
 } from "./credentials.ts";
+import { saveUserSetting } from "../configuration/store.ts";
 
 export function signInActions(services: RuntimeServices) {
   return {
@@ -56,7 +57,7 @@ async function login(services: RuntimeServices, tracker: TrackerName): Promise<s
   if (!parsed.success) throw new Error(`${label} sign-in needs every credential field`);
   const account = await adapter.verify(site, parsed.data);
   await storeCredentials(services, credentialName(tracker, site), parsed.data);
-  withStore(services, (store) => store.saveUserSetting(setting, site));
+  withStore(services, (store) => saveUserSetting(store, setting, site));
   return `Signed in to ${label} at ${site} as ${account.name}.`;
 }
 

@@ -5,7 +5,7 @@ import {
   claimRefSchema,
   runRefSchema,
   ticketRefSchema,
-} from "./identifiers.ts";
+} from "./refs/identifiers.ts";
 
 export type MapRef = string & { readonly __kind: "MapRef" };
 export type TicketRef = string & { readonly __kind: "TicketRef" };
@@ -66,7 +66,7 @@ export interface Dependency {
   kind: "blocks";
 }
 
-export type Ticket = z.infer<typeof import("./tickets.ts").ticketSchema>;
+export type Ticket = z.infer<typeof import("./tracker/ticket.ts").ticketSchema>;
 
 export const trackerSnapshotSchema = z.strictObject({
   version: z.string(),

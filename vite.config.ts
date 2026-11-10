@@ -1,6 +1,8 @@
 import { defineConfig } from "vite-plus";
-import baseline from "./tooling/lint-baseline.json";
-import { readBaseline } from "./tooling/baseline.ts";
+import lintBaseline from "./tooling/lint-baseline.json";
+import { baselineSchema, readBaseline } from "./tooling/baseline.ts";
+
+const baseline = baselineSchema.parse(lintBaseline);
 
 const comparison = readBaseline(process.cwd(), process.env.INTERLOCK_LINT_BASE || "HEAD");
 
@@ -22,21 +24,21 @@ export default defineConfig({
   run: {
     cache: false,
     tasks: {
-      dev: "bun src/cli.ts",
+      dev: "bun src/main.ts",
       test: "bun test",
       "test:shard": "bun scripts/test-shard.ts",
       typecheck: "tsc --noEmit",
       check: "vp check",
       format: "vp fmt",
-      build: "bun build ./src/cli.ts --compile --outfile ./dist/interlock",
-      "build:release": "bun build ./src/cli.ts --compile",
+      build: "bun build ./src/main.ts --compile --outfile ./dist/interlock",
+      "build:release": "bun build ./src/main.ts --compile",
       "release:version": "bun scripts/release-version.ts",
       "db:generate": "drizzle-kit generate",
       "db:check": "bun scripts/verify-migrations.ts",
       "db:hash": "bun scripts/verify-migrations.ts --write",
       "sample-ledger": "bun scripts/create-sample-ledger.ts",
-      completions: "bun src/cli.ts completions",
-      man: "bun src/cli.ts man",
+      completions: "bun src/main.ts completions",
+      man: "bun src/main.ts man",
     },
   },
   fmt: {
@@ -61,6 +63,7 @@ export default defineConfig({
     categories: { correctness: "error" },
     rules: {
       "structure/folder-budget": "error",
+      "structure/no-disable-directive": "error",
       "structure/baseline-no-growth": "error",
       "typescript/no-explicit-any": "error",
       "typescript/no-non-null-assertion": "error",

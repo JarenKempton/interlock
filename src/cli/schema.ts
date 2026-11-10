@@ -5,7 +5,7 @@ export const nonemptyText = z
   .refine(
     (value) =>
       value.trim().length > 0 &&
-      ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127),
+      !Array.from(value).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127),
   );
 export const text = (description: string, metavar = "VALUE") =>
   nonemptyText.describe(description).meta({ metavar });

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Claims tracker tickets and prepares Git worktrees for agents in T3 Code lanes.",
   "bin": {
-    "interlock": "./src/cli.ts"
+    "interlock": "./src/main.ts"
   },
   "type": "module",
   "dependencies": {

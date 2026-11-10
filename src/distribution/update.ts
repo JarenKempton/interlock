@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { updateCheckPath } from "../persistence/paths.ts";
+import { updateCheckPath } from "./paths.ts";
 import { RELEASES_URL } from "./version.ts";
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -69,7 +69,9 @@ export async function checkForUpdate(
 
   const response = await (options.fetch ?? globalThis.fetch)(releasesUrl, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": "interlock" },
-    signal: (options.timeoutSignal ?? AbortSignal.timeout)(options.timeoutMs ?? 2_000),
+    signal: options.timeoutSignal
+      ? options.timeoutSignal(options.timeoutMs ?? 2_000)
+      : AbortSignal.timeout(options.timeoutMs ?? 2_000),
   });
   if (!response.ok) throw new Error(`release check returned HTTP ${response.status}`);
   const releases = z.array(releaseSchema).parse(await response.json());

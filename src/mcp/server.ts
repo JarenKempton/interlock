@@ -1,10 +1,9 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { registeredActions } from "../cli/catalog.ts";
-import type { ActionTree, ActionView } from "../cli/definition.ts";
-import { VERSION } from "../distribution/version.ts";
+import { type ActionTree, type ActionView, registeredActions } from "../app/action.ts";
 
 export interface McpServerOptions {
+  version: string;
   lane?: boolean;
   allow?: readonly string[];
   token?: string;
@@ -38,10 +37,12 @@ export class McpServer {
     invoke: (input: unknown) => Promise<unknown>;
   }[] = [];
   private readonly lane: boolean;
+  private readonly version: string;
   private readonly tokenDigest: Buffer | undefined;
 
-  constructor(tree: ActionTree, options: McpServerOptions = {}) {
+  constructor(tree: ActionTree, options: McpServerOptions) {
     this.lane = options.lane === true;
+    this.version = options.version;
     if (this.lane) {
       if (!options.token) throw new Error("Lane mode requires a per-lane token");
       if (!options.allow?.length) throw new Error("Lane mode requires an action allowlist");
@@ -113,7 +114,7 @@ export class McpServer {
           protocolVersion:
             typeof params.protocolVersion === "string" ? params.protocolVersion : "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "interlock", version: VERSION },
+          serverInfo: { name: "interlock", version: this.version },
         });
       }
       case "ping":

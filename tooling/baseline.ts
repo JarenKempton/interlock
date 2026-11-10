@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { z } from "zod";
 
 const baselinePath = "tooling/lint-baseline.json";
-const schema = z.object({
+export const baselineSchema = z.object({
   violations: z.record(z.string(), z.array(z.string())),
   folders: z.record(z.string(), z.array(z.string())),
 });
@@ -15,7 +15,10 @@ export function readBaseline(cwd: string, ref: string) {
       .trim()
       .split("\n");
     if (paths.includes(baselinePath)) {
-      return { ref, baseline: schema.parse(JSON.parse(git(["show", `${ref}:${baselinePath}`]))) };
+      return {
+        ref,
+        baseline: baselineSchema.parse(JSON.parse(git(["show", `${ref}:${baselinePath}`]))),
+      };
     }
     if (paths.includes("biome.json")) return { ref, baseline: null };
     return { ref, error: `Baseline missing at ${ref}; cannot verify shrink-only exemptions.` };

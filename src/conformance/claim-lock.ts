@@ -1,4 +1,4 @@
-import type { ClaimLock, ClaimLockRecord, ClaimLockState } from "../domain/claim-lock.ts";
+import type { ClaimLock, ClaimLockRecord, ClaimLockState } from "../domain/claim/lock.ts";
 import type { ClaimRequest, ReleaseClaimRequest } from "../domain/contracts.ts";
 import type { ActorRef } from "../domain/model.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";
@@ -8,9 +8,9 @@ export interface ClaimLockFixture {
   contender: ClaimLock;
   request: ClaimRequest;
   otherOwner: ActorRef;
-  loseWriteReadback(): void | Promise<void>;
-  expireLease(): void | Promise<void>;
-  dispose?(): void | Promise<void>;
+  loseWriteReadback: () => void | Promise<void>;
+  expireLease: () => void | Promise<void>;
+  dispose?: () => void | Promise<void>;
 }
 
 export function claimLockConformance(create: () => Promise<ClaimLockFixture>): ConformanceCase[] {

@@ -2,22 +2,15 @@ import { Database } from "bun:sqlite";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
-  type ExecutionConfiguration,
-  type UserSettingKey,
-  type UserSettings,
-  userSettingsSchema,
-} from "../configuration/schema.ts";
-import {
   actorRefSchema,
   adapterRefSchema,
   claimRefSchema,
   laneRefSchema,
   runRefSchema,
   ticketRefSchema,
-} from "../domain/identifiers.ts";
-import type { Lane, LaneState } from "../domain/lane.ts";
+} from "../domain/refs/identifiers.ts";
+import type { Lane, LaneState } from "../domain/lane/lifecycle.ts";
 import type { Claim, ClaimRef, LaneRef, Run, RunRef } from "../domain/model.ts";
-import { configurationStore } from "./configuration.ts";
 import { ledgerDb } from "./ledger-db.ts";
 import { type LedgerMigration, migrateLedger } from "./migrate.ts";
 import { claims } from "./schema/claims.ts";
@@ -61,47 +54,8 @@ export class StateStore {
     this.#database.close();
   }
 
-  updateUserSettings(update: (settings: UserSettings) => UserSettings): UserSettings {
-    const config = configurationStore(this.#database);
-    return this.#database
-      .transaction(() => {
-        const current = config.readUser();
-        const next = update({ ...current });
-        for (const key of userSettingsSchema.keyof().options)
-          if (current[key] !== next[key]) config.saveUser(key, next[key]);
-        return config.readUser();
-      })
-      .immediate();
-  }
-
-  userSettings(): UserSettings {
-    return configurationStore(this.#database).readUser();
-  }
-
-  saveUserSetting(name: UserSettingKey, value: string | undefined): void {
-    configurationStore(this.#database).saveUser(name, value);
-  }
-
-  claimHome(): string | undefined {
-    return this.userSettings().claim_home;
-  }
-
-  saveClaimHomeIfAbsent(home: string): boolean {
-    return this.#database
-      .transaction(() => {
-        if (this.claimHome() !== undefined) return false;
-        this.saveUserSetting("claim_home", home);
-        return true;
-      })
-      .immediate();
-  }
-
-  saveExecutionConfiguration(run: RunRef, configuration: ExecutionConfiguration): void {
-    configurationStore(this.#database).saveSnapshot(run, configuration);
-  }
-
-  getExecutionConfiguration(run: RunRef): ExecutionConfiguration | undefined {
-    return configurationStore(this.#database).readSnapshot(run);
+  get database(): Database {
+    return this.#database;
   }
 
   saveRun(run: Run): void {

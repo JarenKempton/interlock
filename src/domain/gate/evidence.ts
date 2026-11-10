@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseRef } from "../reference.ts";
+import { parseRef } from "../refs/parse.ts";
 
 export const gateEvidenceSchema = z.strictObject({
   gate: z.string().min(1),

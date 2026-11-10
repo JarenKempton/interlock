@@ -11,7 +11,7 @@ executable behavior stays at platform boundaries.
 
 | Responsibility                                         | Source                                                                                                    |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Action registration and runtime services               | [Application](../src/application.ts), [runtime services](../src/runtime-services.ts)                      |
+| Action registration and runtime services               | [Application](../src/app/application.ts), [runtime services](../src/app/runtime-services.ts)              |
 | Input validation, invocation, help, completion         | [CLI](../src/cli/)                                                                                        |
 | Shared tracker facts and user settings                 | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml)                 |
 | Entities, references, capabilities, adapter interfaces | [Domain](../src/domain/)                                                                                  |
@@ -29,8 +29,7 @@ field alone does not establish an executable user workflow.
 
 ## Target tree and naming
 
-The target layout below is enforced incrementally; existing files are not moved
-by the toolchain migration. JWB-944 reorganizes them. Concept folders are singular,
+The source and test trees follow this layout. Concept folders are singular,
 adapter categories plural, and vendor names occur only under `adapters/`.
 
 ```text
@@ -79,11 +78,9 @@ not filename heuristics, and resolves TypeScript imports through
 
 [Vite+ configuration](../vite.config.ts) enables native Oxlint filename, cycle,
 and strict TypeScript rules, `eslint-plugin-boundaries`, and the local
-[structure plugin](../tooling/structure.mjs). Existing violations are explicitly
-listed by rule and file in [the baseline](../tooling/lint-baseline.json); only those
-file/rule pairs are exempt. An already oversized folder lists its existing members,
-not an increased limit, so adding another file fails. New code must satisfy the
-rules without growing exemptions. Remove entries when fixing or deleting files.
+[structure plugin](../tooling/structure.mjs). [The baseline](../tooling/lint-baseline.json)
+is empty and may only shrink, so no file/rule pair or oversized folder is exempt;
+the structure plugin also rejects inline `eslint-disable`/`oxlint-disable` comments.
 The baseline rule compares against `INTERLOCK_LINT_BASE` in CI (the PR base branch,
 or the previous commit on main), and `HEAD` locally. A missing/unreadable comparison
 fails closed; the initial Biome-to-Oxlint migration is the sole bootstrap case.
@@ -113,7 +110,7 @@ Pickup prepares `task/KEY` at `<worktree_root>/KEY`. A new branch starts, untrac
 at the origin's default branch as fetched just before claiming, never at the
 possibly stale local branch of the same name. Preparation verifies the
 exact repository/path/branch mapping before reuse and preserves dirty work.
-Interlock never deletes a workspace. See the [Git adapter](../src/adapters/workspaces/git.ts).
+Interlock never deletes a workspace. See the [Git adapter](../src/adapters/git/workspace.ts).
 With `pickup --launch`, the T3 host creates `task/KEY` from the fetched origin
 base commit instead, and pickup records the worktree it reports; see the
 [host capability](domain-model.md#engine-ready-contracts).
@@ -131,11 +128,11 @@ see the [domain model](domain-model.md#tracker).
 
 Only [claim-record v2](../contracts/claim-record.v2.json) is frozen. Its
 [minimal generator](../src/conformance/claim-record.ts) and
-[byte-freeze tests](../test/claim-record-contract.test.ts) protect the schema
+[byte-freeze tests](../test/conformance/claim-record.test.ts) protect the schema
 and reader fixtures. Action surfaces, settings and TOML are unstable before
 1.0; there is no action compatibility classifier or historical schema archive.
 Every action still declares a zod `result`; a mismatch fails before rendering
-or returning it. [JSON output snapshots](../test/execution/outputs.test.ts)
+or returning it. [JSON output snapshots](../test/app/application-outputs.test.ts)
 exercise the current pickup and lane handoff through the CLI. Deliberate
 changes update those snapshots in the same change, without minting a major.
 Migration hashes remain independent: `vp run db:hash` only adds new migrations.
@@ -151,7 +148,7 @@ side-effect identity, external gate facts and host session operations. See
 Run the checks in [AGENTS.md](../AGENTS.md). Behavioral evidence lives in
 [tests](../test/). The claim lock tests run against a real local bare remote;
 Jira tests use an injected transport and do not qualify hosted tracker writes
-or a live agent. The [pickup CLI test](../test/pickup-command.test.ts) runs the
+or a live agent. The [pickup CLI test](../test/app/pickup/commands.test.ts) runs the
 registered command parser in subprocesses with real local Git locks/worktrees,
 injected Jira and an injected GitHub origin identity. Platform and release checks are defined in the
 [workflows](../.github/workflows/).

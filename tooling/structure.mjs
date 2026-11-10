@@ -1,7 +1,9 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 
 const portable = (path) => path.split(sep).join("/");
+const roots = ["src", "test", "scripts", "tooling"];
+const directive = new RegExp(["\\b(?:eslint|oxlint)", "disable"].join("-"));
 
 export function baselineGrowth(current, previous) {
   const added = [];
@@ -60,9 +62,7 @@ export default {
         if (portable(relative(root, filename)) !== "vite.config.ts") return {};
         return {
           Program(node) {
-            for (const [folder, files] of ["src", "test", "scripts", "tooling"].flatMap(
-              (directory) => folders(root, directory),
-            )) {
+            for (const [folder, files] of roots.flatMap((directory) => folders(root, directory))) {
               const violations = folderViolations(
                 folder,
                 files,
@@ -74,6 +74,39 @@ export default {
                   messageId: "budget",
                   data: { folder, file: `${folder}/${violations[0]}` },
                 });
+              }
+            }
+          },
+        };
+      },
+    },
+    "no-disable-directive": {
+      meta: {
+        type: "problem",
+        schema: [],
+        messages: {
+          directive: "{{file}} disables lint inline. Fix the code instead of adding an exception.",
+        },
+      },
+      create(context) {
+        const root = context.cwd;
+        if (portable(relative(root, context.filename)) !== "vite.config.ts") return {};
+        return {
+          Program(node) {
+            const top = readdirSync(root, { withFileTypes: true })
+              .filter((entry) => entry.isFile())
+              .map((entry) => entry.name);
+            for (const [folder, files] of [
+              [".", top],
+              ...roots.flatMap((directory) => folders(root, directory)),
+            ]) {
+              for (const file of files.filter((name) => /\.[cm]?[jt]sx?$/.test(name))) {
+                if (directive.test(readFileSync(resolve(root, folder, file), "utf8")))
+                  context.report({
+                    node,
+                    messageId: "directive",
+                    data: { file: folder === "." ? file : `${folder}/${file}` },
+                  });
               }
             }
           },

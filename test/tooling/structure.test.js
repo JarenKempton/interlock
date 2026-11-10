@@ -101,7 +101,7 @@ describe("structure baseline", () => {
   });
 });
 
-test("vp lint rejects a misplaced file, forbidden imports, cycles, naming, and a thirteenth file", async () => {
+test("vp lint rejects a misplaced file, forbidden imports, cycles, naming, inline disables, and a thirteenth file", async () => {
   const cwd = directory();
   symlinkSync(
     resolve(root, "node_modules"),
@@ -133,6 +133,12 @@ export default { ...original, lint: { ...original.lint, options: { typeAware: tr
     "export type Explicit = any; export function nonNull(value: string | undefined) { return value!; } export const unsafe = ({} as unknown) as { value: string };\n",
   );
   write(cwd, "src/misplaced.ts", "export const misplaced = true;\n");
+  write(cwd, "tool.config.mts", `// ${["eslint", "disable"].join("-")}\nexport default {};\n`);
+  write(
+    cwd,
+    "src/domain/claim/silenced.ts",
+    `// ${["oxlint", "disable"].join("-")}-next-line typescript/no-explicit-any\nexport type Silenced = any;\n`,
+  );
   write(cwd, "src/domain/claim/BadName.ts", "export const bad = true;\n");
   write(
     cwd,
@@ -179,6 +185,7 @@ export default { ...original, lint: { ...original.lint, options: { typeAware: tr
     "unicorn(filename-case)",
     "import(no-cycle)",
     "structure(folder-budget)",
+    "structure(no-disable-directive)",
     "typescript(no-explicit-any)",
     "typescript(no-non-null-assertion)",
     "typescript(no-unsafe-type-assertion)",
@@ -202,8 +209,16 @@ export default { ...original, lint: { ...original.lint, options: { typeAware: tr
   expect(
     diagnostics.filter((diagnostic) => diagnostic.code === "structure(folder-budget)"),
   ).toHaveLength(2);
+  expect(
+    diagnostics
+      .filter((diagnostic) => diagnostic.code === "structure(no-disable-directive)")
+      .map((diagnostic) => diagnostic.message.split(" ")[0])
+      .toSorted(),
+  ).toEqual(["src/domain/claim/silenced.ts", "tool.config.mts"]);
   for (const file of [
     "src/misplaced.ts",
+    "tool.config.mts",
+    "src/domain/claim/silenced.ts",
     "src/domain/claim/strict.ts",
     "src/domain/claim/BadName.ts",
     "src/domain/claim/vendor.ts",

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { configurationStore } from "../persistence/configuration.ts";
+import { configurationStore } from "./store.ts";
 import type { UserSettings } from "./schema.ts";
 export function readUserSettings(statePath: string): UserSettings {
   if (!existsSync(statePath)) return {};

@@ -6,7 +6,7 @@ export const configText = z
   .refine(
     (value) =>
       value.trim().length > 0 &&
-      ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127),
+      !Array.from(value).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127),
   );
 // Preserve the public string-valued settings API while checking supported modes at runtime.
 const runtimeMode = configText.refine((value) =>

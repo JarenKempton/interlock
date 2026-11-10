@@ -1,6 +1,6 @@
 import { bash, fish, suggestSync, zsh } from "@optique/core";
 import { z } from "zod";
-import type { ActionTree } from "./definition.ts";
+import type { ActionTree } from "../app/action.ts";
 import { commandParser } from "./parser.ts";
 
 const shells = { bash, zsh, fish };
@@ -8,8 +8,8 @@ export const completionShellSchema = z.enum(["bash", "zsh", "fish"]);
 export type CompletionShell = z.infer<typeof completionShellSchema>;
 export function completionCandidates(tree: ActionTree, words: readonly string[]): string[] {
   const parser = commandParser(tree);
-  const [first = "", ...rest] = [...words, ""];
-  const [optionFirst = "--", ...optionRest] = [...words, "--"];
+  const [first, ...rest] = [...words, ""];
+  const [optionFirst, ...optionRest] = [...words, "--"];
   const suggestions = [
     ...suggestSync(parser, [first, ...rest]),
     ...suggestSync(parser, [optionFirst, ...optionRest]),

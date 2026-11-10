@@ -12,10 +12,10 @@ import {
   laneRefSchema,
   mapRefSchema,
   ticketRefSchema,
-} from "../../../src/domain/identifiers.ts";
+} from "../../../src/domain/refs/identifiers.ts";
 import type { Ticket } from "../../../src/domain/model.ts";
 import { HostLaunchWorkspace } from "../../../src/execution/pickup/host-launch.ts";
-import { rejection } from "../../fixtures/rejection.ts";
+import { rejection } from "../../fixtures/assertions/rejection.ts";
 
 const lane = laneRefSchema.parse("interlock-lane:one");
 const ticketRef = ticketRefSchema.parse("jira:acme:W:ticket:W-1");

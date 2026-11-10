@@ -1,12 +1,13 @@
 import { formatDocPage, getDocPageSync, object, parseSync } from "@optique/core";
+import { actionUsage, describeAction } from "./catalog.ts";
+import { completeShell } from "./completions.ts";
 import {
-  actionUsage,
-  describeAction,
+  type ActionTree,
+  type ActionView,
+  isAction,
   type RegisteredAction,
   registeredActions,
-} from "./catalog.ts";
-import { completeShell } from "./completions.ts";
-import { type ActionTree, type ActionView, isAction } from "./definition.ts";
+} from "../app/action.ts";
 import { commandParser, invocationParser, transportOptions } from "./parser.ts";
 
 export function actionHelp(tree: ActionTree, prefix: string[] = [], json = false): string {

@@ -1,5 +1,5 @@
 import type { ActorRef, Ticket } from "../domain/model.ts";
-import type { MirrorClaim, MirrorRestore, Tracker } from "../domain/tracker.ts";
+import type { MirrorClaim, MirrorRestore, Tracker } from "../domain/tracker/port.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";
 
 export interface TrackerObservation {
@@ -12,9 +12,9 @@ export interface TrackerFixture {
   adapter: Tracker;
   claim: MirrorClaim;
   otherOwner: ActorRef;
-  observe(): Promise<TrackerObservation>;
-  changeOwner(owner: ActorRef): Promise<void>;
-  loseWriteReadback(): void | Promise<void>;
+  observe: () => Promise<TrackerObservation>;
+  changeOwner: (owner: ActorRef) => Promise<void>;
+  loseWriteReadback: () => void | Promise<void>;
 }
 
 export function trackerConformance(create: () => Promise<TrackerFixture>): ConformanceCase[] {

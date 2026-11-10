@@ -1,8 +1,8 @@
 # Claim and recovery semantics
 
-[Pickup](../src/execution/pickup.ts), the [Git claim lock](../src/adapters/claims/git-lock.ts),
+[Pickup](../src/execution/pickup/coordinator.ts), the [Git claim lock](../src/adapters/git/claim-lock.ts),
 and [claim types](../src/domain/model.ts) implement these transitions.
-[Pickup tests](../test/pickup.test.ts) and [lock tests](../test/git-claim-lock.test.ts)
+[Pickup tests](../test/execution/pickup/coordinator.test.ts) and [lock tests](../test/adapters/git/claim-lock.test.ts)
 exercise failure paths.
 
 ## Identity and leases
@@ -85,11 +85,11 @@ readback of the original tracker snapshot. Only verified restoration permits
 
 Trackers without a conditional write, such as Jira Cloud, claim through an
 append-only lock ref in a Git repository called the claim home:
-[`GitClaimLock`](../src/adapters/claims/git-lock.ts), composed with the tracker
-by [`ClaimCoordinator`](../src/execution/claims.ts): ownership writes go to the
+[`GitClaimLock`](../src/adapters/git/claim-lock.ts), composed with the tracker
+by [`ClaimCoordinator`](../src/execution/claim/coordinator.ts): ownership writes go to the
 lock, and the [tracker](domain-model.md#tracker) only mirrors them.
 
-- The [claim home](../src/execution/claim-home.ts) is the first found of:
+- The [claim home](../src/app/claim/home.ts) is the first found of:
   `claim_home` in `interlock.toml` on the work repo's default branch (found
   with `git ls-remote --symref origin HEAD`, fetched, and its commit recorded),
   the user-level `claim-home` setting (`interlock config edit --set claim-home
@@ -181,15 +181,15 @@ lock, and the [tracker](domain-model.md#tracker) only mirrors them.
   [`contracts/claim-record.v2.json`](../contracts/claim-record.v2.json). The
   [minimal generator](../src/conformance/claim-record.ts) derives its schema
   from the lock record and Jira property zod schemas.
-  [`test/claim-record-contract.test.ts`](../test/claim-record-contract.test.ts)
+  [`test/conformance/claim-record.test.ts`](../test/conformance/claim-record.test.ts)
   compares that output byte-for-byte and pins the schema and reader fixture
   hashes. Updating an action snapshot never updates these frozen bytes.
   A future claim format requires an explicit version and reader migration;
   pre-1.0 action instability does not relax the claim contract.
 
-[Lock tests](../test/git-claim-lock.test.ts) and
-[lock conformance](../test/claim-lock-conformance.test.ts) run against real
-local bare remotes; [Jira tests](../test/jira.test.ts) cover the mirror,
+[Lock tests](../test/adapters/git/claim-lock.test.ts) and
+[lock conformance](../test/adapters/git/claim-lock-conformance.test.ts) run against real
+local bare remotes; [Jira tests](../test/adapters/trackers/jira/tracker.test.ts) cover the mirror,
 composition and tracker conformance.
 
 ## Tracker guarantees

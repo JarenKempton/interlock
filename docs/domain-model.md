@@ -1,6 +1,6 @@
 # Domain vocabulary
 
-[Domain types](../src/domain/model.ts), [reference validation](../src/domain/reference.ts),
+[Domain types](../src/domain/model.ts), [reference validation](../src/domain/refs/parse.ts),
 and the contracts below define the portable contract. Adapters translate vendor objects into these terms.
 
 ## Glossary
@@ -72,7 +72,7 @@ check the exact required set through `requireCapabilities`, which raises
 
 ## Tracker
 
-[`Tracker`](../src/domain/tracker.ts) reads work and mirrors a claim the lock
+[`Tracker`](../src/domain/tracker/port.ts) reads work and mirrors a claim the lock
 already holds. `list_work` and `read` never mutate. `apply` installs the claim,
 run and owner; `verify` checks an applied or restored mirror by readback;
 `restore` returns the original snapshot and refuses to overwrite human changes.
@@ -82,7 +82,7 @@ release, and never advertise `conditional_update`. Optional `transition` and
 
 ## Claim lock
 
-[`ClaimLock`](../src/domain/claim-lock.ts) owns `read`, `claim` and `release`, and is the only contract with version-checked writes. A competing
+[`ClaimLock`](../src/domain/claim/lock.ts) owns `read`, `claim` and `release`, and is the only contract with version-checked writes. A competing
 claim or stale version is a `ClaimCollisionError`; an outcome readback cannot
 confirm is an `AmbiguousTrackerResultError`. Expiry never releases or reassigns.
 See [claim semantics](claim-semantics.md).
@@ -99,7 +99,7 @@ claim, verifies the current directory is that run's worktree root on its
 recorded branch and that the remote claim lock is held by that claim, run and
 owner, then binds the ticket's lane to them and starts it. Any mismatch
 refuses and records no lane; repeating attach returns the same lane. The
-[lane state machine](../src/domain/lane.ts) moves a lane
+[lane state machine](../src/domain/lane/lifecycle.ts) moves a lane
 through queued, claimed, implementing, submitted, reviewing, approved
 and done; legacy merged lanes remain completable; changes_requested loops back to implementing up to the lane's
 configured round limit, then routes to attention, which resumes to the prior
@@ -147,10 +147,10 @@ adopt its PR; the next submit looks up the branch again before creating.
 GitHub search is eventually consistent, so this is not an exactly-once creation
 guarantee. Existing `refs/interlock/submissions/v1/*` refs are unused and left
 untouched. Claim-record v2 is unchanged. The
-[submit tests](../test/lane-submit.test.ts) define retry and ownership behavior.
+[submit tests](../test/app/lane/commands-submit.test.ts) define retry and ownership behavior.
 The lane agent needs no GitHub write credential for submission; removing
 ambient credentials from the lane environment remains the host's job. The `lane` actions and
-[`LaneService`](../src/execution/lane.ts) expose the state machine as commands.
+[`LaneService`](../src/execution/lane/service.ts) expose the state machine as commands.
 
 ## Engine-ready contracts
 
@@ -282,4 +282,4 @@ the evidence and submits the lane.
 [Tracker](../src/conformance/tracker.ts) and
 [claim-lock](../src/conformance/claim-lock.ts) suites check collision,
 stale-version refusal, readback, safe restoration, idempotence and ambiguous
-writes. [Fakes](../test/conformance.test.ts), Jira and the Git lock run them.
+writes. [Fakes](../test/conformance/runner.test.ts), Jira and the Git lock run them.
