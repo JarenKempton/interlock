@@ -33,6 +33,7 @@ import { BunGitCommandExecutor } from "../src/adapters/workspaces/git.ts";
 import { normalizeClaimHome } from "../src/domain/claim-home.ts";
 import { actorRefSchema, claimRefSchema } from "../src/domain/identifiers.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
+import { rejection } from "./fixtures/rejection.ts";
 
 setDefaultTimeout(GIT_TEST_TIMEOUT_MS);
 
@@ -170,6 +171,7 @@ async function setup(
   return {
     service,
     store,
+    statePath: join(directory, "interlock.db"),
     ...ownership,
     artifacts,
     tracker,
@@ -226,6 +228,56 @@ test("submit pushes the recorded branch, opens one PR with the key, records and 
   } finally {
     cleanup();
   }
+});
+
+test("submit without evidence pushes first, then records the gate evidence for the pushed head", async () => {
+  const { service, store, artifacts, cleanup } = await setup();
+  try {
+    const id = await implementing(service);
+    const pushed = await service.submit(id, { head: "abc", evidence: [] });
+    expect(pushed).toMatchObject({ ok: true, value: { state: "implementing", artifact: prUrl } });
+    expect(store.lane(id).evidence).toEqual([]);
+    expect(artifacts.pushes.map((item) => item.head)).toEqual(["abc"]);
+
+    const submitted = await service.submit(id, { head: "abc", evidence: evidence("abc") });
+    expect(submitted).toMatchObject({
+      ok: true,
+      value: { state: "submitted", artifact: prUrl, evidence: evidence("abc") },
+    });
+    expect(artifacts.opens).toHaveLength(1);
+    expect(artifacts.pushes.map((item) => item.head)).toEqual(["abc", "abc"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("lane commands read the tracker sign-in from the --state ledger", async () => {
+  const { service, store, statePath, artifacts, cleanup } = await setup({ tracker: null });
+  try {
+    const id = await implementing(service);
+    store.updateUserSettings((settings) => ({ ...settings, jira_site: "https://x.atlassian.net" }));
+    const output: string[] = [];
+    await runCli(
+      ["lane", "submit", id, "--head", "abc", "--json", "--state", statePath],
+      (text) => output.push(text),
+      {
+        execution: { jira: { request: async () => ({ status: 503 }) } },
+        lane: { artifacts },
+      },
+    );
+    const result = JSON.parse(output.join("\n"));
+    expect(result.refusal?.code).not.toBe("tracker_unavailable");
+    expect(artifacts.pushes.map((item) => item.head)).toEqual(["abc"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("submit refuses a gate without its evidence URL before any push", async () => {
+  const refused = await rejection(
+    runCli(["lane", "submit", "interlock-lane:x", "--head", "abc", "--gate", "test"], () => {}, {}),
+  );
+  expect(refused.message).toContain("Pass --gate and --evidence-url together");
 });
 
 test("an existing PR on the lane branch is adopted instead of opening another", async () => {

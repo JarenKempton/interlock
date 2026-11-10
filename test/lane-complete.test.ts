@@ -13,6 +13,7 @@ import {
   ticketRefSchema,
 } from "../src/domain/identifiers.ts";
 import type { Ticket, TicketRef } from "../src/domain/model.ts";
+import { BunGitCommandExecutor } from "../src/adapters/workspaces/git.ts";
 import { GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
 import {
   FakeJira,
@@ -167,6 +168,30 @@ test("a different run targeting another lane's path also refuses", async () => {
   });
   expect((await lane.complete()).result.ok).toBe(false);
   lane.intact();
+});
+
+test("an unreadable claim lock refuses as transient, leaves the run claimed, and a retry completes", async () => {
+  let failed = false;
+  const git = new BunGitCommandExecutor();
+  const lane = await mergedLane({
+    git: {
+      run: async (argv, cwd) => {
+        if (!failed && argv[1] === "ls-remote" && argv[2] !== "--get-url") {
+          failed = true;
+          return { exitCode: 128, stdout: "", stderr: "Could not resolve host: github.com" };
+        }
+        return git.run(argv, cwd);
+      },
+    },
+  });
+
+  const refused = await lane.complete();
+  expect(refused.result).toMatchObject({ ok: false, refusal: { code: "tracker_unavailable" } });
+  changeStore(lane, (store) => expect(store.run(runRef).status).toBe("claimed"));
+  expect(lane.tracker.transitions).toEqual([]);
+
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(lane.tracker.transitions).toEqual(["Done"]);
 });
 
 test("released or wrong-ticket claim cannot authorize completion", async () => {

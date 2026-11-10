@@ -9,6 +9,7 @@ import { ticketRefSchema } from "../domain/identifiers.ts";
 import { parseRef } from "../domain/reference.ts";
 import { type LaneResult, laneActionSchema, laneResultSchema, laneSchema } from "../domain/lane.ts";
 import { claimRef, laneRef, runRef } from "../persistence/command-store.ts";
+import type { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { RecordedAttachAuthority } from "./attachment.ts";
 import { LaneService } from "./lane.ts";
@@ -21,29 +22,33 @@ function exitCode(output: unknown): number {
 
 const laneResult = laneResultSchema(laneSchema);
 
+export function laneService(services: RuntimeServices, store: StateStore): LaneService {
+  return new LaneService({
+    store,
+    tracker: services.lane?.tracker ?? signedInLaneTracker(services, store),
+    artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
+    git: services.execution?.git ?? new BunGitCommandExecutor(),
+    attachments:
+      services.lane?.attachments ??
+      new RecordedAttachAuthority(services.execution?.git ?? new BunGitCommandExecutor()),
+    ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
+  });
+}
+
 export function laneActions(services: RuntimeServices) {
   const lane = positional(text("Recorded lane reference.", "LANE"));
   const ticket = optional(text("Ticket key or tracker reference.", "TICKET"));
   const selector = { lane: optional(lane), ticket };
   const state = optional(text("Local execution database path.", "PATH"));
-  const service = (store: Parameters<Parameters<typeof withExecutionStore>[2]>[0]) =>
-    new LaneService({
-      store,
-      tracker: services.lane?.tracker ?? signedInLaneTracker(services, store),
-      artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),
-      git: services.execution?.git ?? new BunGitCommandExecutor(),
-      attachments:
-        services.lane?.attachments ??
-        new RecordedAttachAuthority(services.execution?.git ?? new BunGitCommandExecutor()),
-      ...(services.execution?.clock ? { clock: services.execution.clock } : {}),
-    });
   const withLane = <T>(
     path: string | undefined,
     operation: (laneService: LaneService) => Promise<T> | T,
-  ) =>
-    withExecutionStore(services, executionStatePath(services, path), async (store) =>
-      operation(service(store)),
+  ) => {
+    const statePath = executionStatePath(services, path);
+    return withExecutionStore(services, statePath, async (store) =>
+      operation(laneService({ ...services, statePath }, store)),
     );
+  };
   const selected = <T>(
     input: { lane?: string | undefined; ticket?: string | undefined; state?: string | undefined },
     operation: (
@@ -162,18 +167,27 @@ export function laneActions(services: RuntimeServices) {
       input: {
         ...selector,
         head: text("Head commit the evidence covers.", "HEAD"),
-        gate: text("Evidence gate name.", "GATE"),
-        "evidence-url": text("Evidence URL for the gate at the head commit.", "URL"),
+        gate: optional(text("Evidence gate name; omit with --evidence-url to push first.", "GATE")),
+        "evidence-url": optional(
+          text("Evidence URL for the gate at the pushed head commit.", "URL"),
+        ),
         title: optional(text("Pull request title; the ticket key is prefixed.", "TITLE")),
         draft: flag("Open the pull request as a draft."),
         state,
       },
       result: laneResult,
+      validate(input) {
+        if ((input.gate === undefined) !== (input["evidence-url"] === undefined))
+          throw new Error("Pass --gate and --evidence-url together, or neither to push first");
+      },
       handler: (input) =>
         selected(input, (laneService, id) =>
           laneService.submit(id, {
             head: input.head,
-            evidence: [{ gate: input.gate, head: input.head, url: input["evidence-url"] }],
+            evidence:
+              input.gate && input["evidence-url"]
+                ? [{ gate: input.gate, head: input.head, url: input["evidence-url"] }]
+                : [],
             ...(input.title ? { title: input.title } : {}),
             draft: input.draft === true,
           }),

@@ -9,17 +9,18 @@ executable behavior stays at platform boundaries.
 
 ## Code navigation
 
-| Responsibility                                         | Source                                                                                    |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| Action registration and runtime services               | [Application](../src/application.ts), [runtime services](../src/runtime-services.ts)      |
-| Input validation, invocation, help, completion         | [CLI](../src/cli/)                                                                        |
-| Shared tracker facts and user settings                 | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml) |
-| Entities, references, capabilities, adapter interfaces | [Domain](../src/domain/)                                                                  |
-| Adapter conformance suites                             | [Conformance](../src/conformance/)                                                        |
-| Pickup, T3 launch plan, launch prompt                  | [Execution](../src/execution/)                                                            |
-| Run history, receipts, recovery evidence               | [Persistence](../src/persistence/)                                                        |
-| Claim lock, Jira tracker, Git workspaces               | [Adapters](../src/adapters/)                                                              |
-| T3 host port through the t3 CLI                        | [T3 host adapter](../src/adapters/hosts/t3/), [host launch](../src/execution/pickup/)     |
+| Responsibility                                         | Source                                                                                                    |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Action registration and runtime services               | [Application](../src/application.ts), [runtime services](../src/runtime-services.ts)                      |
+| Input validation, invocation, help, completion         | [CLI](../src/cli/)                                                                                        |
+| Shared tracker facts and user settings                 | [Configuration](../src/configuration/), [starter TOML](../src/configuration/default.toml)                 |
+| Entities, references, capabilities, adapter interfaces | [Domain](../src/domain/)                                                                                  |
+| Adapter conformance suites                             | [Conformance](../src/conformance/)                                                                        |
+| Pickup, T3 launch plan, launch prompt                  | [Execution](../src/execution/)                                                                            |
+| Run history, receipts, recovery evidence               | [Persistence](../src/persistence/)                                                                        |
+| Claim lock, Jira tracker, Git workspaces               | [Adapters](../src/adapters/)                                                                              |
+| T3 host port through the t3 CLI                        | [T3 host adapter](../src/adapters/hosts/t3/), [host launch](../src/execution/pickup/)                     |
+| Supervisor tick, wiring, status and user service       | [Supervisor](../src/execution/supervisor/), [app](../src/app/), [service](../src/distribution/service.ts) |
 
 Actions declare their inputs, description, and handler together.
 Invocation, help, completion, and the manual derive from those registrations.
@@ -120,8 +121,9 @@ base commit instead, and pickup records the worktree it reports; see the
 
 - [Domain vocabulary](domain-model.md) and [claim semantics](claim-semantics.md).
 - [Client/core ownership](ownership-boundary.md).
-- Design rationale: [execution boundaries](adr/0001-lanes-environments-and-session-hosts.md)
-  and [tracker writes](adr/0002-tracker-write-minimalism.md).
+- Design rationale: [execution boundaries](adr/0001-lanes-environments-and-session-hosts.md),
+  [tracker writes](adr/0002-tracker-write-minimalism.md) and
+  [the supervisor on the journal](adr/0003-supervisor-on-the-journal.md).
 
 Tracker, claim-lock and lane contracts are plain TypeScript interfaces;
 see the [domain model](domain-model.md#tracker).
@@ -139,8 +141,9 @@ Migration hashes remain independent: `vp run db:hash` only adds new migrations.
 
 Engine-ready domain contracts live in `domain/operation/identity.ts`,
 `domain/gate/evidence.ts` and `domain/host/capability.ts`. They define stable
-side-effect identity, external gate facts and host session operations, not an
-engine, supervisor or adapter. See [their semantics](domain-model.md#engine-ready-contracts).
+side-effect identity, external gate facts and host session operations. See
+[their semantics](domain-model.md#engine-ready-contracts) and the
+[supervisor](domain-model.md#supervisor) that uses them.
 
 ## Verification
 

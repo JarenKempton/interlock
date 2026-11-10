@@ -57,7 +57,7 @@ Required output:
 Lane procedure:
 1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
 2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
-3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --json --state <state>\` with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the check and a link to that result to record the gate evidence and submit the lane.
 4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
@@ -126,7 +126,7 @@ Required output:
 Lane procedure:
 1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
 2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
-3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --json --state <state>\` with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the check and a link to that result to record the gate evidence and submit the lane.
 4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
@@ -138,6 +138,12 @@ Authorization and completion:
 Apart from the Interlock lane commands above, this prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied."
 ,
     "repository": "alice",
+    "review": {
+      "lenses": [
+        "correctness",
+      ],
+      "policy": "lenses",
+    },
     "reviewers": {
       "correctness": {
         "harness": "codex",
@@ -214,9 +220,9 @@ Required output:
 Lane procedure:
 1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>.defaults\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
 2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
-3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>.defaults\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --json --state <state>.defaults\` with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>.defaults\` with the check and a link to that result to record the gate evidence and submit the lane.
 4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
-5. No review lenses are planned. Run \`bun <cli> lane review LANE --json --state <state>.defaults\`, then \`bun <cli> lane attention LANE --reason review_required --state <state>.defaults\`, and wait; a person reviews, runs \`bun <cli> lane resume LANE --state <state>.defaults\` and records the verdict with \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>.defaults\`.
+5. Review policy: human, the declared default when no reviewer lenses are configured. Run \`bun <cli> lane review LANE --json --state <state>.defaults\`, then \`bun <cli> lane attention LANE --reason review_required --state <state>.defaults\`, and wait; a person reviews, runs \`bun <cli> lane resume LANE --state <state>.defaults\` and records the verdict with \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>.defaults\`.
 6. On changes_requested, fix, commit and repeat from step 3 with the new head; once the verdict for the head is approved, continue with step 7.
 7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane complete --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>.defaults\`, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.
 Interlock refusals are final for that step: report them instead of working around them.
@@ -267,9 +273,9 @@ Required output:
 Lane procedure:
 1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>.defaults\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
 2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
-3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>.defaults\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --json --state <state>.defaults\` with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>.defaults\` with the check and a link to that result to record the gate evidence and submit the lane.
 4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
-5. No review lenses are planned. Run \`bun <cli> lane review LANE --json --state <state>.defaults\`, then \`bun <cli> lane attention LANE --reason review_required --state <state>.defaults\`, and wait; a person reviews, runs \`bun <cli> lane resume LANE --state <state>.defaults\` and records the verdict with \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>.defaults\`.
+5. Review policy: human, the declared default when no reviewer lenses are configured. Run \`bun <cli> lane review LANE --json --state <state>.defaults\`, then \`bun <cli> lane attention LANE --reason review_required --state <state>.defaults\`, and wait; a person reviews, runs \`bun <cli> lane resume LANE --state <state>.defaults\` and records the verdict with \`bun <cli> lane verdict LANE --head SHA --decision approved --state <state>.defaults\`.
 6. On changes_requested, fix, commit and repeat from step 3 with the new head; once the verdict for the head is approved, continue with step 7.
 7. Merge is not yours. When the watched pull request merges at the approved head, run \`bun <cli> lane complete --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>.defaults\`, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.
 Interlock refusals are final for that step: report them instead of working around them.
@@ -278,6 +284,10 @@ Authorization and completion:
 Apart from the Interlock lane commands above, this prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied."
 ,
     "repository": "alice",
+    "review": {
+      "policy": "human",
+      "source": "default",
+    },
     "reviewers": {},
     "state": "planned",
     "ticket": "jira:example:TEST:ticket:TEST-492",
@@ -347,7 +357,7 @@ Required output:
 Lane procedure:
 1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
 2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
-3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --json --state <state>\` with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the check and a link to that result to record the gate evidence and submit the lane.
 4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
@@ -416,7 +426,7 @@ Required output:
 Lane procedure:
 1. Before any work, run \`bun <cli> lane attach --ticket jira:example:TEST:ticket:TEST-492 --json --state <state>\` from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.
 2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.
-3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.
+3. When your checks pass at HEAD, run \`bun <cli> lane submit LANE --head SHA --json --state <state>\` with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run \`bun <cli> lane submit LANE --head SHA --gate GATE --evidence-url URL --json --state <state>\` with the check and a link to that result to record the gate evidence and submit the lane.
 4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.
 5. Run \`bun <cli> lane review LANE --json --state <state>\`. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings.
    - correctness: target {"providerInstanceId":"codex","model":"test-model","options":{"reasoningEffort":"high"}}
@@ -428,6 +438,12 @@ Authorization and completion:
 Apart from the Interlock lane commands above, this prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied."
 ,
     "repository": "alice",
+    "review": {
+      "lenses": [
+        "correctness",
+      ],
+      "policy": "lenses",
+    },
     "reviewers": {
       "correctness": {
         "harness": "codex",
@@ -773,6 +789,56 @@ exports[`lane completion JSON includes read-back unblocked tickets without retir
   "code": 0,
   "result": {
     "ok": true,
+    "receipts": [
+      {
+        "fact": "pull_request_merged",
+        "gate": "merge",
+        "observed": {
+          "value": "<merge>",
+        },
+        "observedAt": "<time>",
+        "source": {
+          "ref": "https://github.com/o/r/pull/9",
+          "system": "github",
+        },
+      },
+      {
+        "fact": "ticket_done",
+        "gate": "tracker_done",
+        "observed": {
+          "value": "Done",
+        },
+        "observedAt": "<time>",
+        "source": {
+          "ref": "jira:x:JWB:ticket:JWB-909",
+          "system": "jira",
+        },
+      },
+      {
+        "fact": "claim_mirror_removed",
+        "gate": "mirror_removed",
+        "observed": {
+          "value": "removed_verified",
+        },
+        "observedAt": "<time>",
+        "source": {
+          "ref": "jira:x:JWB:ticket:JWB-909",
+          "system": "jira",
+        },
+      },
+      {
+        "fact": "claim_lock_released",
+        "gate": "claim_released",
+        "observed": {
+          "value": "<lock>",
+        },
+        "observedAt": "<time>",
+        "source": {
+          "ref": "<root>/origin.git",
+          "system": "git",
+        },
+      },
+    ],
     "unblocked": {
       "state": "known",
       "tickets": [],

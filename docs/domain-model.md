@@ -154,10 +154,9 @@ ambient credentials from the lane environment remains the host's job. The `lane`
 
 ## Engine-ready contracts
 
-These are domain types for a future durable-execution engine (such as Restate or
-Temporal), not an implemented engine or supervisor. JWB-950 supplies the host
-port and JWB-951 the supervisor. No existing action gains a capability by the
-presence of these types.
+These domain types give side effects a stable identity so a journal today, or
+a durable-execution engine later ([ADR 0003](adr/0003-supervisor-on-the-journal.md)),
+can replay them. No action gains a capability by the presence of these types.
 
 - **Operation identity** ([type](../src/domain/operation/identity.ts)): a stable
   side-effect key, represented by the readonly pair `[lane, step]`. Its canonical
@@ -217,6 +216,58 @@ presence of these types.
   that claim. Once the host reports a session, any later pickup failure,
   including a ledger write, is unresolved rather than compensated. Neither deletes a
   thread, branch or worktree.
+
+## Supervisor
+
+`interlock run --project MAP=REPO[,MAP=REPO]` is the environment's one
+supervisor ([tick](../src/execution/supervisor/tick.ts)). Each tick, in order:
+
+1. **Completion.** For an approved or merged lane it reads GitHub merge state.
+   When merged, it re-reads the ticket, its blockers and the remote claim ref,
+   then runs `lane complete`, whose receipts cover the merge proof, the Done
+   readback, the mirror removal and the claim release.
+2. **Sessions.** For a claimed or implementing lane, or a launched lane that
+   has not attached yet, it reads the host session recorded at launch, or the
+   one thread titled with the ticket key when none was recorded. A session whose status and
+   last message have not changed for `--stall-minutes` is resumed with a host
+   message under `[lane, "resume:N"]`, journaled before it is sent, up to a
+   resume allowance per stall window. A lane update, such as a person resuming
+   it from attention, starts a new window. A session that is missing,
+   duplicated or unreadable for three ticks in a row, a run that needs
+   recovery, an unconfirmed resume, a pending resume found after a restart, or a stall past
+   the allowance moves the lane to attention. Submitted and reviewing lanes are
+   not resumed: they wait on checks and a person.
+3. **Frontier.** It lists each map's tickets in rank order and launches each
+   open, unassigned, pickable ticket whose blockers are closed, with no held
+   claim and no lane in the ledger, through `pickup --launch`, until the number
+   of unfinished lanes reaches `--parallelism`. A launched lane that has not
+   attached yet counts.
+
+Human edits win. A ticket reassigned away from the claim owner, moved out of
+the claimed status, re-blocked, or whose remote claim is no longer the lane's,
+is held and not advanced. A released claim record counts as no claim, unless
+the lane's own interrupted completion wrote it. A lane whose claim cannot be
+resolved needs attention. A ticket with only done lanes that is open again is
+reported as reopened and not picked up. The supervisor never releases or
+reassigns a claim. Completion refusals route the lane to attention unless they
+are transient tracker, claim-lock, artifact-host or readback failures, which
+retry on the next tick without marking the run for recovery.
+
+Each observed fact is journaled as [gate evidence](../src/domain/gate/evidence.ts)
+when its value changes. `interlock status` shows each lane's state, whether it
+needs attention, and the latest evidence per gate. `interlock service install`
+writes a systemd user unit that starts at boot, or a launchd agent that starts
+at login, running the same command and restarting it on failure. A tick that
+runs past 20 minutes exits the process so the service restarts it.
+
+## Review policy
+
+A pickup plan declares its `review` policy: `lenses` when reviewer lenses are
+configured, otherwise the declared default `human`, where the agent moves the
+lane to review and attention and a person records the verdict. `lane submit`
+without `--gate` pushes and opens the pull request first; a second
+`lane submit` with the gate and the evidence URL for that pushed head records
+the evidence and submits the lane.
 
 ## Conformance
 

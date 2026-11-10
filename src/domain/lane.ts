@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type GateEvidence, gateEvidenceSchema } from "./gate/evidence.ts";
 import { claimRefSchema, laneRefSchema, runRefSchema, ticketRefSchema } from "./identifiers.ts";
 import type { ClaimRef, LaneRef, RunRef, TicketRef } from "./model.ts";
 
@@ -51,6 +52,7 @@ export function laneResultSchema<T extends z.ZodType>(value: T) {
       ok: z.literal(true),
       value,
       unblocked: unblockedSchema.optional(),
+      receipts: z.array(gateEvidenceSchema).optional(),
     }),
     z.strictObject({ ok: z.literal(false), refusal: laneRefusalSchema }),
   ]);
@@ -61,6 +63,7 @@ export type LaneResult<T> =
       ok: true;
       value: T;
       unblocked?: Unblocked;
+      receipts?: GateEvidence[];
     }
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
 

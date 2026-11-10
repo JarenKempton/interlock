@@ -72,14 +72,14 @@ export function laneProcedure(ticket: Ticket, lane: LaneProcedure): string {
         `6. Record one verdict for that head: ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")} only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.`,
       ]
     : [
-        `5. No review lenses are planned. Run ${run("lane", "review", "LANE", "--json")}, then ${run("lane", "attention", "LANE", "--reason", "review_required")}, and wait; a person reviews, runs ${run("lane", "resume", "LANE")} and records the verdict with ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")}.`,
+        `5. Review policy: human, the declared default when no reviewer lenses are configured. Run ${run("lane", "review", "LANE", "--json")}, then ${run("lane", "attention", "LANE", "--reason", "review_required")}, and wait; a person reviews, runs ${run("lane", "resume", "LANE")} and records the verdict with ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")}.`,
         "6. On changes_requested, fix, commit and repeat from step 3 with the new head; once the verdict for the head is approved, continue with step 7.",
       ];
   return [
     "Lane procedure:",
     `1. Before any work, run ${run("lane", "attach", "--ticket", ticket.ref, "--json")} from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.`,
     "2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.",
-    `3. When your checks pass at HEAD, run ${run("lane", "submit", "LANE", "--head", "SHA", "--gate", "GATE", "--evidence-url", "URL", "--json")} with the full HEAD SHA, the check you ran, and a link to its result for that SHA. It pushes the branch and opens or updates this lane's one pull request.`,
+    `3. When your checks pass at HEAD, run ${run("lane", "submit", "LANE", "--head", "SHA", "--json")} with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run ${run("lane", "submit", "LANE", "--head", "SHA", "--gate", "GATE", "--evidence-url", "URL", "--json")} with the check and a link to that result to record the gate evidence and submit the lane.`,
     "4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.",
     ...review,
     `7. Merge is not yours. When the watched pull request merges at the approved head, run ${run("lane", "complete", "--ticket", ticket.ref, "--json")}, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.`,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { supervisorActions } from "./app/commands.ts";
 import { composeActions } from "./cli/catalog.ts";
 import { completionCandidates, completionScript } from "./cli/completions.ts";
 import { type ActionTree, defineAction } from "./cli/definition.ts";
@@ -118,7 +119,10 @@ export function createApplication(services: RuntimeServices = {}) {
       ...(services.statePath ? { statePath: services.statePath } : {}),
     },
   );
-  const execution = composeActions(runActions(services), signInActions(services));
+  const execution = composeActions(
+    composeActions(runActions(services), signInActions(services)),
+    supervisorActions(services),
+  );
   const actions = composeActions(configuration, composeActions(execution, core));
   tree = actions;
   return actions;

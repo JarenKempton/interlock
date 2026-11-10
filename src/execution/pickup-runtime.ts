@@ -33,6 +33,7 @@ import { selfCommand } from "../distribution/version.ts";
 import type { ClaimHome } from "../domain/claim-home.ts";
 import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
 import type { Clock, Ledger } from "../domain/contracts.ts";
+import { reviewPolicy, reviewPolicySchema } from "../domain/gate/review.ts";
 import { HostRefusal } from "../domain/host/capability.ts";
 import {
   actorRefSchema,
@@ -49,6 +50,8 @@ import { lockExecution } from "../persistence/execution-lock.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
+
+export type { RuntimeServices };
 import { requireCredentials, trackerSignIns } from "../sign-in/credentials.ts";
 import { CHANGE_CLAIM_HOME, resolveClaimHome } from "./claim-home.ts";
 import { ClaimCoordinator } from "./claims.ts";
@@ -75,6 +78,7 @@ const pickupPlanSchema = z.strictObject({
   title: z.string(),
   modelSelection: modelSelectionSchema.optional(),
   reviewers: z.record(z.string(), modelSelectionSchema),
+  review: reviewPolicySchema,
   prompt: z.string(),
   hostVerification: z.union([
     z.strictObject({ source: z.literal("host-defaults"), message: z.string() }),
@@ -456,6 +460,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     title: `${input.key}: ${ticket.title ?? input.key}`,
     ...(models.implementer ? { modelSelection: models.implementer } : {}),
     reviewers: models.reviewers,
+    review: reviewPolicy(Object.keys(models.reviewers)),
     prompt,
     hostVerification: catalog
       ? {
