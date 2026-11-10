@@ -15,12 +15,14 @@ export interface ServicePlatform {
   home: string;
   uid: number;
   logDirectory: string;
+  path: string;
 }
 
 function systemdWord(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value)
-    ? value
-    : `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  const literal = value.replaceAll("%", "%%").replaceAll("$", () => "$$");
+  return /^[\w@%+=:,./-]+$/.test(literal)
+    ? literal
+    : `"${literal.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 function xml(value: string): string {
@@ -46,6 +48,7 @@ export function serviceDefinition(
         "",
         "[Service]",
         "Type=simple",
+        `Environment=${systemdWord(`PATH=${platform.path}`)}`,
         `ExecStart=${command.map(systemdWord).join(" ")}`,
         "Restart=on-failure",
         "RestartSec=30",
@@ -56,7 +59,8 @@ export function serviceDefinition(
       ].join("\n"),
       activate: [
         ["systemctl", "--user", "daemon-reload"],
-        ["systemctl", "--user", "enable", "--now", "interlock.service"],
+        ["systemctl", "--user", "enable", "interlock.service"],
+        ["systemctl", "--user", "restart", "interlock.service"],
         ["loginctl", "enable-linger"],
       ],
     };
@@ -77,6 +81,8 @@ export function serviceDefinition(
         "  <array>",
         ...command.map((word) => `    <string>${xml(word)}</string>`),
         "  </array>",
+        "  <key>EnvironmentVariables</key>",
+        `  <dict><key>PATH</key><string>${xml(platform.path)}</string></dict>`,
         "  <key>RunAtLoad</key><true/>",
         "  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>",
         "  <key>ThrottleInterval</key><integer>30</integer>",

@@ -105,7 +105,13 @@ class World implements SupervisorPorts {
   lanes = () =>
     [...this.lanesById.values()].map((lane) => {
       const claim = this.claims.get(lane.id);
-      return { lane, live: true, ...(claim ? { claim } : {}), claimedStatus: "In Progress" };
+      return {
+        lane,
+        live: true,
+        ...(lane.run ? { run: lane.run } : {}),
+        ...(claim ? { claim } : {}),
+        claimedStatus: "In Progress",
+      };
     });
 
   read = async (ticket: TicketRef) => {
@@ -166,6 +172,7 @@ class World implements SupervisorPorts {
     if (this.launchFailure) throw new Error(this.launchFailure);
     const key = ticket.ref.split(":").at(-1) ?? "";
     const lane = this.lane(key, "implementing");
+    this.view(lane, "running", 1);
     this.tickets.set(ticket.ref, { ...ticket, status: "In Progress", assignee: owner });
     return { lane: lane.id, session: `thread-${key}` };
   };
@@ -347,6 +354,11 @@ test("an unconfirmed resume is never resent after a restart", async () => {
 
   expect(world.log).toEqual([`attention ${ref("JWB-2")} resume_unconfirmed`]);
   expect(report.attention).toEqual([{ lane: lane.id, reason: "resume_unconfirmed" }]);
+
+  world.lanesById.set(lane.id, { ...lane, updatedAt: world.time.toISOString() });
+  const resumed = await superviseTick(world, policy);
+  expect(resumed.attention).toEqual([]);
+  expect(world.log).toHaveLength(1);
 });
 
 test("an ambiguous resume routes the lane to attention", async () => {
@@ -365,14 +377,16 @@ test("an ambiguous resume routes the lane to attention", async () => {
   ]);
 });
 
-test("ownership refusals need attention while transient completion refusals retry", async () => {
-  const collided = new World();
-  const lane = collided.lane("JWB-2", "approved");
-  collided.mergedUrls.add(lane.artifact ?? "");
-  collided.completeRefusal = "claim_collision";
-  expect((await superviseTick(collided, policy)).attention).toEqual([
-    { lane: lane.id, reason: "completion_claim_collision" },
-  ]);
+test("unrecoverable completion refusals need attention while transient ones retry", async () => {
+  for (const code of ["claim_collision", "recovery_required", "workspace_unknown"] as const) {
+    const refused = new World();
+    const lane = refused.lane("JWB-2", "approved");
+    refused.mergedUrls.add(lane.artifact ?? "");
+    refused.completeRefusal = code;
+    expect((await superviseTick(refused, policy)).attention).toEqual([
+      { lane: lane.id, reason: `completion_${code}` },
+    ]);
+  }
 
   const offline = new World();
   const other = offline.lane("JWB-2", "approved");
@@ -414,4 +428,55 @@ test("gate evidence is journaled only when the observed value changes", async ()
   world.mergedUrls.add(lane.artifact ?? "");
   await superviseTick(world, policy);
   expect(gates()).toEqual([{ value: false }, { value: "b".repeat(40) }]);
+});
+
+test("a session the host cannot find, or finds twice, needs attention", async () => {
+  const missing = new World();
+  const lane = missing.lane("JWB-2", "implementing");
+  expect((await superviseTick(missing, policy)).attention).toEqual([
+    { lane: lane.id, reason: "session_missing" },
+  ]);
+
+  const doubled = new World();
+  const other = doubled.lane("JWB-2", "queued");
+  const view = doubled.view(other, "ready", 1);
+  doubled.sessions = async () => [view, view];
+  expect((await superviseTick(doubled, policy)).attention).toEqual([
+    { lane: other.id, reason: "session_ambiguous" },
+  ]);
+});
+
+test("a human edit holds a running session instead of resuming it", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  world.view(lane, "ready", 1);
+  await superviseTick(world, policy);
+  world.ticket("JWB-2", { status: "In Progress", assignee: actorRefSchema.parse("someone") });
+  world.time = new Date(world.time.getTime() + 31 * 60_000);
+
+  const report = await superviseTick(world, policy);
+
+  expect(world.log).toEqual([]);
+  expect(report.held).toEqual([{ lane: lane.id, ticket: ref("JWB-2"), reason: "reassigned" }]);
+});
+
+test("a person resuming a stalled lane gets a fresh stall window and resume", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  world.view(lane, "ready", 1);
+  for (let tick = 0; tick < 3; tick += 1) {
+    await superviseTick(world, policy);
+    world.time = new Date(world.time.getTime() + 31 * 60_000);
+  }
+  expect(world.lanesById.get(lane.id)?.state).toBe("attention");
+  world.lanesById.set(lane.id, { ...lane, updatedAt: world.time.toISOString() });
+
+  expect((await superviseTick(world, policy)).attention).toEqual([]);
+  world.time = new Date(world.time.getTime() + 31 * 60_000);
+  expect((await superviseTick(world, policy)).resumed).toHaveLength(1);
+  expect(world.log).toEqual([
+    `steer thread-${lane.id} resume:1`,
+    `attention ${ref("JWB-2")} stalled`,
+    `steer thread-${lane.id} resume:2`,
+  ]);
 });

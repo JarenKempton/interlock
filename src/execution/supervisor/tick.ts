@@ -13,11 +13,15 @@ import type {
 import { RESUME_MESSAGE, stallDecision } from "./stall.ts";
 
 const COMPLETABLE = new Set<LaneState>(["approved", "merged"]);
-const SUPERVISED_SESSIONS = new Set<LaneState>(["claimed", "implementing"]);
-const ATTENTION_REFUSALS = new Set<LaneRefusalCode>([
-  "claim_collision",
-  "artifact_mismatch",
-  "stale_evidence",
+const SUPERVISED_SESSIONS = new Set<LaneState>(["queued", "claimed", "implementing"]);
+const RETRYABLE_REFUSALS = new Set<LaneRefusalCode>([
+  "ambiguous_write",
+  "artifact_host_unavailable",
+  "pull_request_unmerged",
+  "stale_version",
+  "tracker_not_done",
+  "tracker_unavailable",
+  "tracker_write_failed",
 ]);
 
 class Tick {
@@ -94,38 +98,39 @@ class Tick {
       return;
     }
     const { code, message } = result.refusal;
-    if (ATTENTION_REFUSALS.has(code)) await this.attention(lane, `completion_${code}`);
-    else
-      this.report.failures.push({
-        lane: lane.id,
-        step: "complete",
-        message: `${code}: ${message}`,
-      });
+    if (!RETRYABLE_REFUSALS.has(code)) return this.attention(lane, `completion_${code}`);
+    this.report.failures.push({ lane: lane.id, step: "complete", message: `${code}: ${message}` });
   }
 
   async session(supervised: SupervisedLane): Promise<void> {
     const { lane } = supervised;
     if (await this.humanEdits(supervised)) return;
     const entries = this.ports.journal.entries(lane.id);
-    if (unsettledResume(entries)) return this.attention(lane, "resume_unconfirmed");
-    const views = await this.ports.sessions(lane);
-    const [view] = views;
-    if (views.length !== 1 || !view) {
-      this.report.failures.push({
-        lane: lane.id,
-        step: "session",
-        message: `Host reports ${views.length} sessions for the lane`,
+    const unsettled = unsettledResume(entries);
+    if (unsettled) {
+      await this.attention(lane, "resume_unconfirmed");
+      this.ports.journal.record(lane.id, {
+        kind: "resume_settled",
+        operation: unsettled,
+        outcome: "handed_to_attention",
       });
       return;
     }
-    const previous = entries.findLast(
+    const views = await this.ports.sessions(lane);
+    const [view] = views;
+    if (views.length !== 1 || !view)
+      return this.attention(lane, views.length ? "session_ambiguous" : "session_missing");
+    const mark = entries.findLast(
       (entry): entry is Extract<JournalEntry, { kind: "progress" }> => entry.kind === "progress",
     )?.mark;
+    const previous =
+      mark && Date.parse(lane.updatedAt) <= Date.parse(mark.since) ? mark : undefined;
     const decision = stallDecision(previous, view, this.ports.now(), this.policy);
     if (decision.kind === "waiting") return;
     if (decision.kind === "attention") return this.attention(lane, decision.reason);
     if (decision.kind === "progressing") return this.mark(lane.id, decision.mark);
-    const operation = [lane.id, `resume:${decision.mark.resumes}`] as const;
+    const attempt = entries.filter((entry) => entry.kind === "resume_pending").length + 1;
+    const operation = [lane.id, `resume:${attempt}`] as const;
     const session = view.session.session;
     this.ports.journal.record(lane.id, { kind: "resume_pending", operation, session });
     let outcome: string;
@@ -197,25 +202,34 @@ class Tick {
         }
         active += 1;
         this.report.launched.push({ ticket: ticket.ref, ...launched });
-        this.observe(launched.lane, {
-          gate: "frontier",
-          fact: "blockers_closed",
-          source: trackerSource(ticket.ref),
-          observed: { value: true },
-          observedAt: this.observedAt(),
-        });
+        try {
+          this.observe(launched.lane, {
+            gate: "frontier",
+            fact: "blockers_closed",
+            source: trackerSource(ticket.ref),
+            observed: { value: true },
+            observedAt: this.observedAt(),
+          });
+        } catch (error) {
+          this.report.failures.push({
+            ticket: ticket.ref,
+            step: "frontier",
+            message: errorMessage(error),
+          });
+        }
       }
     }
   }
 }
 
-function unsettledResume(entries: readonly JournalEntry[]): boolean {
+function unsettledResume(entries: readonly JournalEntry[]) {
   const pending = entries.findLast((entry) => entry.kind === "resume_pending");
-  if (pending?.kind !== "resume_pending") return false;
+  if (pending?.kind !== "resume_pending") return undefined;
   const key = JSON.stringify(pending.operation);
-  return !entries.some(
+  const settled = entries.some(
     (entry) => entry.kind === "resume_settled" && JSON.stringify(entry.operation) === key,
   );
+  return settled ? undefined : pending.operation;
 }
 
 function errorMessage(error: unknown): string {
@@ -229,7 +243,7 @@ export async function superviseTick(
   const tick = new Tick(ports, policy);
   for (const supervised of ports.lanes()) {
     const { lane } = supervised;
-    if (!lane.ticket || !lane.run) continue;
+    if (!lane.ticket || !supervised.run) continue;
     try {
       if (lane.state === "attention")
         tick.report.attention.push({ lane: lane.id, reason: lane.attentionReason ?? "attention" });

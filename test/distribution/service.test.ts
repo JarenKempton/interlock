@@ -29,6 +29,7 @@ test("systemd unit starts at boot, restarts on failure and carries no secrets", 
     home: root,
     uid: 1000,
     logDirectory: "/state",
+    path: "/usr/bin:/home/u/.bun/bin",
   });
   expect(unit.path).toBe(join(root, ".config/systemd/user/interlock.service"));
   expect(unit.content).toContain('ExecStart=/opt/interlock run --project "JWB-470=/work/my repo"');
@@ -36,10 +37,12 @@ test("systemd unit starts at boot, restarts on failure and carries no secrets", 
   expect(unit.content).toContain("WantedBy=default.target");
   expect(unit.activate).toEqual([
     ["systemctl", "--user", "daemon-reload"],
-    ["systemctl", "--user", "enable", "--now", "interlock.service"],
+    ["systemctl", "--user", "enable", "interlock.service"],
+    ["systemctl", "--user", "restart", "interlock.service"],
     ["loginctl", "enable-linger"],
   ]);
   expect(unit.content).not.toMatch(/token|password|JIRA_/i);
+  expect(unit.content).toContain("Environment=PATH=/usr/bin:/home/u/.bun/bin");
 });
 
 test("launchd agent runs at load and is kept alive after a failed exit", () => {
@@ -49,6 +52,7 @@ test("launchd agent runs at load and is kept alive after a failed exit", () => {
     home: root,
     uid: 501,
     logDirectory: "/state",
+    path: "/usr/bin:/home/u/.bun/bin",
   });
   expect(agent.path).toBe(join(root, `Library/LaunchAgents/${SERVICE_LABEL}.plist`));
   expect(agent.content).toContain("<key>RunAtLoad</key><true/>");
@@ -56,12 +60,21 @@ test("launchd agent runs at load and is kept alive after a failed exit", () => {
     "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>",
   );
   expect(agent.content).toContain("<string>JWB-470=/work/my repo</string>");
+  expect(agent.content).toContain(
+    "<dict><key>PATH</key><string>/usr/bin:/home/u/.bun/bin</string></dict>",
+  );
   expect(agent.activate.at(-1)).toEqual(["launchctl", "bootstrap", "gui/501", agent.path]);
 });
 
 test("other platforms are refused", () => {
   expect(() =>
-    serviceDefinition(command, { platform: "win32", home: "/h", uid: 0, logDirectory: "/s" }),
+    serviceDefinition(command, {
+      platform: "win32",
+      home: "/h",
+      uid: 0,
+      logDirectory: "/s",
+      path: "",
+    }),
   ).toThrow("supports Linux (systemd) and macOS (launchd)");
 });
 
@@ -72,6 +85,7 @@ test("install writes the definition, then activates it in order and stops on fai
     home: root,
     uid: 1000,
     logDirectory: "/state",
+    path: "/usr/bin:/home/u/.bun/bin",
   });
   const ran: string[] = [];
   const results = await installService(unit, {
@@ -97,9 +111,21 @@ test("launchd tolerates bootout of an agent that is not loaded yet", async () =>
     home: root,
     uid: 501,
     logDirectory: "/state",
+    path: "/usr/bin:/home/u/.bun/bin",
   });
   const results = await installService(agent, {
     run: async (argv) => ({ exitCode: argv[1] === "bootout" ? 3 : 0, stderr: "" }),
   });
   expect(results.map((result) => result.exitCode)).toEqual([3, 0]);
+});
+
+test("systemd arguments keep percent and dollar signs literal", () => {
+  const unit = serviceDefinition(["/opt/interlock", "run", "--state", "/s/100%", "$HOME"], {
+    platform: "linux",
+    home: home(),
+    uid: 1000,
+    logDirectory: "/state",
+    path: "/usr/bin",
+  });
+  expect(unit.content).toContain('ExecStart=/opt/interlock run --state /s/100%% "$$HOME"');
 });

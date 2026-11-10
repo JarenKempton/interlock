@@ -40,6 +40,7 @@ export class StateStore {
     if (!path) throw new Error("Database path is required");
     this.#database = new Database(path, { create: true, strict: true });
     try {
+      this.#database.exec("PRAGMA busy_timeout=5000");
       this.#database.exec("PRAGMA journal_mode=WAL");
       const result = options.migrations
         ? migrateLedger(this.#database, path, options.migrations)

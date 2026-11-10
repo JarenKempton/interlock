@@ -226,12 +226,15 @@ supervisor ([tick](../src/execution/supervisor/tick.ts)). Each tick, in order:
    When merged, it re-reads the ticket, its blockers and the remote claim ref,
    then runs `lane complete`, whose receipts cover the merge proof, the Done
    readback, the mirror removal and the claim release.
-2. **Sessions.** For a claimed or implementing lane it reads the host session.
-   A session whose status and last message have not changed for
-   `--stall-minutes` is resumed with a host message under `[lane, "resume:N"]`,
-   journaled before it is sent, up to a resume allowance. An unconfirmed
-   resume, a pending resume found after a restart, or a stall past the
-   allowance moves the lane to attention.
+2. **Sessions.** For a claimed or implementing lane, or a launched lane that
+   has not attached yet, it reads the host session. A session whose status and
+   last message have not changed for `--stall-minutes` is resumed with a host
+   message under `[lane, "resume:N"]`, journaled before it is sent, up to a
+   resume allowance per stall window. A lane update, such as a person resuming
+   it from attention, starts a new window. A missing or duplicate session, an
+   unconfirmed resume, a pending resume found after a restart, or a stall past
+   the allowance moves the lane to attention. Submitted and reviewing lanes are
+   not resumed: they wait on checks and a person.
 3. **Frontier.** It lists each map's tickets in rank order and launches each
    open, unassigned, pickable ticket whose blockers are closed, with no held
    claim and no lane in the ledger, through `pickup --launch`, until the number
@@ -240,10 +243,11 @@ supervisor ([tick](../src/execution/supervisor/tick.ts)). Each tick, in order:
 
 Human edits win. A ticket reassigned away from the claim owner, moved out of
 the claimed status, re-blocked, or whose remote claim is no longer the lane's,
-is held and not advanced. A ticket with only done lanes that is open again is
+is held and not advanced. A released claim record counts as no claim. A ticket with only done lanes that is open again is
 reported as reopened and not picked up. The supervisor never releases or
-reassigns a claim. Ownership refusals from completion route the lane to
-attention; transient ones retry on the next tick.
+reassigns a claim. Completion refusals route the lane to attention unless they
+are transient tracker, artifact-host or readback failures, which retry on the
+next tick.
 
 Each observed fact is journaled as [gate evidence](../src/domain/gate/evidence.ts)
 when its value changes. `interlock status` shows each lane's state, whether it

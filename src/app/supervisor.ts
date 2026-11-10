@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
 import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
 import { T3HostPort } from "../adapters/hosts/t3/port.ts";
@@ -8,6 +9,8 @@ import { readUserSettings } from "../configuration/local-settings.ts";
 import { resolveSharedConfiguration, sharedConfiguration } from "../configuration/project-files.ts";
 import type { ExecutionConfiguration } from "../configuration/schema.ts";
 import { normalizeClaimHome } from "../domain/claim-home.ts";
+import { gateEvidenceSchema } from "../domain/gate/evidence.ts";
+import { laneRefSchema } from "../domain/identifiers.ts";
 import type { Lane } from "../domain/lane.ts";
 import type { LaneRef, RunRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
@@ -31,29 +34,46 @@ import type {
 import { StateStore } from "../persistence/state.ts";
 
 const JOURNAL_PREFIX = "supervisor_";
+const operationSchema = z.tuple([laneRefSchema, z.string()]).readonly();
+const journalEntrySchema: z.ZodType<JournalEntry> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("gate"), evidence: gateEvidenceSchema }),
+  z.object({
+    kind: z.literal("progress"),
+    mark: z.object({
+      fingerprint: z.string(),
+      since: z.string(),
+      resumes: z.number().int().nonnegative(),
+    }),
+  }),
+  z.object({ kind: z.literal("resume_pending"), operation: operationSchema, session: z.string() }),
+  z.object({ kind: z.literal("resume_settled"), operation: operationSchema, outcome: z.string() }),
+]);
 const LOCK_RETRIES = 40;
 
 export function journalEntries(store: StateStore, run: RunRef): JournalEntry[] {
   return store.steps(run).flatMap((step) => {
     if (!step.state.startsWith(JOURNAL_PREFIX) || !step.receipt_json) return [];
-    const entry: unknown = JSON.parse(step.receipt_json);
-    return isJournalEntry(entry) ? [entry] : [];
+    try {
+      const entry = journalEntrySchema.safeParse(JSON.parse(step.receipt_json));
+      return entry.success ? [entry.data] : [];
+    } catch {
+      return [];
+    }
   });
-}
-
-function isJournalEntry(value: unknown): value is JournalEntry {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "kind" in value &&
-    ["gate", "progress", "resume_pending", "resume_settled"].includes(String(value.kind))
-  );
 }
 
 export function laneRun(store: StateStore, lane: Lane): RunRef | undefined {
   if (lane.run || !lane.ticket) return lane.run;
   return store.listRuns().find((run) => run.ticket === lane.ticket && run.status === "claimed")
     ?.ref;
+}
+
+function runClaim(store: StateStore, run: RunRef) {
+  try {
+    return store.claimForRun(run);
+  } catch {
+    return undefined;
+  }
 }
 
 export function claimedStatus(configuration: ExecutionConfiguration | undefined) {
@@ -112,8 +132,9 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
     return tracker;
   };
   const host = (lane: Lane) => {
-    if (!lane.run || !lane.ticket) throw new Error("Lane has no run");
-    const run = store.run(lane.run);
+    const ref = laneRun(store, lane);
+    if (!ref || !lane.ticket) throw new Error(`Lane ${lane.id} has no run`);
+    const run = store.run(ref);
     const binding = {
       lane: lane.id,
       ticket: lane.ticket,
@@ -157,30 +178,33 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
           .map((run) => run.ticket),
       );
       return store.listLanes().map((lane): SupervisedLane => {
+        const run = laneRun(store, lane);
         const live =
-          lane.run !== undefined ||
+          run !== undefined ||
           lane.state !== "queued" ||
           (lane.ticket !== undefined && claimedTickets.has(lane.ticket));
-        if (!lane.run || !lane.claim) return { lane, live };
-        const status = claimedStatus(store.getExecutionConfiguration(lane.run));
+        if (!run) return { lane, live };
+        const claim = lane.claim ? store.claim(lane.claim) : runClaim(store, run);
+        const status = claimedStatus(store.getExecutionConfiguration(run));
         return {
           lane,
           live,
-          claim: store.claim(lane.claim),
+          run,
+          ...(claim ? { claim } : {}),
           ...(status ? { claimedStatus: status } : {}),
         };
       });
     },
     read: async (ticket) => (await reader.read(ticket)).ticket,
-    remoteClaim: async ({ lane, claim }) => {
-      if (!lane.run || !claim?.claimHomeUrl) return { claim: undefined, source: "unrecorded" };
+    remoteClaim: async ({ run, claim }) => {
+      if (!run || !claim?.claimHomeUrl) return { claim: undefined, source: "unrecorded" };
       const lock = new GitClaimLock({
-        repository: store.run(lane.run).workspace.path,
+        repository: store.run(run).workspace.path,
         home: normalizeClaimHome(claim.claimHomeUrl),
         git,
       });
-      const { record } = await lock.read(claim.ticket);
-      return { claim: record?.claim, source: claim.lockRef ?? claim.claimHomeUrl };
+      const held = heldClaim(await lock.read(claim.ticket));
+      return { claim: held?.claim, source: claim.lockRef ?? claim.claimHomeUrl };
     },
     merged: async (url) => {
       if (!artifacts.merged) throw new Error("The artifact host cannot read merge state");

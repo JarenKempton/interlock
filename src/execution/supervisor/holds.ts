@@ -48,12 +48,12 @@ export async function readHumanEdits(
 }
 
 function holdFor(
-  { claim, claimedStatus, lane }: SupervisedLane,
+  { claim, claimedStatus }: SupervisedLane,
   ticket: Ticket,
   remote: RemoteClaim,
   blocked: boolean,
 ): HumanHold | undefined {
-  if (remote.claim !== lane.claim) return "claim_changed";
+  if (remote.claim !== claim?.ref) return "claim_changed";
   if (ticket.assignee !== claim?.humanOwner) return "reassigned";
   if (ticket.state !== "closed" && claimedStatus && ticket.status !== claimedStatus)
     return "reopened";

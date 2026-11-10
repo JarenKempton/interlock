@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { createApplication } from "../../src/application.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../fixtures/git-remote.ts";
-import { inspect, pickupRuntimeFixtures, ref } from "../fixtures/pickup-runtime-suite.ts";
+import { inspect, lock, pickupRuntimeFixtures, ref } from "../fixtures/pickup-runtime-suite.ts";
 import { launchable } from "../fixtures/scripted-t3.ts";
 
 const fixture = pickupRuntimeFixtures();
@@ -19,14 +19,17 @@ async function supervised() {
   }));
   store.close();
   const { t3 } = launchable(f);
-  const tick = () =>
-    createApplication(f.services).run.execute({
+  const tick = async () => {
+    const report = await createApplication(f.services).run.execute({
       project: `TEST-470=${f.remote.alice}`,
       once: true,
       state: f.state,
     });
+    if (typeof report === "string") throw new Error(report);
+    return report;
+  };
   const starts = () => t3.calls.filter((call) => call[1] === "start");
-  return { f, tick, starts };
+  return { f, tick, starts, t3 };
 }
 
 test(
@@ -47,19 +50,27 @@ test(
     ]);
 
     const restarted = await tick();
-    expect(restarted).toMatchObject({ launched: [], failures: [] });
+    expect(restarted).toMatchObject({ launched: [], failures: [], held: [], attention: [] });
     expect(starts()).toHaveLength(1);
 
     const status = await createApplication(f.services).status.execute({ state: f.state });
     expect(status).toEqual([
       expect.objectContaining({
         ticket: ref,
+        state: "queued",
         gates: [
           expect.objectContaining({
             gate: "frontier",
             fact: "blockers_closed",
             source: { system: "jira", ref },
             observed: { value: true },
+          }),
+          expect.objectContaining({ gate: "assignee", observed: { value: "test-owner" } }),
+          expect.objectContaining({ gate: "status", observed: { value: "In Progress" } }),
+          expect.objectContaining({ gate: "blockers", observed: { value: true } }),
+          expect.objectContaining({
+            gate: "claim",
+            source: { system: "git", ref: expect.stringContaining("TEST-492") },
           }),
         ],
       }),
@@ -88,6 +99,47 @@ test(
     expect(await run("1")).toMatchObject({ launched: [{ ticket: ref }] });
     expect(await run("1")).toMatchObject({ launched: [] });
     expect(starts()).toHaveLength(1);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a launched lane whose session disappears before it attaches needs attention",
+  async () => {
+    const { f, tick, t3 } = await supervised();
+    await tick();
+    t3.listed = false;
+
+    const report = await tick();
+
+    const lane = inspect(f, (store) => store.laneForTicket(ref));
+    if (!lane) throw new Error("pickup recorded no lane");
+    expect(report.attention).toEqual([{ lane: lane.id, reason: "session_missing" }]);
+    expect(lane).toMatchObject({ state: "attention", previousState: "queued" });
+    expect(report.launched).toEqual([]);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a claim released by a person holds the lane even though the record keeps its claim ref",
+  async () => {
+    const { f, tick } = await supervised();
+    await tick();
+    const store = new StateStore(f.state);
+    const run = store.listRuns()[0];
+    const lane = store.laneForTicket(ref);
+    if (!run || !lane) throw new Error("pickup recorded no lane");
+    const claim = store.claimForRun(run.ref).ref;
+    store.saveLane({ ...lane, state: "implementing", run: run.ref, claim });
+    store.close();
+    await lock(f).restore(ref, claim);
+    expect((await lock(f).read(ref)).record).toMatchObject({ action: "release", claim });
+
+    const report = await tick();
+
+    expect(report.held).toEqual([{ lane: lane.id, ticket: ref, reason: "claim_changed" }]);
+    expect(report).toMatchObject({ launched: [], resumed: [], attention: [] });
   },
   GIT_TEST_TIMEOUT_MS,
 );

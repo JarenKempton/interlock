@@ -247,6 +247,7 @@ export function supervisorActions(services: RuntimeServices) {
             home: homedir(),
             uid: process.getuid?.() ?? 0,
             logDirectory: dirname(statePath),
+            path: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
           });
           if (!input["dry-run"]) await installService(definition, bunServiceRunner);
           return {
