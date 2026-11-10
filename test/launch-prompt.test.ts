@@ -200,6 +200,27 @@ test("Jira mentions, smart links and unsupported nodes remain visible in launch 
   expect(prompt).toContain("Acceptance criteria:\nAsk @Owner to approve https://example.com/spec");
 });
 
+test("a lane procedure with review lenses delegates each and stops when T3 rejects a target", () => {
+  const prompt = buildLaunchPrompt(fakePlanningTicket, {
+    lane: {
+      command: ["interlock"],
+      reviewers: {
+        correctness: {
+          providerInstanceId: "claudeAgent",
+          model: "claude-sonnet-5-5",
+          options: { effort: "high" },
+        },
+      },
+    },
+  });
+  expect(prompt).toContain(
+    'correctness: target {"providerInstanceId":"claudeAgent","model":"claude-sonnet-5-5","options":{"effort":"high"}}',
+  );
+  expect(prompt).toContain("lane attention LANE --reason reviewer_unavailable");
+  expect(prompt).toContain("never substitute another reviewer or review the change yourself");
+  expect(prompt).not.toContain("review_required");
+});
+
 test("a lane procedure without review lenses routes review to a person and quotes paths", () => {
   const prompt = buildLaunchPrompt(fakePlanningTicket, {
     lane: { command: ["interlock"], state: "/tmp/my ledger/x.db", reviewers: {} },

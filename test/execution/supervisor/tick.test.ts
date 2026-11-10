@@ -155,7 +155,9 @@ class World implements SupervisorPorts {
     return { ok: true, value: done, receipts: [receipt] };
   };
 
-  frontier = async () => [...this.tickets.values()];
+  outsideMap = new Set<TicketRef>();
+
+  frontier = async () => [...this.tickets.values()].filter((t) => !this.outsideMap.has(t.ref));
 
   eligible = async (_project: unknown, ticket: Ticket) => {
     if (ticket.state !== "open" || ticket.assignee || ticket.status !== "To Do")
@@ -538,4 +540,43 @@ test("a person resuming a stalled lane gets a fresh stall window and resume", as
     `attention ${ref("JWB-2")} stalled`,
     `steer thread-${lane.id} resume:2`,
   ]);
+});
+
+test("--only acts on and counts only the named tickets' lanes", async () => {
+  const world = new World();
+  const merged = world.lane("JWB-2", "approved");
+  world.mergedUrls.add(merged.artifact ?? "");
+  const stalled = world.lane("JWB-9", "implementing");
+  world.view(stalled, "ready", 1);
+  const outsider = world.lane("JWB-8", "approved");
+  world.mergedUrls.add(outsider.artifact ?? "");
+  world.ticket("JWB-3", blockedBy("JWB-2"));
+  world.ticket("JWB-4", blockedBy("JWB-2"));
+  const only = { ...policy, parallelism: 1, only: ["JWB-2", "JWB-4"] };
+
+  const report = await superviseTick(world, only);
+  world.time = new Date(world.time.getTime() + 31 * 60_000);
+  await superviseTick(world, only);
+
+  expect(world.log).toEqual([`complete ${ref("JWB-2")}`, `launch ${ref("JWB-4")}`]);
+  expect(report.evidence.map((item) => item.lane)).not.toContain(stalled.id);
+  expect(world.lanesById.get(outsider.id)?.state).toBe("approved");
+});
+
+test("without --only, lanes whose tickets are outside the project maps are ignored and uncounted", async () => {
+  const world = new World();
+  const foreign = world.lane("JWB-50", "approved");
+  world.mergedUrls.add(foreign.artifact ?? "");
+  const busy = world.lane("JWB-51", "implementing");
+  world.outsideMap.add(ref("JWB-50"));
+  world.outsideMap.add(ref("JWB-51"));
+  world.ticket("JWB-3");
+
+  const report = await superviseTick(world, { ...policy, parallelism: 1 });
+
+  expect(world.log).toEqual([`launch ${ref("JWB-3")}`]);
+  expect(report.failures).toEqual([]);
+  expect(report.attention).toEqual([]);
+  expect(world.lanesById.get(foreign.id)?.state).toBe("approved");
+  expect(world.lanesById.get(busy.id)?.state).toBe("implementing");
 });

@@ -11,6 +11,7 @@ export interface SupervisorProject {
 
 export interface SupervisorPolicy {
   projects: readonly SupervisorProject[];
+  only?: readonly string[];
   parallelism: number;
   stallAfterMs: number;
   maxResumes: number;

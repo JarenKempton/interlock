@@ -198,7 +198,11 @@ can replay them. No action gains a capability by the presence of these types.
   binds `--worktree` to the exact fetched base commit, never a branch name,
   `--branch` to the lane branch and, when one is selected, `--provider`
   and `--model`. The CLI cannot bind model options or modes, so `--launch`
-  refuses them. A launch counts only after `thread show` reads the thread back
+  refuses them. Configured reviewer lenses are not bound at launch: each lens
+  target (`reviewer_harness`, `reviewer_model` and `reviewer_effort`, or the
+  implementer's harness and model) goes into the lane procedure, T3 validates it
+  when the lane delegates the review, and a rejected target routes the lane to
+  attention instead of a substitute review. A launch counts only after `thread show` reads the thread back
   in the same project with the plan's title, selected harness and model, a
   healthy status, the lane branch and a worktree path. Exit 0 without a readable thread, a failed thread, or
   another branch is ambiguous. Recovery reads the project's threads by the
@@ -220,7 +224,10 @@ can replay them. No action gains a capability by the presence of these types.
 ## Supervisor
 
 `interlock run --project MAP=REPO[,MAP=REPO]` is the environment's one
-supervisor ([tick](../src/execution/supervisor/tick.ts)). Each tick, in order:
+supervisor ([tick](../src/execution/supervisor/tick.ts)). It acts only on
+tickets its maps list, and with `--only KEY[,KEY]` only on those tickets: other
+lanes in the ledger are never completed, resumed, steered or counted toward
+`--parallelism`. Each tick, in order:
 
 1. **Completion.** For an approved or merged lane it reads GitHub merge state.
    When merged, it re-reads the ticket, its blockers and the remote claim ref,

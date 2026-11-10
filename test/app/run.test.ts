@@ -5,6 +5,7 @@ import { createApplication } from "../../src/application.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../fixtures/git-remote.ts";
 import { inspect, lock, pickupRuntimeFixtures, ref } from "../fixtures/pickup-runtime-suite.ts";
+import { rejection } from "../fixtures/rejection.ts";
 import { launchable } from "../fixtures/scripted-t3.ts";
 
 const fixture = pickupRuntimeFixtures();
@@ -192,6 +193,31 @@ test(
     const report = await tick();
 
     expect(report).toMatchObject({ held: [], attention: [], failures: [] });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "run --only never launches a frontier ticket outside the list",
+  async () => {
+    const { f, starts } = await supervised();
+    const report = await createApplication(f.services).run.execute({
+      project: `TEST-470=${f.remote.alice}`,
+      once: true,
+      only: "TEST-999",
+      state: f.state,
+    });
+    expect(report).toMatchObject({ launched: [], failures: [] });
+    expect(starts()).toHaveLength(0);
+    const refused = await rejection(
+      createApplication(f.services).run.execute({
+        project: `TEST-470=${f.remote.alice}`,
+        once: true,
+        only: "TEST-999,nope",
+        state: f.state,
+      }),
+    );
+    expect(refused.message).toContain("--only needs comma-separated ticket keys, not nope");
   },
   GIT_TEST_TIMEOUT_MS,
 );
