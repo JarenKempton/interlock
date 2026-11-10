@@ -135,7 +135,7 @@ test(
       return request(method, path, body);
     };
     await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
-      "Jira rejected the stored sign-in (401); run interlock login jira",
+      "Jira rejected the credentials (401); run interlock login jira or update JIRA_API_TOKEN",
     );
     expect((await lock(f).read(ref)).version).toBe("absent");
   },
