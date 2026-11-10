@@ -103,6 +103,7 @@ transition is recorded before the next side effect. See [claim semantics](claim-
 for collision, compensation, and recovery behavior. A T3 Code lane runs the
 agent; a finished agent turn does not establish ticket completion.
 `lane complete --ticket KEY` verifies GitHub merge proof at the approved head,
+or at a head that adds only clean merges from the base branch after approval,
 re-checks remote claim ownership before tracker mutation, and journals recovery
 through the verified Done readback and persisted success receipt. Completion
 removes the tracker mirror and releases the claim while preserving the workspace;

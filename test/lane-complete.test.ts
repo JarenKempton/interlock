@@ -194,6 +194,24 @@ test("an unreadable claim lock refuses as transient, leaves the run claimed, and
   expect(lane.tracker.transitions).toEqual(["Done"]);
 });
 
+test("a merged head that only adds a clean merge from main completes on the approved head", async () => {
+  const lane = await mergedLane({ afterApproval: "base_merge" });
+  expect(lane.repo.prHead).not.toBe(lane.repo.head);
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(lane.tracker.transitions).toEqual(["Done"]);
+});
+
+for (const afterApproval of ["commit", "edited_merge"] as const)
+  test(`a merged head with unreviewed changes after approval still refuses: ${afterApproval}`, async () => {
+    const lane = await mergedLane({ afterApproval });
+    expect((await lane.complete()).result).toMatchObject({
+      ok: false,
+      refusal: { code: "stale_evidence" },
+    });
+    expect(lane.tracker.transitions).toEqual([]);
+    lane.intact();
+  });
+
 test("released or wrong-ticket claim cannot authorize completion", async () => {
   for (const mode of ["released", "wrong-ticket"] as const) {
     const lane = await mergedLane();

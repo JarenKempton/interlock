@@ -477,9 +477,18 @@ export class LaneService {
         "artifact_mismatch",
         "Merged pull request does not match the recorded branch and URL",
       );
+    const baseMergesOnly =
+      lane.head !== undefined &&
+      proof.head !== lane.head &&
+      (await this.#onlyBaseMerges(workspace.path, lane.head, proof));
     const gate = transitionLane(
       lane,
-      { type: "complete", proof, trackerDoneVerified: true },
+      {
+        type: "complete",
+        proof,
+        trackerDoneVerified: true,
+        ...(baseMergesOnly ? { baseMergesOnly } : {}),
+      },
       this.#clock.now().toISOString(),
     );
     if (gate.refusal) return { ok: false, refusal: gate.refusal };
@@ -594,6 +603,35 @@ export class LaneService {
       };
     } catch (error) {
       return { state: "unknown", reason: errorMessage(error, "Tracker read failed") };
+    }
+  }
+
+  async #onlyBaseMerges(path: string, approved: string, proof: MergeProof): Promise<boolean> {
+    if (!proof.commit) return false;
+    const git = async (...args: string[]) => {
+      const result = await this.#git.run(["git", ...args], path);
+      return result.exitCode === 0 ? result.stdout.trim() : undefined;
+    };
+    try {
+      for (const commit of [proof.commit, proof.head])
+        if ((await git("cat-file", "-e", `${commit}^{commit}`)) === undefined)
+          await git("fetch", "--quiet", "origin", commit);
+      const base = await git("rev-parse", "--verify", `${proof.commit}^1`);
+      if (!base || (await git("merge-base", "--is-ancestor", approved, proof.head)) === undefined)
+        return false;
+      const added = await git("rev-list", "--parents", proof.head, `^${approved}`, `^${base}`);
+      if (added === undefined) return false;
+      for (const line of added.split("\n").filter(Boolean)) {
+        const [commit, first, second, ...rest] = line.split(" ");
+        if (!commit || !first || !second || rest.length) return false;
+        if ((await git("merge-base", "--is-ancestor", second, base)) === undefined) return false;
+        const merged = await git("merge-tree", "--write-tree", first, second);
+        const tree = await git("rev-parse", `${commit}^{tree}`);
+        if (!merged || !tree || merged.split("\n")[0] !== tree) return false;
+      }
+      return true;
+    } catch {
+      return false;
     }
   }
 
