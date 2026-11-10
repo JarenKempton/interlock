@@ -1,0 +1,417 @@
+import { expect, test } from "bun:test";
+import type { GateEvidence } from "../../../src/domain/gate/evidence.ts";
+import type { HostSessionView, HostSteerResult } from "../../../src/domain/host/capability.ts";
+import {
+  actorRefSchema,
+  adapterRefSchema,
+  claimRefSchema,
+  laneRefSchema,
+  mapRefSchema,
+  runRefSchema,
+  ticketRefSchema,
+} from "../../../src/domain/identifiers.ts";
+import type { Lane, LaneRefusalCode, LaneResult, LaneState } from "../../../src/domain/lane.ts";
+import type { Claim, LaneRef, Ticket, TicketRef } from "../../../src/domain/model.ts";
+import type {
+  JournalEntry,
+  SupervisorPolicy,
+  SupervisorPorts,
+} from "../../../src/execution/supervisor/ports.ts";
+import { superviseTick } from "../../../src/execution/supervisor/tick.ts";
+
+const map = mapRefSchema.parse("jira:x:JWB:map:JWB-1");
+const owner = actorRefSchema.parse("owner");
+const ref = (key: string) => ticketRefSchema.parse(`jira:x:JWB:ticket:${key}`);
+const policy: SupervisorPolicy = {
+  projects: [{ map, repository: "/repo" }],
+  parallelism: 2,
+  stallAfterMs: 30 * 60_000,
+  maxResumes: 1,
+};
+
+class World implements SupervisorPorts {
+  time = new Date("2026-11-10T00:00:00.000Z");
+  tickets = new Map<TicketRef, Ticket>();
+  lanesById = new Map<LaneRef, Lane>();
+  claims = new Map<LaneRef, Claim>();
+  remote = new Map<LaneRef, string | undefined>();
+  mergedUrls = new Set<string>();
+  heldTickets = new Set<TicketRef>();
+  views = new Map<LaneRef, HostSessionView>();
+  steerResult: HostSteerResult = { state: "delivered" };
+  completeRefusal: LaneRefusalCode | undefined;
+  launchFailure: string | undefined;
+  log: string[] = [];
+  journalEntries = new Map<LaneRef, JournalEntry[]>();
+
+  ticket(key: string, patch: Partial<Ticket> = {}): Ticket {
+    const ticket: Ticket = {
+      ref: ref(key),
+      map,
+      kind: "task",
+      state: "open",
+      status: "To Do",
+      order: Number(key.split("-")[1]),
+      ...patch,
+    };
+    this.tickets.set(ticket.ref, ticket);
+    return ticket;
+  }
+
+  lane(key: string, state: LaneState, patch: Partial<Lane> = {}): Lane {
+    const id = laneRefSchema.parse(`interlock-lane:${key}`);
+    const lane: Lane = {
+      id,
+      ticket: ref(key),
+      run: runRefSchema.parse(`interlock-run:${key}`),
+      claim: claimRefSchema.parse(`interlock-claim:${key}`),
+      state,
+      artifact: `https://github.com/o/r/pull/${key}`,
+      head: "a".repeat(40),
+      evidence: [],
+      reviewRound: 1,
+      maxReviewRounds: 3,
+      createdAt: this.time.toISOString(),
+      updatedAt: this.time.toISOString(),
+      ...patch,
+    };
+    this.lanesById.set(id, lane);
+    if (lane.claim)
+      this.claims.set(id, {
+        ref: lane.claim,
+        ticket: ref(key),
+        humanOwner: owner,
+        run: runRefSchema.parse(`interlock-run:${key}`),
+        previousState: { version: "1", payload: null },
+        claimedAt: this.time.toISOString(),
+        leaseExpiresAt: "2026-01-01T00:00:00.000Z",
+        status: "active",
+        claimHomeUrl: "https://github.com/o/r.git",
+      });
+    this.remote.set(id, lane.claim);
+    if (!this.tickets.has(ref(key))) this.ticket(key, { status: "In Progress", assignee: owner });
+    return lane;
+  }
+
+  journal = {
+    entries: (lane: LaneRef) => this.journalEntries.get(lane) ?? [],
+    record: (lane: LaneRef, entry: JournalEntry) => {
+      this.journalEntries.set(lane, [...(this.journalEntries.get(lane) ?? []), entry]);
+    },
+  };
+
+  now = () => this.time;
+
+  lanes = () =>
+    [...this.lanesById.values()].map((lane) => {
+      const claim = this.claims.get(lane.id);
+      return { lane, live: true, ...(claim ? { claim } : {}), claimedStatus: "In Progress" };
+    });
+
+  read = async (ticket: TicketRef) => {
+    const found = this.tickets.get(ticket);
+    if (!found) throw new Error(`missing ${ticket}`);
+    return found;
+  };
+
+  remoteClaim = async ({ lane }: { lane: Lane }) => ({
+    claim: this.remote.get(lane.id),
+    source: "refs/interlock/claims/x",
+  });
+
+  merged = async (url: string) => ({
+    merged: this.mergedUrls.has(url),
+    url,
+    repository: "github.com/o/r",
+    branch: "task/x",
+    head: "a".repeat(40),
+    base: "main",
+    commit: this.mergedUrls.has(url) ? "b".repeat(40) : null,
+  });
+
+  complete = async (lane: Lane): Promise<LaneResult<Lane>> => {
+    this.log.push(`complete ${lane.ticket}`);
+    if (this.completeRefusal)
+      return { ok: false, refusal: { code: this.completeRefusal, message: "refused" } };
+    const done = { ...lane, state: "done" as const };
+    this.lanesById.set(lane.id, done);
+    if (lane.ticket) {
+      const ticket = this.tickets.get(lane.ticket);
+      if (ticket) this.tickets.set(lane.ticket, { ...ticket, state: "closed", status: "Done" });
+    }
+    const receipt: GateEvidence = {
+      gate: "claim_released",
+      fact: "claim_lock_released",
+      source: { system: "git", ref: "refs/interlock/claims/x" },
+      observed: { value: "v2" },
+      observedAt: this.time.toISOString(),
+    };
+    return { ok: true, value: done, receipts: [receipt] };
+  };
+
+  frontier = async () => [...this.tickets.values()];
+
+  eligible = async (_project: unknown, ticket: Ticket) => {
+    if (ticket.state !== "open" || ticket.assignee || ticket.status !== "To Do")
+      return "unavailable" as const;
+    for (const dependency of ticket.dependencies ?? [])
+      if (this.tickets.get(dependency.blocking)?.state !== "closed") return "blocked" as const;
+    return "eligible" as const;
+  };
+
+  held = async (_project: unknown, ticket: Ticket) => this.heldTickets.has(ticket.ref);
+
+  launch = async (_project: unknown, ticket: Ticket) => {
+    this.log.push(`launch ${ticket.ref}`);
+    if (this.launchFailure) throw new Error(this.launchFailure);
+    const key = ticket.ref.split(":").at(-1) ?? "";
+    const lane = this.lane(key, "implementing");
+    this.tickets.set(ticket.ref, { ...ticket, status: "In Progress", assignee: owner });
+    return { lane: lane.id, session: `thread-${key}` };
+  };
+
+  sessions = async (lane: Lane) => {
+    const view = this.views.get(lane.id);
+    return view ? [view] : [];
+  };
+
+  steer = async (view: HostSessionView, operation: readonly [LaneRef, string]) => {
+    this.log.push(`steer ${view.session.session} ${operation[1]}`);
+    return this.steerResult;
+  };
+
+  attention = async (lane: Lane, reason: string) => {
+    this.log.push(`attention ${lane.ticket} ${reason}`);
+    this.lanesById.set(lane.id, {
+      ...lane,
+      state: "attention",
+      previousState: lane.state,
+      attentionReason: reason,
+    });
+  };
+
+  view(lane: Lane, status: string, messages: number): HostSessionView {
+    const view: HostSessionView = {
+      session: {
+        environment: "env",
+        host: adapterRefSchema.parse("t3"),
+        harness: adapterRefSchema.parse("codex"),
+        session: `thread-${lane.id}`,
+        lane: lane.id,
+        ticket: lane.ticket ?? ref("JWB-0"),
+      },
+      status,
+      messages: Array.from({ length: messages }, (_, index) => ({
+        role: "assistant",
+        text: `m${index}`,
+      })),
+    };
+    this.views.set(lane.id, view);
+    return view;
+  }
+}
+
+const blockedBy = (key: string) => ({
+  dependencies: [{ blocking: ref(key), blocked: ref("JWB-0"), kind: "blocks" as const }],
+});
+
+test("a tick completes merged lanes first, then launches newly unblocked tickets up to the limit", async () => {
+  const world = new World();
+  const merged = world.lane("JWB-2", "approved");
+  world.mergedUrls.add(merged.artifact ?? "");
+  world.ticket("JWB-3", blockedBy("JWB-2"));
+  world.ticket("JWB-4", blockedBy("JWB-2"));
+  world.ticket("JWB-5", blockedBy("JWB-2"));
+  world.lane("JWB-9", "reviewing");
+
+  const report = await superviseTick(world, policy);
+
+  expect(world.log).toEqual([`complete ${ref("JWB-2")}`, `launch ${ref("JWB-3")}`]);
+  expect(report.completed.map((item) => item.ticket)).toEqual([ref("JWB-2")]);
+  expect(report.launched.map((item) => item.ticket)).toEqual([ref("JWB-3")]);
+  expect(report.evidence).toContainEqual({
+    lane: merged.id,
+    evidence: {
+      gate: "merge",
+      fact: "pull_request_merged",
+      source: { system: "github", ref: merged.artifact ?? "" },
+      observed: { value: "b".repeat(40) },
+      observedAt: world.time.toISOString(),
+    },
+  });
+});
+
+test("restarting the supervisor repeats no completion or launch", async () => {
+  const world = new World();
+  const merged = world.lane("JWB-2", "approved");
+  world.mergedUrls.add(merged.artifact ?? "");
+  world.ticket("JWB-3", blockedBy("JWB-2"));
+  await superviseTick(world, policy);
+  const journal = world.journalEntries.get(merged.id)?.length;
+
+  const restarted = await superviseTick(world, policy);
+
+  expect(world.log).toEqual([`complete ${ref("JWB-2")}`, `launch ${ref("JWB-3")}`]);
+  expect(restarted.completed).toEqual([]);
+  expect(restarted.launched).toEqual([]);
+  expect(world.journalEntries.get(merged.id)?.length).toBe(journal);
+});
+
+for (const [edit, change] of [
+  [
+    "reassigned",
+    (world: World) =>
+      world.ticket("JWB-2", { status: "In Progress", assignee: actorRefSchema.parse("someone") }),
+  ],
+  ["reopened", (world: World) => world.ticket("JWB-2", { status: "To Do", assignee: owner })],
+  [
+    "reblocked",
+    (world: World) => {
+      world.ticket("JWB-7");
+      world.ticket("JWB-2", { status: "In Progress", assignee: owner, ...blockedBy("JWB-7") });
+    },
+  ],
+  [
+    "claim_changed",
+    (world: World) => world.remote.set(laneRefSchema.parse("interlock-lane:JWB-2"), undefined),
+  ],
+] as const) {
+  test(`a ${edit} ticket is held instead of completed`, async () => {
+    const world = new World();
+    const merged = world.lane("JWB-2", "approved");
+    world.mergedUrls.add(merged.artifact ?? "");
+    change(world);
+
+    const report = await superviseTick(world, { ...policy, parallelism: 1 });
+
+    expect(world.log.filter((line) => line.startsWith("complete"))).toEqual([]);
+    expect(report.held).toContainEqual({ lane: merged.id, ticket: ref("JWB-2"), reason: edit });
+  });
+}
+
+test("a reopened ticket with a done lane, or a held claim, is never picked up again", async () => {
+  const world = new World();
+  world.lane("JWB-2", "done");
+  world.ticket("JWB-2");
+  world.ticket("JWB-3");
+  world.heldTickets.add(ref("JWB-3"));
+
+  const report = await superviseTick(world, policy);
+
+  expect(world.log).toEqual([]);
+  expect(report.held).toEqual([
+    { ticket: ref("JWB-2"), reason: "reopened" },
+    { ticket: ref("JWB-3"), reason: "claim_held" },
+  ]);
+});
+
+test("a stalled session is resumed once through the host, then routed to attention", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  world.view(lane, "ready", 3);
+  await superviseTick(world, policy);
+  world.time = new Date(world.time.getTime() + 31 * 60_000);
+
+  const resumed = await superviseTick(world, policy);
+  expect(resumed.resumed).toEqual([{ lane: lane.id, session: `thread-${lane.id}` }]);
+  expect(world.log).toEqual([`steer thread-${lane.id} resume:1`]);
+
+  world.time = new Date(world.time.getTime() + 31 * 60_000);
+  const stalled = await superviseTick(world, policy);
+  expect(stalled.attention).toEqual([{ lane: lane.id, reason: "stalled" }]);
+  expect(world.log.slice(1)).toEqual([`attention ${ref("JWB-2")} stalled`]);
+});
+
+test("a session that keeps progressing is never steered", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  for (let messages = 1; messages <= 3; messages += 1) {
+    world.view(lane, "running", messages);
+    await superviseTick(world, policy);
+    world.time = new Date(world.time.getTime() + 31 * 60_000);
+  }
+  expect(world.log).toEqual([]);
+});
+
+test("an unconfirmed resume is never resent after a restart", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  world.view(lane, "ready", 1);
+  world.journal.record(lane.id, {
+    kind: "resume_pending",
+    operation: [lane.id, "resume:1"],
+    session: "thread",
+  });
+
+  const report = await superviseTick(world, policy);
+
+  expect(world.log).toEqual([`attention ${ref("JWB-2")} resume_unconfirmed`]);
+  expect(report.attention).toEqual([{ lane: lane.id, reason: "resume_unconfirmed" }]);
+});
+
+test("an ambiguous resume routes the lane to attention", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  world.view(lane, "ready", 1);
+  world.steerResult = { state: "ambiguous", reason: "send unconfirmed" };
+  await superviseTick(world, policy);
+  world.time = new Date(world.time.getTime() + 31 * 60_000);
+
+  await superviseTick(world, policy);
+
+  expect(world.log).toEqual([
+    `steer thread-${lane.id} resume:1`,
+    `attention ${ref("JWB-2")} resume_unconfirmed`,
+  ]);
+});
+
+test("ownership refusals need attention while transient completion refusals retry", async () => {
+  const collided = new World();
+  const lane = collided.lane("JWB-2", "approved");
+  collided.mergedUrls.add(lane.artifact ?? "");
+  collided.completeRefusal = "claim_collision";
+  expect((await superviseTick(collided, policy)).attention).toEqual([
+    { lane: lane.id, reason: "completion_claim_collision" },
+  ]);
+
+  const offline = new World();
+  const other = offline.lane("JWB-2", "approved");
+  offline.mergedUrls.add(other.artifact ?? "");
+  offline.completeRefusal = "tracker_unavailable";
+  const report = await superviseTick(offline, policy);
+  expect(report.attention).toEqual([]);
+  expect(report.failures).toEqual([
+    { lane: other.id, step: "complete", message: "tracker_unavailable: refused" },
+  ]);
+  expect(offline.lanesById.get(other.id)?.state).toBe("approved");
+});
+
+test("a failed launch stops launching for the tick", async () => {
+  const world = new World();
+  world.ticket("JWB-3");
+  world.ticket("JWB-4");
+  world.launchFailure = "host_unavailable: t3 is down";
+
+  const report = await superviseTick(world, policy);
+
+  expect(world.log).toEqual([`launch ${ref("JWB-3")}`]);
+  expect(report.failures).toEqual([
+    { ticket: ref("JWB-3"), step: "launch", message: "host_unavailable: t3 is down" },
+  ]);
+});
+
+test("gate evidence is journaled only when the observed value changes", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "approved");
+  await superviseTick(world, policy);
+  await superviseTick(world, policy);
+  const gates = () =>
+    (world.journalEntries.get(lane.id) ?? []).flatMap((entry) =>
+      entry.kind === "gate" && entry.evidence.gate === "merge" ? [entry.evidence.observed] : [],
+    );
+  expect(gates()).toEqual([{ value: false }]);
+
+  world.mergedUrls.add(lane.artifact ?? "");
+  await superviseTick(world, policy);
+  expect(gates()).toEqual([{ value: false }, { value: "b".repeat(40) }]);
+});

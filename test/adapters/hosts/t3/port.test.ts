@@ -134,6 +134,12 @@ describe("T3 host preflight", () => {
     );
   });
 
+  test("ignores log lines the CLI writes to stdout before its JSON", async () => {
+    const t3 = ready().on("thread list", { exitCode: 0, stdout: `${WARN}\n[]`, stderr: "" });
+    await port(t3).preflight();
+    expect(t3.commands()).toEqual(["--version", "thread list"]);
+  });
+
   test("refuses when the repository has no T3 project", async () => {
     const t3 = ready().on("thread list", fail(`${WARN}\nNo T3 Code project matches '/repo'.`));
     expect((await rejection(port(t3).preflight())).message).toContain(

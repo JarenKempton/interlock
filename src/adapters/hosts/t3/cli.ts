@@ -76,9 +76,15 @@ export const listSchema = z.array(threadSchema.omit({ branch: true, worktreePath
 
 export const sentSchema = z.object({ threadId: z.string().min(1) });
 
+const LOG_LINE = /^\[[\d:.]+\] [A-Z]+ /;
+
 export function parseJson<T>(schema: z.ZodType<T>, text: string): T | undefined {
+  const json = text
+    .split("\n")
+    .filter((line) => !LOG_LINE.test(line))
+    .join("\n");
   try {
-    const parsed = schema.safeParse(JSON.parse(text));
+    const parsed = schema.safeParse(JSON.parse(json));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;

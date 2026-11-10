@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { run } from "../../src/cli.ts";
+import { observedValue } from "../../src/domain/gate/evidence.ts";
 import { laneResultSchema, laneSchema } from "../../src/domain/lane.ts";
 import { shellWord } from "../../src/execution/launch-prompt.ts";
 import { pickupResultSchema } from "../../src/execution/pickup-runtime.ts";
@@ -251,6 +252,13 @@ test(
         [f.repo.head, "<head>"],
         [lane.value.createdAt, "<time>"],
         [lane.value.updatedAt, "<time>"],
+        [f.repo.merge, "<merge>"],
+        ...(lane.receipts ?? []).flatMap((receipt): [string, string][] => [
+          [receipt.observedAt, "<time>"],
+          ...(receipt.gate === "claim_released"
+            ? [[observedValue(receipt), "<lock>"] as [string, string]]
+            : []),
+        ]),
       ]),
     ).toMatchSnapshot();
   },

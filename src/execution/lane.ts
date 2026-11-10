@@ -27,6 +27,7 @@ import {
   transitionLane,
   type Unblocked,
 } from "../domain/lane.ts";
+import { type GateEvidence, trackerSource } from "../domain/gate/evidence.ts";
 import type { Claim, LaneRef, RunRef, Ticket, TicketRef } from "../domain/model.ts";
 import { completionRecordMatches, releaseCompletedClaim } from "./claim/completion.ts";
 import { parseRef } from "../domain/reference.ts";
@@ -251,7 +252,16 @@ export class LaneService {
     if (!lane) return fail("lane_not_found", `Lane not found: ${id}`);
     const now = this.#clock.now().toISOString();
     const command = { type: "submit", head: input.head, evidence: input.evidence } as const;
-    const gate = transitionLane(lane, { ...command, artifact: lane.artifact ?? "pending" }, now);
+    const pushOnly = input.evidence.length === 0;
+    const gate = transitionLane(
+      lane,
+      {
+        ...command,
+        artifact: lane.artifact ?? "pending",
+        ...(pushOnly ? { evidence: [{ gate: "push", head: input.head, url: "pending" }] } : {}),
+      },
+      now,
+    );
     if (gate.refusal) return { ok: false, refusal: gate.refusal };
     const artifacts = this.#artifacts;
     if (!artifacts) return fail("unsupported_capability", "Submit requires an artifact host");
@@ -362,6 +372,7 @@ export class LaneService {
         return linkRefusal(error, artifact);
       }
     }
+    if (pushOnly) return ok({ ...lane, artifact, updatedAt: now });
     const transition = transitionLane(lane, { ...command, artifact }, now);
     if (transition.refusal) return { ok: false, refusal: transition.refusal };
     this.#store.saveLane(transition.lane);
@@ -418,6 +429,7 @@ export class LaneService {
             ok: true,
             value: result.value,
             ...(result.unblocked ? { unblocked: result.unblocked } : {}),
+            ...(result.receipts ? { receipts: result.receipts } : {}),
           }
         : result;
     }
@@ -497,11 +509,27 @@ export class LaneService {
     if (!done.ok) return done;
     this.#store.recordStep(lane.run, "completion_done_verified", { ticket: lane.ticket });
     const unblocked = lane.ticket ? await this.#unblocked(lane.ticket, lane.run) : undefined;
-    const result: LaneResult<Lane> = {
-      ok: true,
-      value: gate.lane,
-      ...(unblocked ? { unblocked } : {}),
-    };
+    const observedAt = () => this.#clock.now().toISOString();
+    const receipts: GateEvidence[] = [
+      {
+        gate: "merge",
+        fact: "pull_request_merged",
+        source: { system: "github", ref: proof.url },
+        observed: { value: proof.commit ?? proof.head },
+        observedAt: observedAt(),
+      },
+      ...(lane.ticket
+        ? [
+            {
+              gate: "tracker_done",
+              fact: "ticket_done",
+              source: trackerSource(lane.ticket),
+              observed: { value: done.value },
+              observedAt: observedAt(),
+            },
+          ]
+        : []),
+    ];
     try {
       const claim = this.#store.claim(lane.claim);
       const tracker = this.#tracker;
@@ -521,6 +549,28 @@ export class LaneService {
         journal: (state, receipt) => this.#store.recordStep(run, state, receipt),
         releasePending: steps.some((step) => step.state === "completion_release_pending"),
       });
+      const result: LaneResult<Lane> = {
+        ok: true,
+        value: gate.lane,
+        ...(unblocked ? { unblocked } : {}),
+        receipts: [
+          ...receipts,
+          {
+            gate: "mirror_removed",
+            fact: "claim_mirror_removed",
+            source: trackerSource(claim.ticket),
+            observed: { value: "removed_verified" },
+            observedAt: observedAt(),
+          },
+          {
+            gate: "claim_released",
+            fact: "claim_lock_released",
+            source: { system: "git", ref: claim.lockRef ?? claim.claimHomeUrl },
+            observed: { value: lockVersion },
+            observedAt: observedAt(),
+          },
+        ],
+      };
       this.#store.commitLaneCompletion(gate.lane, result, lockVersion);
       return result;
     } catch (error) {
@@ -616,18 +666,18 @@ export class LaneService {
     });
   }
 
-  async #verifyDone(lane: Lane): Promise<LaneResult<true>> {
-    if (!lane.ticket) return ok(true);
+  async #verifyDone(lane: Lane): Promise<LaneResult<string>> {
+    if (!lane.ticket) return ok("not_applicable");
     const tracker = this.#tracker;
     if (!tracker)
       return fail("unsupported_capability", "Completing a ticket lane requires a tracker readback");
     const ticket = lane.ticket;
-    const read = async (): Promise<LaneResult<boolean>> => {
+    const read = async (): Promise<LaneResult<string | false>> => {
       try {
         const readback = (await tracker.read(ticket)).ticket;
         if (readback.ref !== ticket)
           return fail("tracker_not_done", "Tracker returned another ticket");
-        return ok(trackerTicketIsDone(readback));
+        return ok(trackerTicketIsDone(readback) && readback.status);
       } catch (error) {
         if (error instanceof TrackerUnavailableError)
           return fail("tracker_unavailable", error.message);
@@ -636,7 +686,7 @@ export class LaneService {
     };
     const before = await read();
     if (!before.ok) return before;
-    if (before.value) return ok(true);
+    if (before.value) return ok(before.value);
     if (!tracker.transition)
       return fail("unsupported_capability", "Tracker cannot mark the ticket done");
     try {
@@ -653,7 +703,7 @@ export class LaneService {
       failure = error ?? new Error("Tracker done transition failed");
     }
     const after = await read();
-    if (after.ok && after.value) return ok(true);
+    if (after.ok && after.value) return ok(after.value);
     if (failure instanceof AmbiguousTrackerResultError || (failure && !after.ok))
       return fail(
         "ambiguous_write",
