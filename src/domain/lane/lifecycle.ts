@@ -133,7 +133,12 @@ export type LaneCommand =
       decision: "approved" | "changes_requested";
       findings: readonly string[];
     }
-  | { type: "complete"; trackerDoneVerified: boolean; proof?: MergeProof }
+  | {
+      type: "complete";
+      trackerDoneVerified: boolean;
+      proof?: MergeProof;
+      baseMergesOnly?: boolean;
+    }
   | { type: "attention"; reason: string }
   | { type: "resume" }
   | { type: "promote"; ticket: TicketRef };
@@ -326,7 +331,8 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
         return refused(lane, "invalid_transition", `Cannot complete a lane in ${lane.state}`);
       if (!command.proof?.merged)
         return refused(lane, "pull_request_unmerged", "Completion requires a verified merge");
-      if (!isApprovedForHead(lane, command.proof.head))
+      const approvedHead = command.baseMergesOnly && lane.head ? lane.head : command.proof.head;
+      if (!isApprovedForHead(lane, approvedHead))
         return refused(lane, "stale_evidence", "Merged head does not have the lane's approval");
       if (command.proof.url !== lane.artifact)
         return refused(lane, "artifact_mismatch", "Merge proof belongs to another pull request");

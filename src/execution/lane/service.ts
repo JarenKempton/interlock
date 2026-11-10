@@ -85,6 +85,11 @@ export interface LaneServiceOptions {
   claimLock: (repository: string, home: ClaimHome) => RecoverableClaimLock;
   canonicalPath: (path: string) => Promise<string>;
   pickable: (run: RunRef) => PickableStatuses | undefined;
+  baseMergesOnly: (
+    path: string,
+    approved: string,
+    proof: MergeProof,
+  ) => Promise<"yes" | "no" | "unverifiable">;
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
   attachments?: AttachAuthority;
@@ -114,6 +119,7 @@ export class LaneService {
   readonly #claimLock: LaneServiceOptions["claimLock"];
   readonly #canonicalPath: LaneServiceOptions["canonicalPath"];
   readonly #pickable: LaneServiceOptions["pickable"];
+  readonly #baseMergesOnly: LaneServiceOptions["baseMergesOnly"];
   readonly #attachments: AttachAuthority | undefined;
   readonly #clock: { now(): Date };
   readonly #newId: () => LaneRef;
@@ -125,6 +131,7 @@ export class LaneService {
     this.#claimLock = options.claimLock;
     this.#canonicalPath = options.canonicalPath;
     this.#pickable = options.pickable;
+    this.#baseMergesOnly = options.baseMergesOnly;
     this.#attachments = options.attachments;
     this.#clock = options.clock ?? { now: () => new Date() };
     this.#newId =
@@ -464,9 +471,24 @@ export class LaneService {
         "artifact_mismatch",
         "Merged pull request does not match the recorded branch and URL",
       );
+    const history =
+      lane.head !== undefined && proof.head !== lane.head
+        ? await this.#baseMergesOnly(workspace.path, lane.head, proof)
+        : "no";
+    if (history === "unverifiable")
+      return fail(
+        "artifact_host_unavailable",
+        `Could not read the history between the approved head and ${proof.head}; retry completion (needs git 2.38 or later)`,
+      );
+    const baseMergesOnly = history === "yes";
     const gate = transitionLane(
       lane,
-      { type: "complete", proof, trackerDoneVerified: true },
+      {
+        type: "complete",
+        proof,
+        trackerDoneVerified: true,
+        ...(baseMergesOnly ? { baseMergesOnly } : {}),
+      },
       this.#clock.now().toISOString(),
     );
     if (gate.refusal) return { ok: false, refusal: gate.refusal };
