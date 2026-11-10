@@ -43,10 +43,12 @@ export function laneActions(services: RuntimeServices) {
   const withLane = <T>(
     path: string | undefined,
     operation: (laneService: LaneService) => Promise<T> | T,
-  ) =>
-    withExecutionStore(services, executionStatePath(services, path), async (store) =>
-      operation(laneService(services, store)),
+  ) => {
+    const statePath = executionStatePath(services, path);
+    return withExecutionStore(services, statePath, async (store) =>
+      operation(laneService({ ...services, statePath }, store)),
     );
+  };
   const selected = <T>(
     input: { lane?: string | undefined; ticket?: string | undefined; state?: string | undefined },
     operation: (

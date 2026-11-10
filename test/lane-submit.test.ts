@@ -171,6 +171,7 @@ async function setup(
   return {
     service,
     store,
+    statePath: join(directory, "interlock.db"),
     ...ownership,
     artifacts,
     tracker,
@@ -245,6 +246,28 @@ test("submit without evidence pushes first, then records the gate evidence for t
     });
     expect(artifacts.opens).toHaveLength(1);
     expect(artifacts.pushes.map((item) => item.head)).toEqual(["abc", "abc"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("lane commands read the tracker sign-in from the --state ledger", async () => {
+  const { service, store, statePath, artifacts, cleanup } = await setup({ tracker: null });
+  try {
+    const id = await implementing(service);
+    store.updateUserSettings((settings) => ({ ...settings, jira_site: "https://x.atlassian.net" }));
+    const output: string[] = [];
+    await runCli(
+      ["lane", "submit", id, "--head", "abc", "--json", "--state", statePath],
+      (text) => output.push(text),
+      {
+        execution: { jira: { request: async () => ({ status: 503 }) } },
+        lane: { artifacts },
+      },
+    );
+    const result = JSON.parse(output.join("\n"));
+    expect(result.refusal?.code).not.toBe("tracker_unavailable");
+    expect(artifacts.pushes.map((item) => item.head)).toEqual(["abc"]);
   } finally {
     cleanup();
   }
