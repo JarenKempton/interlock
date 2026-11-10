@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { GitHubArtifactHost } from "../../adapters/github/artifact.ts";
-import { GitClaimLock, heldClaim } from "../../adapters/git/claim-lock.ts";
+import { GitClaimLock } from "../../adapters/git/claim-lock.ts";
+import { heldClaim } from "../../domain/claim/lock.ts";
 import type { ClaimLockRecord } from "../../domain/claim/lock.ts";
 import { T3HostPort } from "../../adapters/hosts/t3/port.ts";
 import type { JiraTrackerAdapter } from "../../adapters/trackers/jira/tracker.ts";
@@ -36,6 +37,7 @@ import type {
   SupervisorProject,
 } from "../../execution/supervisor/ports.ts";
 import { StateStore } from "../../persistence/state.ts";
+import { getExecutionConfiguration } from "../../configuration/store.ts";
 
 const JOURNAL_PREFIX = "supervisor_";
 const operationSchema = z.tuple([laneRefSchema, z.string()]).readonly();
@@ -199,7 +201,7 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
     const t3 = services.execution?.t3;
     const t3Cli = user().t3_cli;
     return new T3HostPort({
-      project: repositoryPath(store.getExecutionConfiguration(run.ref), run.workspace.path),
+      project: repositoryPath(getExecutionConfiguration(store, run.ref), run.workspace.path),
       ...(t3Cli ? { cli: t3Cli } : {}),
       ...(t3?.process ? { process: t3.process } : {}),
       ...(t3?.server ? { server: t3.server } : {}),
@@ -241,7 +243,7 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
           (lane.ticket !== undefined && claimedTickets.has(lane.ticket));
         if (!run) return { lane, live };
         const claim = laneClaim(store, lane, run);
-        const status = claimedStatus(store.getExecutionConfiguration(run));
+        const status = claimedStatus(getExecutionConfiguration(store, run));
         return {
           lane,
           live,

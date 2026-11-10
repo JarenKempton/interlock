@@ -17,15 +17,14 @@ import {
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
 import type { LaneRef, TicketRef } from "../../../src/domain/model.ts";
-import {
-  type ArtifactHost,
-  type ArtifactRequest,
-  type ArtifactTarget,
-  type ArtifactWorkspace,
-  LaneService,
-  type LaneTrackerPort,
-  type PullRequest,
-} from "../../../src/execution/lane/service.ts";
+import { LaneService, type LaneTrackerPort } from "../../../src/execution/lane/service.ts";
+import type {
+  ArtifactHost,
+  ArtifactRequest,
+  ArtifactTarget,
+  ArtifactWorkspace,
+  PullRequest,
+} from "../../../src/domain/submission/artifact.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
 import type { RuntimeServices } from "../../../src/app/runtime-services.ts";
 import { GitClaimLock } from "../../../src/adapters/git/claim-lock.ts";
@@ -34,6 +33,8 @@ import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import { actorRefSchema, claimRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { rejection } from "../../fixtures/assertions/rejection.ts";
+import { updateUserSettings } from "../../../src/configuration/store.ts";
+import { gitLaneService } from "../../../src/app/lane/service.ts";
 
 setDefaultTimeout(GIT_TEST_TIMEOUT_MS);
 
@@ -162,7 +163,7 @@ async function setup(
   const ownership = await seedClaim(store, directory);
   const artifacts = options.host ?? new FakeArtifacts();
   const tracker = options.tracker === undefined ? new LinkingTracker() : options.tracker;
-  const service = new LaneService({
+  const service = gitLaneService({
     store,
     ...(tracker ? { tracker } : {}),
     ...(options.artifacts === false ? {} : { artifacts }),
@@ -255,7 +256,10 @@ test("lane commands read the tracker sign-in from the --state ledger", async () 
   const { service, store, statePath, artifacts, cleanup } = await setup({ tracker: null });
   try {
     const id = await implementing(service);
-    store.updateUserSettings((settings) => ({ ...settings, jira_site: "https://x.atlassian.net" }));
+    updateUserSettings(store, (settings) => ({
+      ...settings,
+      jira_site: "https://x.atlassian.net",
+    }));
     const output: string[] = [];
     await runCli(
       ["lane", "submit", id, "--head", "abc", "--json", "--state", statePath],
@@ -799,7 +803,7 @@ test("an ambiguous create adopts its eventual PR after service restart", async (
     const id = await implementing(fixture.service);
     fixture.artifacts.openOutcome = "failed";
     await fixture.service.submit(id, { head: "abc", evidence: evidence("abc") });
-    const restarted = new LaneService({
+    const restarted = gitLaneService({
       store: fixture.store,
       artifacts: fixture.artifacts,
       ...(fixture.tracker ? { tracker: fixture.tracker } : {}),

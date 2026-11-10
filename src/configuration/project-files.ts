@@ -11,7 +11,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { normalizeClaimHome } from "../domain/claim/home.ts";
-import { databasePath } from "../persistence/paths.ts";
+import { databasePath } from "../distribution/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import INITIAL_CONFIGURATION from "./default.toml" with { type: "text" };
 import { configurationVersion, parseProjectToml, projectConfigPath } from "./files.ts";
@@ -29,6 +29,7 @@ import {
   reviewChoicesFrom,
   type UserSettings,
 } from "./schema.ts";
+import { updateUserSettings } from "./store.ts";
 
 export { INITIAL_CONFIGURATION };
 export const configurationOutputSchema = z.strictObject({
@@ -136,7 +137,7 @@ export function configurationOperations(options: ConfigurationPlatformOptions) {
         mkdirSync(dirname(storePath()), { recursive: true });
         const store = new StateStore(storePath());
         try {
-          const user = store.updateUserSettings((settings) => {
+          const user = updateUserSettings(store, (settings) => {
             const next = update(settings);
             resolved(path, content, next);
             return next;

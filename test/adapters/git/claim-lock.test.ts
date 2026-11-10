@@ -5,8 +5,8 @@ import {
   ABSENT_LOCK_VERSION,
   GitClaimLock,
   type GitClaimLockOptions,
-  heldClaim,
 } from "../../../src/adapters/git/claim-lock.ts";
+import { heldClaim } from "../../../src/domain/claim/lock.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import {
   AmbiguousTrackerResultError,
@@ -26,6 +26,7 @@ import {
   gitRemoteFixture,
   ScriptedGit,
 } from "../../fixtures/git/remote.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const ticket = ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-900");
 const ref = "refs/interlock/v2/responsibid/JWB-900";
@@ -80,9 +81,9 @@ test.each(["landed", "competing"])(
       return { exitCode: 128, stdout: "", stderr: "connection lost" };
     };
     const claim = claimRequest(alice, "delayed");
-    await expect(subject.claim(claim)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
-    await expect(subject.read(ticket)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
-    await expect(subject.restore(ticket, claim.claim)).rejects.toBeInstanceOf(
+    await expectRejection(subject.claim(claim)).toBeInstanceOf(AmbiguousTrackerResultError);
+    await expectRejection(subject.read(ticket)).toBeInstanceOf(AmbiguousTrackerResultError);
+    await expectRejection(subject.restore(ticket, claim.claim)).toBeInstanceOf(
       AmbiguousTrackerResultError,
     );
     if (!finishPush) throw new Error("Expected a pending push");
@@ -128,7 +129,9 @@ describe("Git remote claim lock", () => {
       const scripted = new ScriptedGit(fixture.git);
       const loser = lock(fixture.bob, { git: scripted });
       scripted.beforePush = () => winner.claim(claimRequest(alice, "a"));
-      await expect(loser.claim(claimRequest(bob, "b"))).rejects.toBeInstanceOf(ClaimCollisionError);
+      await expectRejection(loser.claim(claimRequest(bob, "b"))).toBeInstanceOf(
+        ClaimCollisionError,
+      );
       expect(scripted.calls.some((argv) => argv[1] === "push")).toBe(true);
       expect(heldClaim(await loser.read(ticket))?.owner).toBe(alice);
     },
@@ -150,7 +153,7 @@ describe("Git remote claim lock", () => {
         leaseExpiresAt: lease,
       });
 
-      await expect(subject.claim(claimRequest(bob, "b", claimed.version))).rejects.toBeInstanceOf(
+      await expectRejection(subject.claim(claimRequest(bob, "b", claimed.version))).toBeInstanceOf(
         ClaimCollisionError,
       );
       const release = {
@@ -160,7 +163,7 @@ describe("Git remote claim lock", () => {
         expectedVersion: claimed.version,
         authorizedBy: bob,
       };
-      await expect(subject.release(release)).rejects.toBeInstanceOf(ClaimCollisionError);
+      await expectRejection(subject.release(release)).toBeInstanceOf(ClaimCollisionError);
       await subject.release({ ...release, authorizedBy: alice });
       const released = await subject.read(ticket);
       expect(released.record?.action).toBe("release");
@@ -231,7 +234,7 @@ describe("Git remote claim lock", () => {
       const scripted = new ScriptedGit(fixture.git);
       scripted.push = async () => ({ exitCode: 128, stdout: "", stderr: "fatal: timed out" });
       const subject = lock(fixture.alice, { git: scripted });
-      await expect(subject.claim(claimRequest(alice, "a"))).rejects.toBeInstanceOf(
+      await expectRejection(subject.claim(claimRequest(alice, "a"))).toBeInstanceOf(
         AmbiguousTrackerResultError,
       );
     },
@@ -245,7 +248,7 @@ describe("Git remote claim lock", () => {
       const scripted = new ScriptedGit(fixture.git);
       scripted.lsRemoteFailuresAfterPush = 1;
       const subject = lock(fixture.alice, { git: scripted });
-      await expect(subject.claim(claimRequest(alice, "a"))).rejects.toBeInstanceOf(
+      await expectRejection(subject.claim(claimRequest(alice, "a"))).toBeInstanceOf(
         AmbiguousTrackerResultError,
       );
       expect(heldClaim(await subject.read(ticket))?.owner).toBe(alice);
@@ -265,8 +268,8 @@ describe("Git remote claim lock", () => {
       });
       const subject = lock(fixture.alice, { git: scripted });
       const failure = subject.claim(claimRequest(alice, "a"));
-      await expect(failure).rejects.toThrow("[remote rejected] (namespace denied)");
-      await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+      await expectRejection(failure).toThrow("[remote rejected] (namespace denied)");
+      await expectRejection(failure).not.toBeInstanceOf(ClaimCollisionError);
     },
     GIT_TEST_TIMEOUT_MS,
   );
@@ -327,10 +330,10 @@ describe("Git remote claim lock", () => {
       expect(ordinary.stderr).toContain("pre-push hook: blocked");
       expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote], fixture.alice)).toBe("");
 
-      await expect(subject.claim(claimRequest(alice, "a"))).rejects.toBeInstanceOf(
+      await expectRejection(subject.claim(claimRequest(alice, "a"))).toBeInstanceOf(
         AmbiguousTrackerResultError,
       );
-      await expect(subject.read(ticket)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+      await expectRejection(subject.read(ticket)).toBeInstanceOf(AmbiguousTrackerResultError);
       expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote, ref], fixture.alice)).toBe(
         "",
       );
@@ -356,12 +359,12 @@ describe("Git remote claim lock", () => {
       const { alice: subject } = await setup();
       expect(await subject.ref(ticket)).toBe(ref);
       for (const key of ["a..b", "a/b", "a b", "x.lock", "a@{1}"])
-        await expect(
+        await expectRejection(
           subject.ref(ticketRefSchema.parse(`jira:responsibid:JWB:ticket:${key}`)),
-        ).rejects.toThrow("Ticket key cannot name a claim lock ref");
-      await expect(
+        ).toThrow("Ticket key cannot name a claim lock ref");
+      await expectRejection(
         subject.claim({ ...claimRequest(alice, "a"), leaseExpiresAt: "2026-10-21T00:00:00.000Z" }),
-      ).rejects.toThrow("Claim lease must expire in the future");
+      ).toThrow("Claim lease must expire in the future");
       const other = ticketRefSchema.parse("jira:other:JWB:ticket:JWB-900");
       await subject.claim({ ...claimRequest(alice, "a"), ticket: other });
       expect(await subject.ref(other)).toBe("refs/interlock/v2/other/JWB-900");
@@ -381,8 +384,8 @@ describe("Git remote claim lock", () => {
         ...claimRecord(fixture),
         ...change,
       });
-      await expect(subject.read(ticket)).rejects.toThrow(message);
-      await expect(subject.claim(claimRequest(alice, "late", tip))).rejects.toThrow(message);
+      await expectRejection(subject.read(ticket)).toThrow(message);
+      await expectRejection(subject.claim(claimRequest(alice, "late", tip))).toThrow(message);
       expect(await checkedGit(fixture.git, ["ls-remote", fixture.remote, ref], fixture.alice)).toBe(
         `${tip}\t${ref}`,
       );
@@ -453,8 +456,9 @@ test.each(["insteadOf", "pushInsteadOf", "command-scoped"])(
         ["config", `url.${other}.${rewrite}`, fixture.remote],
         fixture.alice,
       );
-    const subject = lock(fixture.alice, {
-      ...(rewrite === "command-scoped"
+    const subject = lock(
+      fixture.alice,
+      rewrite === "command-scoped"
         ? {
             git: {
               run(argv, cwd) {
@@ -465,9 +469,9 @@ test.each(["insteadOf", "pushInsteadOf", "command-scoped"])(
               },
             },
           }
-        : {}),
-    });
-    await expect(subject.claim(claimRequest(alice, "redirected"))).rejects.toThrow(
+        : {},
+    );
+    await expectRejection(subject.claim(claimRequest(alice, "redirected"))).toThrow(
       `claim home ${normalizeClaimHome(fixture.remote).identity}`,
     );
     for (const remote of [fixture.remote, other])

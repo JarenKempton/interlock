@@ -1,16 +1,7 @@
 import { formatUsage } from "@optique/core";
-import { type ActionTree, type ActionView, isAction } from "./definition.ts";
-import { fieldDescription, invocationParser } from "./parser.ts";
-export interface RegisteredAction {
-  command: string[];
-  action: ActionView;
-}
-export function registeredActions(tree: ActionTree, prefix: string[] = []): RegisteredAction[] {
-  return Object.entries(tree).flatMap(([name, entry]) => {
-    const command = [...prefix, name];
-    return isAction(entry) ? [{ command, action: entry }] : registeredActions(entry, command);
-  });
-}
+import type { ActionTree, RegisteredAction } from "../app/action.ts";
+import { fieldDescription } from "./input-parser.ts";
+import { invocationParser } from "./parser.ts";
 export function actionUsage({ command, action }: RegisteredAction): string {
   return formatUsage(command.join(" "), invocationParser(action).usage);
 }

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { GitHubArtifactHost } from "../../../src/adapters/github/artifact.ts";
 import type { CommandResult, GitCommandExecutor } from "../../../src/adapters/git/workspace.ts";
-import type { ArtifactTarget } from "../../../src/execution/lane/service.ts";
+import type { ArtifactTarget } from "../../../src/domain/submission/artifact.ts";
 import { checkedGit, gitRemoteFixture } from "../../fixtures/git/remote.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const head = "a".repeat(40);
 const branch = "feature/JWB-878";
@@ -82,8 +83,8 @@ test("force/refspec injection and non-OID inputs are rejected before spawning", 
   for (const invalid of [`+${head}`, "HEAD", `${head}:refs/heads/main`, "--all", "abcd"]) {
     const commands = new Commands();
     const host = new GitHubArtifactHost(commands);
-    await expect(host.prepare({ path: "/work", branch }, invalid)).rejects.toThrow();
-    await expect(host.push({ ...target, head: invalid })).rejects.toThrow();
+    await expectRejection(host.prepare({ path: "/work", branch }, invalid)).toThrow();
+    await expectRejection(host.push({ ...target, head: invalid })).toThrow();
     expect(commands.calls).toEqual([]);
   }
 });
@@ -97,9 +98,9 @@ test("mismatched/multiple push URLs, push rewrites and stale branch heads are re
   ]) {
     const commands = new Commands();
     Object.assign(commands, patch);
-    await expect(
+    await expectRejection(
       new GitHubArtifactHost(commands).prepare({ path: "/work", branch }, head),
-    ).rejects.toThrow();
+    ).toThrow();
     expect(commands.calls.some((argv) => argv[1] === "push" || argv[0] === "gh")).toBe(false);
   }
 });
@@ -108,11 +109,11 @@ test("PR results from another repository and a full truncated list are rejected"
   const commands = new Commands();
   commands.listed = [{ ...pr, url: "https://github.com/cli/cli/pull/7" }];
   const host = new GitHubArtifactHost(commands);
-  await expect(host.pullRequests(target)).rejects.toThrow("verified push repository");
+  await expectRejection(host.pullRequests(target)).toThrow("verified push repository");
   commands.listed = Array.from({ length: 1000 }, () => pr);
-  await expect(host.pullRequests(target)).rejects.toThrow("truncated");
+  await expectRejection(host.pullRequests(target)).toThrow("truncated");
   commands.view = { ...pr, url: "https://github.com/cli/cli/pull/7" };
-  await expect(host.open(target, { title: pr.title, body: "b", draft: true })).rejects.toThrow(
+  await expectRejection(host.open(target, { title: pr.title, body: "b", draft: true })).toThrow(
     "verified push repository",
   );
 });
@@ -140,7 +141,7 @@ test("push failure and mismatched push readback do not claim success", async () 
         ? { exitCode: fail === "push" ? 1 : 0, stdout: "", stderr: "" }
         : undefined,
     );
-    await expect(new GitHubArtifactHost(commands).push(target)).rejects.toThrow();
+    await expectRejection(new GitHubArtifactHost(commands).push(target)).toThrow();
   }
 });
 
@@ -173,8 +174,8 @@ test("real temporary Git remote cannot be rewound with a plus-prefixed head", as
     const local = { ...target, path: fixture.alice, remote: fixture.remote, head: current };
     const host = new GitHubArtifactHost(fixture.git);
     await host.push(local);
-    await expect(host.push({ ...local, head: old })).rejects.toThrow();
-    await expect(host.push({ ...local, head: `+${old}` })).rejects.toThrow();
+    await expectRejection(host.push({ ...local, head: old })).toThrow();
+    await expectRejection(host.push({ ...local, head: `+${old}` })).toThrow();
     expect(await git(["ls-remote", fixture.remote, `refs/heads/${branch}`])).toBe(
       `${current}\trefs/heads/${branch}`,
     );

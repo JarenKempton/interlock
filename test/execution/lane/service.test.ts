@@ -17,9 +17,10 @@ import {
   transitionLane,
 } from "../../../src/domain/lane/lifecycle.ts";
 import type { Ticket } from "../../../src/domain/model.ts";
-import type { ArtifactHost } from "../../../src/execution/lane/service.ts";
+import type { ArtifactHost } from "../../../src/domain/submission/artifact.ts";
 import { LaneService, type LaneTrackerPort } from "../../../src/execution/lane/service.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
+import { gitLaneService } from "../../../src/app/lane/service.ts";
 
 const proof = {
   merged: true,
@@ -358,7 +359,7 @@ function makeService(tracker?: LaneTrackerPort) {
   const path = join(directory, "interlock.db");
   const store = new StateStore(path);
   let sequence = 0;
-  const service = new LaneService({
+  const service = gitLaneService({
     store,
     ...(tracker ? { tracker } : {}),
     newId: () => laneRefSchema.parse(`interlock-lane:test-${++sequence}`),

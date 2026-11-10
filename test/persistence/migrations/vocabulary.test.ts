@@ -10,8 +10,9 @@ import {
 } from "../../../src/configuration/schema.ts";
 import { runRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { embeddedMigrations, migrateLedger } from "../../../src/persistence/migrate.ts";
-import { databasePath } from "../../../src/persistence/paths.ts";
+import { databasePath } from "../../../src/distribution/paths.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
+import { getExecutionConfiguration, readUserSettings } from "../../../src/configuration/store.ts";
 
 test("upgrading legacy T3 runs preserves known harnesses and marks absent evidence unknown", () => {
   const dir = mkdtempSync(join(tmpdir(), "interlock-vocabulary-"));
@@ -78,9 +79,12 @@ test("upgrading legacy T3 runs preserves known harnesses and marks absent eviden
             status: "claimed",
           });
         }
-        expect(store.userSettings()).toEqual({ harness: "codex", reviewer_harness: "claudeAgent" });
+        expect(readUserSettings(store)).toEqual({
+          harness: "codex",
+          reviewer_harness: "claudeAgent",
+        });
         expect(
-          store.getExecutionConfiguration(runRefSchema.parse("interlock-run:codex"))?.settings
+          getExecutionConfiguration(store, runRefSchema.parse("interlock-run:codex"))?.settings
             .harness,
         ).toBe("codex");
         if (attempt === 1) expect(store.migrationBackupPath).toBeUndefined();

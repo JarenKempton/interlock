@@ -1,11 +1,10 @@
-import { win32 } from "node:path";
-
 export interface ClaimHome {
   identity: string;
   url: string;
 }
 
 const invalid = "Claim home must be a Git remote URL or owner/repo";
+const windowsAbsolute = /^(?:[\\/]|[A-Za-z]:[\\/])/;
 
 export function normalizeClaimHome(value: string): ClaimHome {
   const trimmed = value.trim().replace(/\/+$/, "");
@@ -18,7 +17,7 @@ export function normalizeClaimHome(value: string): ClaimHome {
       url: `https://github.com/${shorthand[1]}/${repo}.git`,
     };
   }
-  if (win32.isAbsolute(trimmed) && !/^[A-Za-z]:[^\\/]/.test(trimmed))
+  if (windowsAbsolute.test(trimmed) && !/^[A-Za-z]:[^\\/]/.test(trimmed))
     return { identity: stripGitSuffix(trimmed), url: trimmed };
   let url: URL;
   try {

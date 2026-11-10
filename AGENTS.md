@@ -35,9 +35,9 @@ transaction logic should remain ordinary TypeScript.
 - Add tests for every state-machine transition and failure compensation path.
 - Run `vp check`, `vp run test`, and `vp run typecheck` before handoff.
 - Follow the target tree and layer rules in [architecture](docs/architecture.md).
-- Existing lint exemptions in `tooling/lint-baseline.json` may only shrink; never
-  add files or rules. Split folders by concept before exceeding 12 handwritten
-  files. Generated migrations are exempt.
+- `tooling/lint-baseline.json` stays empty and inline lint-disable comments are
+  rejected; fix the code instead of adding an exception. Split folders by concept
+  before exceeding 12 handwritten files. Generated migrations are exempt.
 - Do not add a live tracker mutation until fake-adapter tests prove collision,
   verification, compensation, and ambiguous-failure behavior.
 

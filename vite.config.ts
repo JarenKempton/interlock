@@ -1,6 +1,8 @@
 import { defineConfig } from "vite-plus";
-import baseline from "./tooling/lint-baseline.json";
-import { readBaseline } from "./tooling/baseline.ts";
+import lintBaseline from "./tooling/lint-baseline.json";
+import { baselineSchema, readBaseline } from "./tooling/baseline.ts";
+
+const baseline = baselineSchema.parse(lintBaseline);
 
 const comparison = readBaseline(process.cwd(), process.env.INTERLOCK_LINT_BASE || "HEAD");
 
@@ -61,6 +63,7 @@ export default defineConfig({
     categories: { correctness: "error" },
     rules: {
       "structure/folder-budget": "error",
+      "structure/no-disable-directive": "error",
       "structure/baseline-no-growth": "error",
       "typescript/no-explicit-any": "error",
       "typescript/no-non-null-assertion": "error",

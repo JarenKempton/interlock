@@ -11,6 +11,7 @@ import {
 } from "../../../src/adapters/git/workspace.ts";
 import { mapRefSchema, ticketRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import type { RepositorySpec, Ticket } from "../../../src/domain/model.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 class FakeGit implements GitCommandExecutor {
   readonly calls: { argv: readonly string[]; cwd: string }[] = [];
@@ -98,15 +99,15 @@ describe("Git workspace adapter", () => {
   test("rejects tampered paths and branches before any Git mutation or read", async () => {
     const pathCase = subject();
     const canonical = await pathCase.workspace.plan(ticket);
-    await expect(
+    await expectRejection(
       pathCase.workspace.prepare({ ...canonical, path: resolve("/attacker/worktree") }),
-    ).rejects.toBeInstanceOf(WorkspaceConflictError);
+    ).toBeInstanceOf(WorkspaceConflictError);
     expect(pathCase.git.calls).toHaveLength(0);
 
     const branchCase = subject();
-    await expect(
+    await expectRejection(
       branchCase.workspace.prepare({ ...canonical, branch: "task/attacker" }),
-    ).rejects.toBeInstanceOf(WorkspaceConflictError);
+    ).toBeInstanceOf(WorkspaceConflictError);
     expect(branchCase.git.calls).toHaveLength(0);
   });
 
@@ -129,7 +130,7 @@ describe("Git workspace adapter", () => {
   test("preflight rejects a different remote repository", async () => {
     const { workspace, git } = subject();
     git.remote = "https://example.test/team/other.git";
-    await expect(workspace.preflight(ticket)).rejects.toBeInstanceOf(WorkspaceConflictError);
+    await expectRejection(workspace.preflight(ticket)).toBeInstanceOf(WorkspaceConflictError);
   });
 
   test("resumes an exact registered worktree without mutating dirty work", async () => {
@@ -147,33 +148,33 @@ describe("Git workspace adapter", () => {
   test("rejects missing, prunable, duplicate, detached, and conflicting worktrees", async () => {
     const missing = subject();
     missing.git.worktrees = record();
-    await expect(preparedWorkspace(missing.workspace)).rejects.toBeInstanceOf(
+    await expectRejection(preparedWorkspace(missing.workspace)).toBeInstanceOf(
       WorkspaceConflictError,
     );
 
     const prunable = subject();
     prunable.fileSystem.existing.add(worktreePath);
     prunable.git.worktrees = `${record()}prunable stale gitdir\n`;
-    await expect(preparedWorkspace(prunable.workspace)).rejects.toBeInstanceOf(
+    await expectRejection(preparedWorkspace(prunable.workspace)).toBeInstanceOf(
       WorkspaceConflictError,
     );
 
     const duplicate = subject();
     duplicate.git.worktrees = `${record()}\n${record()}`;
-    await expect(preparedWorkspace(duplicate.workspace)).rejects.toBeInstanceOf(
+    await expectRejection(preparedWorkspace(duplicate.workspace)).toBeInstanceOf(
       WorkspaceConflictError,
     );
 
     const detached = subject();
     detached.fileSystem.existing.add(worktreePath);
     detached.git.worktrees = `worktree ${worktreePath}\ndetached\n`;
-    await expect(preparedWorkspace(detached.workspace)).rejects.toBeInstanceOf(
+    await expectRejection(preparedWorkspace(detached.workspace)).toBeInstanceOf(
       WorkspaceConflictError,
     );
 
     const branchElsewhere = subject();
     branchElsewhere.git.worktrees = record(resolve("/somewhere/else"));
-    await expect(preparedWorkspace(branchElsewhere.workspace)).rejects.toBeInstanceOf(
+    await expectRejection(preparedWorkspace(branchElsewhere.workspace)).toBeInstanceOf(
       WorkspaceConflictError,
     );
   });
@@ -219,7 +220,7 @@ describe("Git workspace adapter", () => {
     );
     const offline = subject();
     offline.git.fetchFails = true;
-    await expect(offline.workspace.refreshBase()).rejects.toThrow("Cannot fetch main from origin");
+    await expectRejection(offline.workspace.refreshBase()).toThrow("Cannot fetch main from origin");
     expect(offline.git.calls.some((call) => call.argv[1] === "worktree")).toBeFalse();
   });
 

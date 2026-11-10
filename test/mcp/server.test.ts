@@ -4,13 +4,15 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { createApplication } from "../../src/app/application.ts";
-import { describeAction, registeredActions } from "../../src/cli/catalog.ts";
+import { createApplication, VERSION } from "../../src/app/application.ts";
+import { describeAction } from "../../src/cli/catalog.ts";
+import { registeredActions } from "../../src/app/action.ts";
 import { dispatch } from "../../src/cli/command-line.ts";
-import { defineAction } from "../../src/cli/definition.ts";
+import { defineAction } from "../../src/app/action.ts";
 import { positional, text } from "../../src/cli/schema.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import { SocketTransport, StdioTransport } from "../../src/mcp/transport.ts";
+import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 const token = "lane-secret-DO-NOT-ECHO";
 
@@ -24,7 +26,7 @@ function request(id: number, method: string, params?: unknown) {
 
 test("tools are generated from the same registered actions as JSON help", () => {
   const app = createApplication();
-  const server = new McpServer(app);
+  const server = new McpServer(app, { version: VERSION });
   const described = registeredActions(app)
     .filter((entry) => entry.command.join(" ") !== "mcp")
     .map(describeAction);
@@ -52,7 +54,7 @@ test("a newly registered action becomes a tool without a hand-written list", asy
       handler: ({ value }) => `got:${value}`,
     }),
   };
-  const server = new McpServer(tree);
+  const server = new McpServer(tree, { version: VERSION });
   expect(server.tools.map((tool) => tool.name)).toEqual(["sample"]);
   const session = server.newSession();
   const call = await server.handle(
@@ -66,22 +68,23 @@ test("a newly registered action becomes a tool without a hand-written list", asy
 
 test("lane mode fails closed without token, allowlist, or a known action", () => {
   const app = createApplication();
-  expect(() => new McpServer(app, { lane: true, allow: ["version"] })).toThrow(
+  expect(() => new McpServer(app, { version: VERSION, lane: true, allow: ["version"] })).toThrow(
     "Lane mode requires a per-lane token",
   );
-  expect(() => new McpServer(app, { lane: true, token })).toThrow(
+  expect(() => new McpServer(app, { version: VERSION, lane: true, token })).toThrow(
     "Lane mode requires an action allowlist",
   );
-  expect(() => new McpServer(app, { lane: true, token, allow: ["nope"] })).toThrow(
-    "Lane allowlist names an unknown action",
-  );
-  expect(() => new McpServer(app, { lane: true, token, allow: ["mcp"] })).toThrow(
+  expect(
+    () => new McpServer(app, { version: VERSION, lane: true, token, allow: ["nope"] }),
+  ).toThrow("Lane allowlist names an unknown action");
+  expect(() => new McpServer(app, { version: VERSION, lane: true, token, allow: ["mcp"] })).toThrow(
     "Lane allowlist names an unknown action",
   );
 });
 
 test("lane socket sessions require the per-lane token and expose only lane actions", async () => {
   const server = new McpServer(createApplication(), {
+    version: VERSION,
     lane: true,
     token,
     allow: ["version", "runs list"],
@@ -113,6 +116,7 @@ test("lane socket sessions require the per-lane token and expose only lane actio
 
 test("lane stdio sessions are authenticated by the launching environment", async () => {
   const server = new McpServer(createApplication(), {
+    version: VERSION,
     lane: true,
     token,
     allow: ["version"],
@@ -123,7 +127,7 @@ test("lane stdio sessions are authenticated by the launching environment", async
 });
 
 test("tool failures, unknown methods, and malformed lines never echo input", async () => {
-  const server = new McpServer(createApplication());
+  const server = new McpServer(createApplication(), { version: VERSION });
   const session = server.newSession();
   const failed = await server.handle(
     request(1, "tools/call", { name: "runs_show", arguments: { run: token } }),
@@ -149,7 +153,7 @@ async function fakeStdin(lines: string[]) {
 }
 
 test("stdio transport serves initialize, tools/list, and tools/call", async () => {
-  const server = new McpServer(createApplication());
+  const server = new McpServer(createApplication(), { version: VERSION });
   const writes: string[] = [];
   const transport = new StdioTransport(
     await fakeStdin([
@@ -195,6 +199,7 @@ async function exchange(path: string, requests: unknown[]) {
 test("socket transport serves an authenticated lane session and cleans up", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "interlock-mcp-")), "lane.sock");
   const server = new McpServer(createApplication(), {
+    version: VERSION,
     lane: true,
     token,
     allow: ["version"],
@@ -226,13 +231,13 @@ test("socket transport serves an authenticated lane session and cleans up", asyn
 test("socket transport refuses an occupied path and leaves the owner serving", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "interlock-mcp-")), "lane.sock");
   const first = new SocketTransport(path);
-  const serving = first.serve(new McpServer(createApplication()));
+  const serving = first.serve(new McpServer(createApplication(), { version: VERSION }));
   const refused = new SocketTransport(path);
   try {
     await first.ready();
-    await expect(refused.serve(new McpServer(createApplication()))).rejects.toThrow(
-      "MCP socket path already exists",
-    );
+    await expectRejection(
+      refused.serve(new McpServer(createApplication(), { version: VERSION })),
+    ).toThrow("MCP socket path already exists");
     await refused.close();
     expect(await exchange(path, [request(1, "ping")])).toEqual([
       { jsonrpc: "2.0", id: 1, result: {} },
@@ -248,7 +253,7 @@ test("socket transport refuses an occupied path and leaves the owner serving", a
 test("socket transport closed before listening completes still stops serving", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "interlock-mcp-")), "lane.sock");
   const transport = new SocketTransport(path);
-  const serving = transport.serve(new McpServer(createApplication()));
+  const serving = transport.serve(new McpServer(createApplication(), { version: VERSION }));
   await transport.close();
   await serving;
   expect(existsSync(path)).toBe(false);
@@ -260,7 +265,7 @@ test("mcp command help derives from its registered action and validates transpor
   const help = JSON.parse(output[0] ?? "");
   expect(help.command).toEqual(["mcp"]);
   expect(Object.keys(help.input)).toEqual(["transport", "socket", "lane", "allow"]);
-  await expect(
+  await expectRejection(
     dispatch(createApplication(), ["mcp", "--socket", "/tmp/unused.sock"], () => {}),
-  ).rejects.toThrow("Socket path requires the socket transport");
+  ).toThrow("Socket path requires the socket transport");
 });

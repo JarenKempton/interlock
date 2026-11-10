@@ -32,6 +32,7 @@ import { HostLaunchUnresolvedError } from "../../../src/domain/host/capability.t
 import { PickupCoordinator, PickupResultError } from "../../../src/execution/pickup/coordinator.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
 import { fakeLockFixture } from "../../fixtures/conformance/lock.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 class FailingCompensatedStateStore extends StateStore {
   readonly compensatedStepError = new Error("cannot persist compensated step");
@@ -251,7 +252,7 @@ describe("pickup coordinator", () => {
     const tracker = new FakeTracker();
     tracker.preflightError = new Error("unsupported");
     const { coordinator: subject } = coordinator(tracker);
-    await expect(subject.prepare(request)).rejects.toThrow("unsupported");
+    await expectRejection(subject.prepare(request)).toThrow("unsupported");
     expect(tracker.claimCalls).toBe(0);
     expect(tracker.restoreCalls).toBe(0);
   });
@@ -259,7 +260,7 @@ describe("pickup coordinator", () => {
   test("an unverified lock capability fails before any write", async () => {
     const item = coordinator();
     Object.assign(item.claimLock, { describe: async () => ({}) });
-    await expect(item.coordinator.prepare(request)).rejects.toThrow(
+    await expectRejection(item.coordinator.prepare(request)).toThrow(
       "Unsupported capabilities: conditional_update",
     );
     expect(item.tracker.claimCalls).toBe(0);

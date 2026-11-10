@@ -177,7 +177,7 @@ describe("update notifications", () => {
       environment: { INTERLOCK_UPDATE_URL: "https://updates.example.test/releases" },
       cachePath,
       fetch: async (input) => {
-        requested.push(String(input));
+        requested.push(input instanceof Request ? input.url : String(input));
         return Response.json([]);
       },
     });

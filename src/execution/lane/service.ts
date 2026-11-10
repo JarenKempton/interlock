@@ -1,10 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
-import { GitClaimLock, heldClaim } from "../../adapters/git/claim-lock.ts";
-import { BunGitCommandExecutor, type GitCommandExecutor } from "../../adapters/git/workspace.ts";
-import { normalizeClaimHome } from "../../domain/claim/home.ts";
-import { ClaimLockUnavailableError } from "../../domain/claim/lock.ts";
+import { type ClaimHome, normalizeClaimHome } from "../../domain/claim/home.ts";
+import {
+  ClaimLockUnavailableError,
+  heldClaim,
+  type RecoverableClaimLock,
+} from "../../domain/claim/lock.ts";
 import {
   AmbiguousTrackerResultError,
   ArtifactLinkConflictError,
@@ -29,14 +28,27 @@ import {
   type Unblocked,
 } from "../../domain/lane/lifecycle.ts";
 import { type GateEvidence, trackerSource } from "../../domain/gate/evidence.ts";
-import type { Claim, LaneRef, RunRef, Ticket, TicketRef } from "../../domain/model.ts";
+import type {
+  Claim,
+  ClaimRef,
+  LaneRef,
+  Run,
+  RunRef,
+  Ticket,
+  TicketRef,
+} from "../../domain/model.ts";
 import { completionRecordMatches, releaseCompletedClaim } from "../claim/completion.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 import { ticketKeyMatches } from "../../domain/submission/commit.ts";
 import type { TrackerRead } from "../../domain/tracker/port.ts";
-import type { StateStore } from "../../persistence/state.ts";
-import { type AttachAuthority, AttachRefusal } from "../../app/lane/attachment.ts";
-import { configuredPickable, unblockedBy } from "../pickup/eligibility.ts";
+import type {
+  ArtifactHost,
+  ArtifactTarget,
+  ArtifactWorkspace,
+  PullRequest,
+} from "../../domain/submission/artifact.ts";
+import { type PickableStatuses, unblockedBy } from "../pickup/eligibility.ts";
+import { type AttachAuthority, AttachRefusal } from "./attachment.ts";
 
 export interface LaneTrackerPort {
   read(ticket: TicketRef): Promise<TrackerRead>;
@@ -46,38 +58,6 @@ export interface LaneTrackerPort {
   removeMirror?(claim: Claim): Promise<void>;
 }
 
-export interface ArtifactWorkspace {
-  path: string;
-  branch: string;
-}
-
-export interface ArtifactTarget extends ArtifactWorkspace {
-  repository: string;
-  remote: string;
-  head: string;
-}
-
-export interface PullRequest {
-  url: string;
-  branch: string;
-  title?: string;
-  state: "OPEN" | "CLOSED" | "MERGED";
-}
-
-export interface ArtifactRequest {
-  title: string;
-  body: string;
-  draft: boolean;
-}
-
-export interface ArtifactHost {
-  prepare(workspace: ArtifactWorkspace, head: string): Promise<ArtifactTarget>;
-  push(target: ArtifactTarget): Promise<void>;
-  pullRequests(target: ArtifactTarget, key?: string): Promise<PullRequest[]>;
-  open(target: ArtifactTarget, request: ArtifactRequest): Promise<PullRequest>;
-  merged?(url: string): Promise<MergeProof>;
-}
-
 export interface LaneSubmitInput {
   head: string;
   evidence: readonly LaneEvidence[];
@@ -85,26 +65,28 @@ export interface LaneSubmitInput {
   draft?: boolean;
 }
 
+export interface LaneStore {
+  saveLane(lane: Lane): void;
+  findLane(id: LaneRef): Lane | undefined;
+  listLanes(): Lane[];
+  laneForTicket(ticket: string): Lane | undefined;
+  run(ref: RunRef): Run;
+  listRuns(): Run[];
+  claim(ref: ClaimRef): Claim;
+  claimForRun(run: RunRef): Claim;
+  steps(run: RunRef): readonly { state: string; receipt_json: string | null }[];
+  recordStep(run: RunRef, state: string, receipt?: unknown, error?: unknown): void;
+  commitLaneCompletion(lane: Lane, receipt: unknown, lockVersion: string): void;
+  saveRecoveryRequired(run: Run, receipt: unknown, error: unknown, evidence: unknown): void;
+}
+
 export interface LaneServiceOptions {
-  store: Pick<
-    StateStore,
-    | "saveLane"
-    | "findLane"
-    | "listLanes"
-    | "laneForTicket"
-    | "run"
-    | "listRuns"
-    | "claim"
-    | "claimForRun"
-    | "steps"
-    | "recordStep"
-    | "commitLaneCompletion"
-    | "saveRecoveryRequired"
-    | "getExecutionConfiguration"
-  >;
+  store: LaneStore;
+  claimLock: (repository: string, home: ClaimHome) => RecoverableClaimLock;
+  canonicalPath: (path: string) => Promise<string>;
+  pickable: (run: RunRef) => PickableStatuses | undefined;
   tracker?: LaneTrackerPort;
   artifacts?: ArtifactHost;
-  git?: GitCommandExecutor;
   attachments?: AttachAuthority;
   clock?: { now(): Date };
   newId?: () => LaneRef;
@@ -129,7 +111,9 @@ export class LaneService {
   readonly #store: LaneServiceOptions["store"];
   readonly #tracker: LaneTrackerPort | undefined;
   readonly #artifacts: ArtifactHost | undefined;
-  readonly #git: GitCommandExecutor;
+  readonly #claimLock: LaneServiceOptions["claimLock"];
+  readonly #canonicalPath: LaneServiceOptions["canonicalPath"];
+  readonly #pickable: LaneServiceOptions["pickable"];
   readonly #attachments: AttachAuthority | undefined;
   readonly #clock: { now(): Date };
   readonly #newId: () => LaneRef;
@@ -138,10 +122,13 @@ export class LaneService {
     this.#store = options.store;
     this.#tracker = options.tracker;
     this.#artifacts = options.artifacts;
-    this.#git = options.git ?? new BunGitCommandExecutor();
+    this.#claimLock = options.claimLock;
+    this.#canonicalPath = options.canonicalPath;
+    this.#pickable = options.pickable;
     this.#attachments = options.attachments;
     this.#clock = options.clock ?? { now: () => new Date() };
-    this.#newId = options.newId ?? (() => laneRefSchema.parse(`interlock-lane:${randomUUID()}`));
+    this.#newId =
+      options.newId ?? (() => laneRefSchema.parse(`interlock-lane:${crypto.randomUUID()}`));
   }
 
   create(input: { ticket?: string; title?: string; maxReviewRounds?: number }): LaneResult<Lane> {
@@ -334,7 +321,7 @@ export class LaneService {
         const home = normalizeClaimHome(claim.claimHomeUrl);
         if (home.identity !== claim.claimHome)
           return fail("claim_collision", "Recorded claim home identity does not match");
-        const lock = new GitClaimLock({ repository: target.path, home, git: this.#git });
+        const lock = this.#claimLock(target.path, home);
         const held = heldClaim(await lock.read(lane.ticket));
         if (
           !held ||
@@ -540,11 +527,7 @@ export class LaneService {
         throw new Error("Completion requires mirror removal and the recorded claim home");
       const removeMirror = tracker.removeMirror.bind(tracker);
       const lockVersion = await releaseCompletedClaim({
-        lock: new GitClaimLock({
-          repository: workspace.path,
-          home: normalizeClaimHome(claim.claimHomeUrl),
-          git: this.#git,
-        }),
+        lock: this.#claimLock(workspace.path, normalizeClaimHome(claim.claimHomeUrl)),
         claim,
         run: this.#store.run(lane.run),
         removeMirror: () => removeMirror(claim),
@@ -583,14 +566,14 @@ export class LaneService {
 
   async #unblocked(ticket: TicketRef, run: RunRef | undefined): Promise<Unblocked> {
     try {
-      const configuration = run ? this.#store.getExecutionConfiguration(run) : undefined;
-      if (!configuration)
+      const pickable = run ? this.#pickable(run) : undefined;
+      if (!pickable)
         return { state: "unknown", reason: "Run has no recorded pickup configuration" };
       if (!this.#tracker) return { state: "unknown", reason: "No tracker reads dependents" };
       const done = (await this.#tracker.read(ticket)).ticket;
       return {
         state: "known",
-        tickets: await unblockedBy(this.#tracker, done, configuredPickable(configuration)),
+        tickets: await unblockedBy(this.#tracker, done, pickable),
       };
     } catch (error) {
       return { state: "unknown", reason: errorMessage(error, "Tracker read failed") };
@@ -629,15 +612,9 @@ export class LaneService {
       if (other.run === lane.run || other.claim === lane.claim)
         throw new Error(`Run or claim is shared with lane ${other.id}`);
       if (other.run && other.state !== "done") {
-        const canonical = async (path: string) =>
-          realpath(path).catch((error: unknown) => {
-            if (error instanceof Error && "code" in error && error.code === "ENOENT")
-              return resolve(path);
-            throw error;
-          });
         if (
-          (await canonical(this.#store.run(other.run).workspace.path)) ===
-          (await canonical(run.workspace.path))
+          (await this.#canonicalPath(this.#store.run(other.run).workspace.path)) ===
+          (await this.#canonicalPath(run.workspace.path))
         )
           throw new Error(`Workspace is owned by lane ${other.id}`);
       }
@@ -645,11 +622,7 @@ export class LaneService {
     if (!claim.claimHome || !claim.claimHomeUrl) throw new Error("Missing recorded claim home");
     const home = normalizeClaimHome(claim.claimHomeUrl);
     if (home.identity !== claim.claimHome) throw new Error("Recorded claim home identity changed");
-    const state = await new GitClaimLock({
-      repository: run.workspace.path,
-      home,
-      git: this.#git,
-    }).read(run.ticket);
+    const state = await this.#claimLock(run.workspace.path, home).read(run.ticket);
     if (
       !completionRecordMatches(state.record, claim) ||
       (state.record?.action === "release" &&

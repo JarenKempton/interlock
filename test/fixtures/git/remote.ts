@@ -15,7 +15,7 @@ export interface GitRemoteFixture {
   bob: string;
   git: GitCommandExecutor;
   clock: { now(): Date; set(iso: string): void };
-  dispose(): Promise<void>;
+  dispose: () => Promise<void>;
 }
 
 /** Owns every Git process it starts, so disposal can drain them before deleting the directory. */
@@ -34,7 +34,7 @@ class FixtureGit implements GitCommandExecutor {
 
   async close(): Promise<void> {
     this.#closed = true;
-    while (this.#inFlight.size > 0) await Promise.allSettled([...this.#inFlight]);
+    while (this.#inFlight.size > 0) await Promise.allSettled(this.#inFlight);
   }
 }
 

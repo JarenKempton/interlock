@@ -7,6 +7,7 @@ import {
 import type { Ticket, TicketRef } from "../../../src/domain/model.ts";
 import type { TrackerRead, TrackerReader } from "../../../src/domain/tracker/port.ts";
 import { pickupEligibility, unblockedBy } from "../../../src/execution/pickup/eligibility.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const mapped = mapRefSchema.parse("jira:example:TEST:map:TEST-1");
 const unmapped = mapRefSchema.parse("jira:example:TEST:map:TEST-2");
@@ -134,7 +135,7 @@ describe("unblockedBy", () => {
     async (key) => {
       const reader = new FakeReader(tickets());
       reader.failing.add(ref(key));
-      await expect(unblockedBy(reader, done, inMap)).rejects.toThrow("read failed");
+      await expectRejection(unblockedBy(reader, done, inMap)).toThrow("read failed");
     },
   );
 });

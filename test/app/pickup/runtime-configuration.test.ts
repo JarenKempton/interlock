@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { heldClaim } from "../../../src/adapters/git/claim-lock.ts";
+import { heldClaim } from "../../../src/domain/claim/lock.ts";
 import { createApplication } from "../../../src/app/application.ts";
 import { readUserSettings } from "../../../src/configuration/local-settings.ts";
 import { configurationOperations } from "../../../src/configuration/project-files.ts";
@@ -21,6 +21,7 @@ import {
   pickupRuntimeFixtures,
   ref,
 } from "../../fixtures/pickup/runtime-suite.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const fixture = pickupRuntimeFixtures();
 
@@ -57,7 +58,7 @@ test.each(["remote-read", "commit-preparation"])(
         },
       },
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow("catalog");
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow("catalog");
     expect(now).toBe(observed + 60_001);
     expect(pushes).toBe(0);
     expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
@@ -78,7 +79,7 @@ test.each(["stale", "missing", "ambiguous", "disabled", "option"])(
     if (failure === "disabled") first(catalog.catalog.providers).canRunChildTask = false;
     if (failure === "option") first(catalog.catalog.inheritedOptions).value = "unsupported";
     await writeFile(f.t3Catalog, JSON.stringify(catalog));
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow();
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow();
     expect(f.jira.calls).toEqual([]);
     expect(existsSync(f.state)).toBe(false);
   },
@@ -104,7 +105,7 @@ test(
         },
       },
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "catalog is stale",
     );
     expect((await lock(f).read(ref)).version).toBe("absent");
@@ -120,7 +121,7 @@ test(
     const f = await fixture();
     await setUser(f, "host", "unavailable");
     const before = await readFile(f.state);
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "Requested host is unavailable",
     );
     expect(f.jira.calls).toEqual([]);
@@ -136,7 +137,7 @@ test(
     const other = join(f.root, "other.git");
     expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
     await configure(f, `url.${other}.pushInsteadOf`, f.remote.remote);
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       `claim home ${normalizeClaimHome(f.remote.remote).identity}`,
     );
     await configure(f, "--unset", `url.${other}.pushInsteadOf`);
@@ -264,7 +265,7 @@ test(
   async () => {
     const f = await fixture();
     await writeFile(f.config, "version = 2\n");
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "run interlock login jira or interlock config edit --set jira_site URL",
     );
     expect(f.jira.calls).toEqual([]);
@@ -298,9 +299,9 @@ test.each([
   "--branch %s is refused before tracker access",
   async (branch, message) => {
     const f = await fixture();
-    await expect(
+    await expectRejection(
       createApplication(f.services).pickup.execute({ ...f.input, branch }),
-    ).rejects.toThrow(message);
+    ).toThrow(message);
     expect(f.jira.calls).toEqual([]);
   },
   GIT_TEST_TIMEOUT_MS,
@@ -312,7 +313,7 @@ test(
     const f = await fixture();
     f.jira.issue.fields.status.name = "Ready";
     const app = createApplication(f.services);
-    await expect(app.pickup.execute({ ...f.input, "dry-run": true })).rejects.toThrow(
+    await expectRejection(app.pickup.execute({ ...f.input, "dry-run": true })).toThrow(
       "unassigned ticket in To Do",
     );
     await setUser(f, "pickable_statuses", "Ready, To Do");
@@ -321,7 +322,7 @@ test(
       f.config,
       `${await readFile(f.config, "utf8")}[statuses]\npickable = ["To Do"]\nclaimed = "Doing"\n`,
     );
-    await expect(app.pickup.execute({ ...f.input, "dry-run": true })).rejects.toThrow(
+    await expectRejection(app.pickup.execute({ ...f.input, "dry-run": true })).toThrow(
       "unassigned ticket in To Do",
     );
     f.jira.issue.fields.status.name = "To Do";
@@ -341,7 +342,7 @@ test(
     await configurationOperations({ cwd: f.root, statePath: f.state }).edit({
       set: ["reviewer_model", "review-model"],
     });
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
       code: "reviewers_unset",
       message: expect.stringContaining("reviewer_model is set but reviewers is empty"),
     });

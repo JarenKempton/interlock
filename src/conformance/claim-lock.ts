@@ -8,9 +8,9 @@ export interface ClaimLockFixture {
   contender: ClaimLock;
   request: ClaimRequest;
   otherOwner: ActorRef;
-  loseWriteReadback(): void | Promise<void>;
-  expireLease(): void | Promise<void>;
-  dispose?(): void | Promise<void>;
+  loseWriteReadback: () => void | Promise<void>;
+  expireLease: () => void | Promise<void>;
+  dispose?: () => void | Promise<void>;
 }
 
 export function claimLockConformance(create: () => Promise<ClaimLockFixture>): ConformanceCase[] {

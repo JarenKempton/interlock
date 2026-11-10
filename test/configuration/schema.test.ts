@@ -13,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import { describeAction, registeredActions } from "../../src/cli/catalog.ts";
+import { describeAction } from "../../src/cli/catalog.ts";
+import { registeredActions } from "../../src/app/action.ts";
 import { run } from "../../src/main.ts";
 import { configurationActions } from "../../src/configuration/commands.ts";
 import {
@@ -46,8 +47,13 @@ import {
 } from "../../src/domain/refs/identifiers.ts";
 import type { Run } from "../../src/domain/model.ts";
 import { executionTarget } from "../../src/app/pickup/runtime.ts";
-import { configurationStore } from "../../src/persistence/configuration.ts";
+import { configurationStore } from "../../src/configuration/store.ts";
 import { StateStore } from "../../src/persistence/state.ts";
+import {
+  getExecutionConfiguration,
+  saveExecutionConfiguration,
+} from "../../src/configuration/store.ts";
+import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -71,7 +77,7 @@ test("Zod schemas own configuration types and setting discovery", () => {
   const typeExamples = () => {
     const settings = personalSettingsSchema.parse({});
     // @ts-expect-error Unknown setting names must not become part of the inferred API.
-    settings.secret;
+    return settings.secret;
   };
   void typeExamples;
 });
@@ -204,19 +210,19 @@ test("init creates a validated shape and never replaces a file or dangling symli
   expect(result.configuration.settings).toMatchObject({ host: "t3", branch: "task/{key}" });
   expect(result.configuration.source?.path).toBe(f.path);
   expect(existsSync(f.statePath)).toBe(false);
-  await expect(f.ops.init(input)).rejects.toThrow();
+  await expectRejection(f.ops.init(input)).toThrow();
   expect(readFileSync(f.path, "utf8")).toBe(INITIAL_CONFIGURATION);
   if (process.platform === "win32") return; // Windows symlink creation requires a separate OS privilege.
   const link = join(f.cwd, "link.toml");
   symlinkSync(join(f.cwd, "absent"), link);
-  await expect(f.ops.init({ ...input, path: link })).rejects.toThrow();
+  await expectRejection(f.ops.init({ ...input, path: link })).toThrow();
 });
 
 test("init imports project shape explicitly and refuses invalid input before creating files", async () => {
   const f = fixture();
   const source = join(f.cwd, "source.toml");
   writeFileSync(source, "malformed = [");
-  await expect(f.ops.init({ ...input, from: source })).rejects.toThrow("Malformed project TOML");
+  await expectRejection(f.ops.init({ ...input, from: source })).toThrow("Malformed project TOML");
   expect(existsSync(f.path)).toBe(false);
   writeFileSync(source, INITIAL_CONFIGURATION);
   expect((await f.ops.init({ ...input, from: source })).action).toBe("initialized");
@@ -239,8 +245,8 @@ test("show and set work without interlock.toml; choices survive reopen and follo
 
 test("an explicitly named shared config must exist", async () => {
   const f = fixture();
-  await expect(f.ops.show({ path: "absent.toml" })).rejects.toThrow();
-  await expect(f.ops.edit({ path: "absent.toml", set: ["model", "chosen"] })).rejects.toThrow();
+  await expectRejection(f.ops.show({ path: "absent.toml" })).toThrow();
+  await expectRejection(f.ops.edit({ path: "absent.toml", set: ["model", "chosen"] })).toThrow();
   expect(existsSync(f.statePath)).toBe(false);
 });
 
@@ -261,8 +267,8 @@ test("claim-home is one user-level setting, stored normalized", async () => {
 test("an invalid choice leaves earlier choices intact", async () => {
   const f = fixture();
   await f.ops.edit({ ...input, set: ["pickable_statuses", "Ready"] });
-  await expect(f.ops.edit({ ...input, set: ["branch", "no-key"] })).rejects.toThrow("user.branch");
-  await expect(f.ops.edit({ ...input, set: ["jira_site", "http://insecure"] })).rejects.toThrow(
+  await expectRejection(f.ops.edit({ ...input, set: ["branch", "no-key"] })).toThrow("user.branch");
+  await expectRejection(f.ops.edit({ ...input, set: ["jira_site", "http://insecure"] })).toThrow(
     "user.jira_site",
   );
   expect(readUserSettings(f.statePath)).toEqual({ pickable_statuses: "Ready" });
@@ -293,15 +299,15 @@ test("execution snapshots persist independently and cannot be silently replaced"
       baseBranch: "main",
     },
   };
-  store.saveExecutionConfiguration(run.ref, original);
+  saveExecutionConfiguration(store, run.ref, original);
   store.close();
   store = new StateStore(f.statePath);
   try {
-    expect(store.getExecutionConfiguration(run.ref)).toEqual(original);
+    expect(getExecutionConfiguration(store, run.ref)).toEqual(original);
     expect(() =>
-      store.saveExecutionConfiguration(run.ref, resolve(INITIAL_CONFIGURATION, { model: "new" })),
+      saveExecutionConfiguration(store, run.ref, resolve(INITIAL_CONFIGURATION, { model: "new" })),
     ).toThrow();
-    expect(store.getExecutionConfiguration(run.ref)).toEqual(original);
+    expect(getExecutionConfiguration(store, run.ref)).toEqual(original);
   } finally {
     store.close();
   }
@@ -364,7 +370,7 @@ test.each(["failure", "malformed", "concurrent"])(
         return scenario === "failure" ? 1 : 0;
       },
     });
-    await expect(operations.edit({ ...input, editor: "editor with spaces" })).rejects.toThrow(
+    await expectRejection(operations.edit({ ...input, editor: "editor with spaces" })).toThrow(
       "Edited draft retained at",
     );
     expect(readFileSync(stagedPath, "utf8")).toBe(
@@ -433,9 +439,9 @@ test.each(
   ].map((args) => ({ args })),
 )("CLI rejects malformed configuration arguments without mutations: %j", async ({ args }) => {
   const f = fixture();
-  await expect(
+  await expectRejection(
     run(args, () => {}, { configuration: { cwd: f.cwd, statePath: f.statePath } }),
-  ).rejects.toThrow();
+  ).toThrow();
   expect(readdirSync(f.cwd)).toEqual([]);
 });
 
@@ -451,7 +457,7 @@ test("show reads an existing local database without changing durable data", asyn
 
 test("invalid user setting fails before creating local state", async () => {
   const f = fixture();
-  await expect(f.ops.edit({ ...input, set: ["runtime_mode", "invalid"] })).rejects.toThrow(
+  await expectRejection(f.ops.edit({ ...input, set: ["runtime_mode", "invalid"] })).toThrow(
     "user.runtime_mode",
   );
   expect(existsSync(f.statePath)).toBe(false);
@@ -469,7 +475,7 @@ test("config group JSON help lists the same registered action contracts", async 
       .filter((entry) => entry.command[0] === "config")
       .map((entry) => entry.command),
   );
-  await expect(run(["config", "--help", "--unknown"], () => {})).rejects.toThrow("Group help");
+  await expectRejection(run(["config", "--help", "--unknown"], () => {})).toThrow("Group help");
 });
 
 test("Drizzle reads the existing schema, respects read-only handles and redacts driver parameters", () => {
@@ -582,9 +588,9 @@ test("symlink aliases share project identity without permitting overwrite", asyn
   expect((await f.ops.show({ path: alias })).configuration).toEqual(
     (await f.ops.show({})).configuration,
   );
-  await expect(f.ops.init({ path: alias })).rejects.toThrow();
+  await expectRejection(f.ops.init({ path: alias })).toThrow();
   expect(readFileSync(f.path, "utf8")).toBe(INITIAL_CONFIGURATION);
-  await expect(f.ops.edit({ path: alias, editor: "unused" })).rejects.toThrow("not a symlink");
+  await expectRejection(f.ops.edit({ path: alias, editor: "unused" })).toThrow("not a symlink");
 });
 
 test("version 2 receipts retain their historical defaults", () => {

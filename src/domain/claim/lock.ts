@@ -1,7 +1,12 @@
+import { z } from "zod";
 import type { ClaimRequest, ReleaseClaimRequest } from "../contracts.ts";
 import type { ActorRef, ClaimRef, RunRef, TicketRef } from "../model.ts";
 
 export const CLAIM_RECORD_VERSION = 2;
+
+export const lockedPayloadSchema = z.object({
+  tracker: z.object({ version: z.string(), payload: z.unknown() }),
+});
 
 export class ClaimLockUnavailableError extends Error {
   constructor(message: string) {
@@ -37,4 +42,8 @@ export interface ClaimLock {
 export interface RecoverableClaimLock extends ClaimLock {
   releasable(request: ReleaseClaimRequest): Promise<ClaimLockState>;
   restore(ticket: TicketRef, claim: ClaimRef): Promise<void>;
+}
+
+export function heldClaim(state: ClaimLockState): ClaimLockRecord | undefined {
+  return state.record && state.record.action !== "release" ? state.record : undefined;
 }

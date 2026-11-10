@@ -2,9 +2,9 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { claimRefSchema, laneRefSchema, runRefSchema } from "../domain/refs/identifiers.ts";
 import type { ClaimRef, LaneRef, RunRef } from "../domain/model.ts";
-import type { RuntimeServices } from "../app/runtime-services.ts";
-import { databasePath } from "./paths.ts";
-import { StateStore } from "./state.ts";
+import type { RuntimeServices } from "./runtime-services.ts";
+import { databasePath } from "../distribution/paths.ts";
+import { StateStore } from "../persistence/state.ts";
 
 export function withStore<T>(services: RuntimeServices, operation: (store: StateStore) => T): T {
   const path = services.statePath ?? databasePath();

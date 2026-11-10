@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { GitClaimLock, heldClaim } from "../../../src/adapters/git/claim-lock.ts";
+import { GitClaimLock } from "../../../src/adapters/git/claim-lock.ts";
+import { heldClaim } from "../../../src/domain/claim/lock.ts";
 import { createApplication } from "../../../src/app/application.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import { ticketRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { pickupFixture } from "../../fixtures/pickup/runtime.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const ticket = ticketRefSchema.parse("jira:example:TEST:ticket:TEST-492");
 
@@ -58,9 +60,9 @@ test(
         store.close();
       }
       const calls = f.jira.calls.length;
-      await expect(
+      await expectRejection(
         createApplication(f.services).claim.release.execute({ claim: picked.claim }),
-      ).rejects.toThrow("Unfinished legacy release requires recovery");
+      ).toThrow("Unfinished legacy release requires recovery");
       expect(
         f.jira.calls.slice(calls).filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call)),
       ).toEqual([]);
@@ -159,9 +161,9 @@ test.each(["status", "assignee", "property"])(
         git: f.git,
       });
       const writes = f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call));
-      await expect(
+      await expectRejection(
         createApplication(f.services).claim.release.execute({ claim: picked.claim }),
-      ).rejects.toThrow("requires recovery");
+      ).toThrow("requires recovery");
       expect(
         f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call)),
       ).toEqual(writes);
@@ -180,7 +182,7 @@ test.each(["status", "assignee", "property"])(
       if (child?.exitCode === null) child.kill("SIGKILL");
       if (child) await child.exited;
       responseGate.resolve();
-      server.stop(true);
+      void server.stop(true);
       await f.dispose();
     }
   },
@@ -200,7 +202,7 @@ test.each(["intent", "completion"])(
     }
     f.services.execution = { ...f.services.execution, openStore: (path) => new FailingStore(path) };
     try {
-      await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+      await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
         receipt: { state: stage === "intent" ? "compensated" : "recovery_required" },
       });
       const lock = new GitClaimLock({

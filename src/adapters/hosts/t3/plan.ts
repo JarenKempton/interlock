@@ -1,11 +1,27 @@
 import { type T3Catalog } from "./catalog.ts";
-import type { ResolvedConfiguration, ReviewChoices } from "../../../configuration/schema.ts";
 export { validateT3Catalog } from "./catalog.ts";
 
+export interface T3PlanSettings {
+  host: string;
+  harness?: string | undefined;
+  model?: string | undefined;
+  effort?: string | undefined;
+  context_window?: string | undefined;
+  runtime_mode?: string | undefined;
+  interaction_mode?: string | undefined;
+}
+
+export interface T3ReviewChoices {
+  lenses: readonly string[];
+  harness?: string | undefined;
+  model?: string | undefined;
+  effort?: string | undefined;
+}
+
 export function planT3Models(
-  configuration: ResolvedConfiguration,
+  configuration: { settings: T3PlanSettings },
   input?: T3Catalog,
-  review: ReviewChoices = { lenses: [] },
+  review: T3ReviewChoices = { lenses: [] },
 ) {
   const { settings } = configuration;
   if (settings.host !== "t3") throw new Error("Requested host is unavailable; pickup supports T3");
@@ -63,8 +79,8 @@ export function planT3Models(
 }
 
 export function planHostLaunchModels(
-  configuration: ResolvedConfiguration,
-  review: ReviewChoices = { lenses: [] },
+  configuration: { settings: T3PlanSettings },
+  review: T3ReviewChoices = { lenses: [] },
 ) {
   const { settings } = configuration;
   if (settings.host !== "t3") throw new Error("Requested host is unavailable; pickup supports T3");

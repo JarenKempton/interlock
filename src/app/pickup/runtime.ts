@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { GitClaimLock, heldClaim } from "../../adapters/git/claim-lock.ts";
+import { GitClaimLock } from "../../adapters/git/claim-lock.ts";
+import { heldClaim } from "../../domain/claim/lock.ts";
 import type { T3Process } from "../../adapters/hosts/t3/cli.ts";
 import { type T3LaneBinding, type T3LaunchPlan, T3HostPort } from "../../adapters/hosts/t3/port.ts";
 import {
@@ -15,6 +16,7 @@ import {
   BunGitCommandExecutor,
   type GitCommandExecutor,
   GitWorkspaceAdapter,
+  gitWorkspaceFileSystem,
 } from "../../adapters/git/workspace.ts";
 import {
   configurationReference,
@@ -50,7 +52,7 @@ import { createLane } from "../../domain/lane/lifecycle.ts";
 import type { RepositorySpec, RunRef, Ticket } from "../../domain/model.ts";
 import { ticketKeyMatches } from "../../domain/submission/commit.ts";
 import { lockExecution } from "../../persistence/execution-lock.ts";
-import { databasePath } from "../../persistence/paths.ts";
+import { databasePath } from "../../distribution/paths.ts";
 import { StateStore } from "../../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 
@@ -68,6 +70,11 @@ import {
   planT3Models,
   validateT3Catalog,
 } from "../../adapters/hosts/t3/plan.ts";
+import {
+  getExecutionConfiguration,
+  saveClaimHomeIfAbsent,
+  saveExecutionConfiguration,
+} from "../../configuration/store.ts";
 
 const modelSelectionSchema = z.strictObject({
   harness: z.string(),
@@ -424,7 +431,12 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     worktreeRoot: join(dirname(repositoryPath), "worktrees", basename(repositoryPath)),
     baseBranch: claimHome.defaultBranch,
   };
-  const workspace = new GitWorkspaceAdapter(repository, git, undefined, () => branch);
+  const workspace = new GitWorkspaceAdapter(
+    repository,
+    git,
+    gitWorkspaceFileSystem(lockExecution),
+    () => branch,
+  );
   await workspace.preflight(ticket);
   const worktree = await workspace.plan(ticket);
   const marker = await jira.tracker.claimMarker(ref);
@@ -564,8 +576,8 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       saveRun(run) {
         store.saveRun(run);
         journalRun = run.ref;
-        if (!store.getExecutionConfiguration(run.ref))
-          store.saveExecutionConfiguration(run.ref, { ...configuration, repository });
+        if (!getExecutionConfiguration(store, run.ref))
+          saveExecutionConfiguration(store, run.ref, { ...configuration, repository });
       },
       saveClaim: (claim) => store.saveClaim(claim),
       commitClaim: (claim, receipt) => store.commitClaim(claim, receipt),
@@ -639,7 +651,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       harness: adapterRefSchema.parse(models.implementer?.harness ?? "host-default"),
       ...(models.implementer ? { model: models.implementer.model } : {}),
     });
-    const claimHomeSaved = store.saveClaimHomeIfAbsent(claimHome.home.url);
+    const claimHomeSaved = saveClaimHomeIfAbsent(store, claimHome.home.url);
     const launched = launcher?.launched;
     return {
       ...plan,

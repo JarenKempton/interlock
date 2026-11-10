@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { GitHubArtifactHost } from "../../adapters/github/artifact.ts";
 import { BunGitCommandExecutor } from "../../adapters/git/workspace.ts";
-import { defineAction } from "../../cli/definition.ts";
+import { defineAction } from "../action.ts";
 import { choice, flag, optional, positional, text } from "../../cli/schema.ts";
 import { ticketRefSchema } from "../../domain/refs/identifiers.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
@@ -13,13 +13,14 @@ import {
   laneResultSchema,
   laneSchema,
 } from "../../domain/lane/lifecycle.ts";
-import { claimRef, laneRef, runRef } from "../../persistence/command-store.ts";
+import { claimRef, laneRef, runRef } from "../command-store.ts";
 import type { StateStore } from "../../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { RecordedAttachAuthority } from "./attachment.ts";
 import { LaneService } from "../../execution/lane/service.ts";
 import { signedInLaneTracker } from "../tracker/signed-in.ts";
 import { executionStatePath, withExecutionStore } from "../pickup/runtime.ts";
+import { gitLaneService } from "./service.ts";
 
 function exitCode(output: unknown): number {
   return typeof output === "object" && output !== null && "ok" in output && !output.ok ? 1 : 0;
@@ -28,7 +29,7 @@ function exitCode(output: unknown): number {
 const laneResult = laneResultSchema(laneSchema);
 
 export function laneService(services: RuntimeServices, store: StateStore): LaneService {
-  return new LaneService({
+  return gitLaneService({
     store,
     tracker: services.lane?.tracker ?? signedInLaneTracker(services, store),
     artifacts: services.lane?.artifacts ?? new GitHubArtifactHost(new BunGitCommandExecutor()),

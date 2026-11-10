@@ -11,6 +11,7 @@ import {
   gitRemoteFixture,
 } from "../../fixtures/git/remote.ts";
 import { commitFixture } from "../../fixtures/pickup/runtime.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 let fixtures: GitRemoteFixture[] = [];
 afterEach(async () => {
@@ -112,7 +113,7 @@ test.each([
   "%s on the default branch stops resolution",
   async (_, project, message) => {
     const { resolve } = await workRepo(project);
-    await expect(resolve("team/locks")).rejects.toThrow(message);
+    await expectRejection(resolve("team/locks")).toThrow(message);
   },
   GIT_TEST_TIMEOUT_MS,
 );
@@ -127,7 +128,7 @@ test.each(["ls-remote", "fetch", "ls-tree", "cat-file"])(
           ? Promise.resolve({ exitCode: 128, stdout: "", stderr: "unreachable" })
           : fixture.git.run(argv, cwd),
     };
-    await expect(resolve("team/other", failing)).rejects.toThrow("Claim home: cannot");
+    await expectRejection(resolve("team/other", failing)).toThrow("Claim home: cannot");
   },
   GIT_TEST_TIMEOUT_MS,
 );

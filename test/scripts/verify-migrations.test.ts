@@ -18,7 +18,10 @@ function withMigrationCopy(check: (root: string, migrations: string) => void) {
 
 function run(root: string, ...args: string[]) {
   const result = Bun.spawnSync(["bun", script, ...args], { cwd: root });
-  return { exitCode: result.exitCode, output: `${result.stdout}${result.stderr}` };
+  return {
+    exitCode: result.exitCode,
+    output: `${result.stdout.toString()}${result.stderr.toString()}`,
+  };
 }
 
 test("db:hash refuses to rehash an edited committed migration", () => {

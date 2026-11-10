@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import { createApplication } from "../../src/app/application.ts";
-import { composeActions, registeredActions } from "../../src/cli/catalog.ts";
+import { composeActions } from "../../src/cli/catalog.ts";
 import { actionHelp, dispatch } from "../../src/cli/command-line.ts";
 import { completionCandidates } from "../../src/cli/completions.ts";
-import { defineAction } from "../../src/cli/definition.ts";
+import { defineAction, registeredActions } from "../../src/app/action.ts";
 import { manPage } from "../../src/cli/manpage.ts";
 import { optional, positional, text } from "../../src/cli/schema.ts";
+import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 function example(greet: (name: string) => string) {
   return {
@@ -52,7 +53,7 @@ test.each(
   ].map((args) => ({ args })),
 )("shared parser rejects malformed inputs before handlers: %j", async ({ args }) => {
   let calls = 0;
-  await expect(
+  await expectRejection(
     dispatch(
       example((name) => {
         calls++;
@@ -61,7 +62,7 @@ test.each(
       args,
       () => {},
     ),
-  ).rejects.toThrow();
+  ).toThrow();
   expect(calls).toBe(0);
 });
 
@@ -71,8 +72,8 @@ test("direct typed calls also validate untrusted inputs at runtime", async () =>
     calls++;
     return name;
   }).sample.greet;
-  await expect(action.invoke({ name: 17 })).rejects.toThrow("Invalid name");
-  await expect(action.invoke({ name: "Jaren", unknown: "DO_NOT_ECHO" })).rejects.toThrow(
+  await expectRejection(action.invoke({ name: 17 })).toThrow("Invalid name");
+  await expectRejection(action.invoke({ name: "Jaren", unknown: "DO_NOT_ECHO" })).toThrow(
     "Unknown action input field",
   );
   expect(calls).toBe(0);
@@ -228,7 +229,7 @@ test("help respects end-of-options, accepts omitted required fields, and shares 
   expect(help.usage).toContain("--help");
   expect(help.usage).toContain("--json");
   expect(calls).toBe(1);
-  await expect(dispatch({ echo: action }, ["echo"], () => {})).rejects.toThrow(help.usage);
+  await expectRejection(dispatch({ echo: action }, ["echo"], () => {})).toThrow(help.usage);
 });
 
 test("an action fails when its handler result does not match its result schema", async () => {
@@ -238,12 +239,12 @@ test("an action fails when its handler result does not match its result schema",
     result: z.strictObject({ count: z.number() }),
     handler: () => JSON.parse('{"count":"1"}'),
   });
-  await expect(action.execute({})).rejects.toThrow(
+  await expectRejection(action.execute({})).toThrow(
     "Action result does not match its contract at count",
   );
   const output: string[] = [];
-  await expect(
+  await expectRejection(
     dispatch({ drifted: action }, ["drifted", "--json"], (line) => output.push(line)),
-  ).rejects.toThrow("does not match its contract");
+  ).toThrow("does not match its contract");
   expect(output).toEqual([]);
 });

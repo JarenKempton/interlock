@@ -1,4 +1,4 @@
-import { defineAction } from "../cli/definition.ts";
+import { defineAction } from "../app/action.ts";
 import { editInput, initInput, showInput } from "./inputs.ts";
 import {
   type ConfigurationPlatformOptions,
@@ -15,7 +15,7 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
       input: initInput,
       version: 3,
       result: configurationOutputSchema,
-      handler: operations.init,
+      handler: (input) => operations.init(input),
     }),
     config: {
       show: defineAction({
@@ -23,7 +23,7 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
         input: showInput,
         version: 3,
         result: configurationOutputSchema,
-        handler: operations.show,
+        handler: (input) => operations.show(input),
       }),
       edit: defineAction({
         description:
@@ -38,7 +38,7 @@ export function configurationActions(platform: ConfigurationPlatformOptions) {
         },
         version: 3,
         result: configurationOutputSchema,
-        handler: operations.edit,
+        handler: (input) => operations.edit(input),
       }),
     },
   };

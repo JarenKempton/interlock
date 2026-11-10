@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import type { WorkspaceAdapter, WorkspacePlan } from "../../domain/contracts.ts";
 import type { PreparedWorkspace, RepositorySpec, Ticket, TicketRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
-import { lockExecution } from "../../persistence/execution-lock.ts";
 
 export interface CommandResult {
   exitCode: number;
@@ -52,7 +51,9 @@ interface WorktreeRecord {
   prunable?: string;
 }
 
-const nativeFileSystem: WorkspaceFileSystem = {
+export const gitWorkspaceFileSystem = (
+  lockFile: (path: string) => () => void,
+): WorkspaceFileSystem => ({
   exists: pathExists,
   async lock(repository, git) {
     const result = await git.run(
@@ -61,9 +62,9 @@ const nativeFileSystem: WorkspaceFileSystem = {
     );
     if (result.exitCode !== 0)
       throw new WorkspaceConflictError("Cannot determine workspace lifecycle lock");
-    return lockExecution(join(result.stdout.trim(), "config"));
+    return lockFile(join(result.stdout.trim(), "config"));
   },
-};
+});
 
 /** Git-backed workspaces with deterministic paths and fail-closed resumption. */
 export class GitWorkspaceAdapter implements WorkspaceAdapter {
@@ -75,7 +76,7 @@ export class GitWorkspaceAdapter implements WorkspaceAdapter {
   constructor(
     repository: RepositorySpec,
     git: GitCommandExecutor = new BunGitCommandExecutor(),
-    fileSystem: WorkspaceFileSystem = nativeFileSystem,
+    fileSystem: WorkspaceFileSystem,
     branch: (key: string) => string = (key) => `task/${key}`,
   ) {
     this.#repository = canonicalRepository(repository);

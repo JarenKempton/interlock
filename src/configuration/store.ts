@@ -1,17 +1,22 @@
 import type { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
 import { savedT3Choices, savedT3Configuration } from "../adapters/hosts/t3/legacy.ts";
+import type { RunRef } from "../domain/model.ts";
+import type { StateStore } from "../persistence/state.ts";
 import {
+  type ExecutionConfiguration,
   type UserSettingKey,
+  type UserSettings,
+  userSettingsSchema,
   validateExecutionConfiguration,
   validateUserSettings,
-} from "../configuration/schema.ts";
-import { ledgerDb } from "./ledger-db.ts";
+} from "./schema.ts";
+import { ledgerDb } from "../persistence/ledger-db.ts";
 import {
   executionConfigurationRowSchema,
   executionConfigurations,
-} from "./schema/execution-configurations.ts";
-import { userSettingRowSchema, userSettings } from "./schema/user-settings.ts";
+} from "../persistence/schema/execution-configurations.ts";
+import { userSettingRowSchema, userSettings } from "../persistence/schema/user-settings.ts";
 
 function decode(content: string): unknown {
   try {
@@ -78,4 +83,57 @@ export function configurationStore(database: Database) {
       return row ? snapshotRow.parse(row) : undefined;
     },
   };
+}
+
+export function updateUserSettings(
+  store: StateStore,
+  update: (settings: UserSettings) => UserSettings,
+): UserSettings {
+  const config = configurationStore(store.database);
+  return store.database
+    .transaction(() => {
+      const current = config.readUser();
+      const next = update({ ...current });
+      for (const key of userSettingsSchema.keyof().options)
+        if (current[key] !== next[key]) config.saveUser(key, next[key]);
+      return config.readUser();
+    })
+    .immediate();
+}
+
+export function readUserSettings(store: StateStore): UserSettings {
+  return configurationStore(store.database).readUser();
+}
+
+export function saveUserSetting(
+  store: StateStore,
+  name: UserSettingKey,
+  value: string | undefined,
+): void {
+  configurationStore(store.database).saveUser(name, value);
+}
+
+export function saveClaimHomeIfAbsent(store: StateStore, home: string): boolean {
+  return store.database
+    .transaction(() => {
+      if (readUserSettings(store).claim_home !== undefined) return false;
+      saveUserSetting(store, "claim_home", home);
+      return true;
+    })
+    .immediate();
+}
+
+export function saveExecutionConfiguration(
+  store: StateStore,
+  run: RunRef,
+  configuration: ExecutionConfiguration,
+): void {
+  configurationStore(store.database).saveSnapshot(run, configuration);
+}
+
+export function getExecutionConfiguration(
+  store: StateStore,
+  run: RunRef,
+): ExecutionConfiguration | undefined {
+  return configurationStore(store.database).readSnapshot(run);
 }

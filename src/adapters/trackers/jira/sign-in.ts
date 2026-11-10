@@ -59,7 +59,7 @@ export function jiraSignIn(
       if (project) query.set("projectKey", project);
       const response = await transport(site, credentials).request(
         "GET",
-        `/rest/api/3/mypermissions?${query}`,
+        `/rest/api/3/mypermissions?${query.toString()}`,
       );
       if (project && response.status === 404) return [`Jira project ${project} is not visible`];
       const parsed = permissionsSchema.safeParse(response.body);

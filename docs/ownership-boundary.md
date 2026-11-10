@@ -109,7 +109,7 @@ Manager, or Linux Secret Service, through Bun's built-in `Bun.secrets`); the sit
 saved in user settings. `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` override the store
 for CI and headless agents, and `JIRA_SITE` overrides the saved site. Each tracker
 adapter declares its credential fields, verification call and permission check
-(`TrackerSignIn` in `src/domain/tracker.ts`); the core prompts, stores and looks
+(`TrackerSignIn` in `src/domain/tracker/port.ts`); the core prompts, stores and looks
 them up. `interlock doctor` reports sign-in, missing Jira permissions and Git
 claim-lock push access. Pickup's site comes from shared configuration, else
 user settings; an optional `JIRA_SITE` must match it. The authenticated Jira account owns the claim.

@@ -1,6 +1,4 @@
-import type { ExecutionConfiguration } from "../../configuration/schema.ts";
 import type { Ticket, TicketRef } from "../../domain/model.ts";
-import { parseRef } from "../../domain/refs/parse.ts";
 import type { TrackerReader } from "../../domain/tracker/port.ts";
 
 export type Eligibility = "eligible" | "unavailable" | "blocked";
@@ -35,11 +33,4 @@ export async function unblockedBy(
       unblocked.push(blocked);
   }
   return unblocked;
-}
-
-export function configuredPickable(configuration: ExecutionConfiguration): PickableStatuses {
-  if (configuration.version === 2) return () => configuration.settings.pickable_statuses;
-  const { maps } = configuration.project;
-  return (ticket) =>
-    ticket.map ? maps[parseRef(ticket.map).nativeId ?? ""]?.available_statuses : undefined;
 }

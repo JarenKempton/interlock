@@ -1,7 +1,6 @@
 import { type DocSection, ensureNonEmptyString, getDocPageSync, text } from "@optique/core";
 import { formatDocPageAsMan } from "@optique/man";
-import { registeredActions } from "./catalog.ts";
-import type { ActionTree } from "./definition.ts";
+import { type ActionTree, registeredActions } from "../app/action.ts";
 export function manPage(version: string, tree: ActionTree): string {
   const sections: DocSection[] = registeredActions(tree).map(({ command, action }) => ({
     title: command.join(" "),

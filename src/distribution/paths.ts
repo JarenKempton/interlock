@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { RELEASE_BUILD } from "../distribution/version.ts";
+import { RELEASE_BUILD } from "./version.ts";
 
 export function dataDirectory(
   environment: NodeJS.ProcessEnv = process.env,

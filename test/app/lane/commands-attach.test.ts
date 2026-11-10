@@ -35,7 +35,7 @@ function git(argv: string[], cwd: string) {
   const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...argv], {
     cwd,
   });
-  if (result.exitCode !== 0) throw new Error(`git ${argv.join(" ")}: ${result.stderr}`);
+  if (result.exitCode !== 0) throw new Error(`git ${argv.join(" ")}: ${result.stderr.toString()}`);
   return result.stdout.toString().trim();
 }
 

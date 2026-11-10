@@ -36,6 +36,7 @@ import {
   type GitRemoteFixture,
   gitRemoteFixture,
 } from "../../../fixtures/git/remote.ts";
+import { expectRejection } from "../../../fixtures/assertions/rejection.ts";
 
 const ticket = ticketRefSchema.parse("jira:responsibid:JWB:ticket:JWB-288");
 const map = mapRefSchema.parse("jira:responsibid:JWB:map:JWB-274");
@@ -175,7 +176,7 @@ describe("completion mirror removal", () => {
     test(`replacement ${field} refuses without mutation`, async () => {
       const api = new FakeJira();
       api.claimProperty = { ...property, [field]: "replacement" };
-      await expect(adapter(api).removeMirror(request)).rejects.toBeInstanceOf(ClaimCollisionError);
+      await expectRejection(adapter(api).removeMirror(request)).toBeInstanceOf(ClaimCollisionError);
       expect(api.mutationCount()).toBe(0);
     });
   }
@@ -184,7 +185,7 @@ describe("completion mirror removal", () => {
     const api = new FakeJira();
     api.claimProperty = property;
     api.fail = (method) => (method === "DELETE" ? 204 : undefined);
-    await expect(adapter(api).removeMirror(request)).rejects.toBeInstanceOf(
+    await expectRejection(adapter(api).removeMirror(request)).toBeInstanceOf(
       AmbiguousTrackerResultError,
     );
   });
@@ -207,12 +208,16 @@ describe("completion mirror removal", () => {
       },
     });
     api.fail = (method) => (method === "DELETE" ? 503 : undefined);
-    await expect(tracker.removeMirror(request)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    await expectRejection(tracker.removeMirror(request)).toBeInstanceOf(
+      AmbiguousTrackerResultError,
+    );
     expect(pending).toMatchObject([
       { operation: "remove claim mirror", expected: { field: "claim", value: null } },
     ]);
     expect(completed).toBe(0);
-    await expect(tracker.removeMirror(request)).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+    await expectRejection(tracker.removeMirror(request)).toBeInstanceOf(
+      AmbiguousTrackerResultError,
+    );
     api.claimProperty = null;
     await tracker.removeMirror(request);
     expect(completed).toBe(1);
@@ -319,9 +324,9 @@ describe("Jira tracker read adapter", () => {
   test("restoration requires the persisted owner", async () => {
     const api = new FakeJira();
     const subject = adapter(api);
-    await expect(
+    await expectRejection(
       subject.restore(Object.assign(restoreRequest(), { claimedOwner: undefined })),
-    ).rejects.toThrow("Persisted claimed owner is required");
+    ).toThrow("Persisted claimed owner is required");
     expect(api.mutationCount()).toBe(0);
   });
 
@@ -348,7 +353,7 @@ describe("Jira tracker read adapter", () => {
     const api = new FakeJira();
     const subject = adapter(api);
     api.issues = [issue("JWB-288", { assignee: "human" })];
-    await expect(subject.apply(claimRequest(owner, "c", "v1"))).rejects.toBeInstanceOf(
+    await expectRejection(subject.apply(claimRequest(owner, "c", "v1"))).toBeInstanceOf(
       ClaimCollisionError,
     );
     expect(api.mutationCount()).toBe(0);
@@ -357,8 +362,8 @@ describe("Jira tracker read adapter", () => {
     await subject.apply(claimRequest(owner, "c", "v1"));
     const marked = api.mutationCount();
     reassign(api, "human");
-    await expect(subject.restore(restoreRequest())).rejects.toThrow("changed outside Interlock");
-    await expect(subject.verify({ ...restoreRequest(), state: "restored" })).rejects.toThrow(
+    await expectRejection(subject.restore(restoreRequest())).toThrow("changed outside Interlock");
+    await expectRejection(subject.verify({ ...restoreRequest(), state: "restored" })).toThrow(
       "Jira restored state could not be verified",
     );
     expect(api.mutationCount()).toBe(marked);
@@ -492,8 +497,8 @@ describe("Jira mirror behind the Git claim lock", () => {
       api.fail = (method, path) =>
         method === "PUT" && path.endsWith("/assignee") ? 403 : undefined;
       const failure = first.claim(request);
-      await expect(failure).rejects.toThrow("Jira assign issue failed (403)");
-      await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+      await expectRejection(failure).toThrow("Jira assign issue failed (403)");
+      await expectRejection(failure).not.toBeInstanceOf(ClaimCollisionError);
       api.fail = () => undefined;
       const restore: RestoreClaimRequest = {
         ticket,
@@ -520,8 +525,8 @@ describe("Jira mirror behind the Git claim lock", () => {
       const request = claimRequest(owner, "c", original.version);
       reassign(api, "human");
       const failure = first.claim(request);
-      await expect(failure).rejects.toThrow("Tracker mirror conflicts with the held claim lock");
-      await expect(failure).rejects.not.toBeInstanceOf(ClaimCollisionError);
+      await expectRejection(failure).toThrow("Tracker mirror conflicts with the held claim lock");
+      await expectRejection(failure).not.toBeInstanceOf(ClaimCollisionError);
       const restore: RestoreClaimRequest = {
         ticket,
         claim: request.claim,
@@ -549,7 +554,7 @@ describe("Jira mirror behind the Git claim lock", () => {
       await first.claim(request);
       const claimed = await first.snapshotClaimState(ticket);
       reassign(api, "human");
-      await expect(
+      await expectRejection(
         first.releaseClaim({
           ticket,
           claim: request.claim,
@@ -558,7 +563,7 @@ describe("Jira mirror behind the Git claim lock", () => {
           expectedVersion: claimed.version,
           authorizedBy: owner,
         }),
-      ).rejects.toThrow("changed outside Interlock");
+      ).toThrow("changed outside Interlock");
       expect((await first.snapshotClaimState(ticket)).version).toBe(claimed.version);
     },
     GIT_TEST_TIMEOUT_MS,
@@ -672,7 +677,7 @@ describe("Jira basic-auth transport", () => {
   test("refuses non-REST paths and keeps status for non-JSON responses", async () => {
     const http: HttpTransport = async () => new Response("<html>gateway</html>", { status: 502 });
     const transport = jiraBasicAuthTransport(jiraCredentials, http);
-    await expect(transport.request("GET", "//evil.example/rest")).rejects.toThrow(
+    await expectRejection(transport.request("GET", "//evil.example/rest")).toThrow(
       "Jira request path must be a REST path",
     );
     expect(await transport.request("GET", "/rest/api/3/myself")).toEqual({ status: 502 });
@@ -762,9 +767,9 @@ test.each([
       expectedVersion: held.version,
       authorizedBy: owner,
     };
-    await expect(
+    await expectRejection(
       operation === "release" ? first.releaseClaim(restore) : first.restoreClaimState(restore),
-    ).rejects.toThrow();
+    ).toThrow();
     expect((await first.snapshotClaimState(ticket)).version).toBe(held.version);
     expect(api.claimProperty).toMatchObject({ claim: request.claim });
     api.fail = () => undefined;
@@ -785,7 +790,7 @@ test.each([202, 500])(
     const request = claimRequest(owner, "pending-response", original.version);
     api.fail = (method, path) =>
       method === "PUT" && path.endsWith("/assignee") ? status : undefined;
-    await expect(first.claim(request)).rejects.toThrow("outcome is unknown");
+    await expectRejection(first.claim(request)).toThrow("outcome is unknown");
     const held = await first.snapshotClaimState(ticket);
     const restore = {
       ticket,
@@ -793,7 +798,7 @@ test.each([202, 500])(
       claimedOwner: owner,
       originalSnapshot: original,
     };
-    await expect(first.restoreClaimState(restore)).rejects.toThrow("outcome is unknown");
+    await expectRejection(first.restoreClaimState(restore)).toThrow("outcome is unknown");
     expect((await first.snapshotClaimState(ticket)).version).toBe(held.version);
     expect(api.claimProperty).toMatchObject({ claim: request.claim });
     reassign(api, owner);
@@ -823,9 +828,9 @@ test.each(["release", "compensation"])(
       expectedVersion: held.version,
       authorizedBy: owner,
     };
-    await expect(
+    await expectRejection(
       operation === "release" ? first.releaseClaim(restore) : first.restoreClaimState(restore),
-    ).rejects.toThrow("Jira restored state could not be verified");
+    ).toThrow("Jira restored state could not be verified");
     expect((await first.snapshotClaimState(ticket)).version).toBe(held.version);
     expect(api.claimProperty).toMatchObject({ claim: request.claim });
   },
@@ -836,7 +841,7 @@ test("an acknowledged no-op claim property write cannot advance assignment or st
   const api = new FakeJira();
   api.fail = (method, path) =>
     method === "PUT" && path.includes("/properties/") ? 204 : undefined;
-  await expect(adapter(api).apply(claimRequest(owner, "property", "v1"))).rejects.toThrow(
+  await expectRejection(adapter(api).apply(claimRequest(owner, "property", "v1"))).toThrow(
     "Jira claim property was not verified",
   );
   expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
@@ -852,8 +857,8 @@ test("Jira mirror without read configuration cannot advertise or perform normali
     claimHome: "github.com/jarenkempton/interlock",
   });
   expect(await subject.describe()).toEqual({ link_artifact: true, transition: true });
-  await expect(subject.read(ticket)).rejects.toThrow("normalized reads require");
-  await expect(subject.list_work(map)).rejects.toThrow("normalized reads require");
+  await expectRejection(subject.read(ticket)).toThrow("normalized reads require");
+  await expectRejection(subject.list_work(map)).toThrow("normalized reads require");
   expect(api.requests).toEqual([]);
   const claim = claimRequest(owner, "c", "absent");
   await subject.apply(claim);
@@ -880,9 +885,9 @@ test.each([
   async (_, property, message) => {
     const api = new FakeJira();
     api.claimProperty = property;
-    await expect(adapter(api).read(ticket)).rejects.toThrow(message);
-    await expect(adapter(api).apply(claimRequest(owner, "c", "absent"))).rejects.toThrow(message);
-    await expect(adapter(api).restore(restoreRequest())).rejects.toThrow(message);
+    await expectRejection(adapter(api).read(ticket)).toThrow(message);
+    await expectRejection(adapter(api).apply(claimRequest(owner, "c", "absent"))).toThrow(message);
+    await expectRejection(adapter(api).restore(restoreRequest())).toThrow(message);
     expect(api.claimProperty).toEqual(property);
     expect(api.mutationCount()).toBe(0);
   },
@@ -898,13 +903,13 @@ test("a claim property from another claim home names that home and is never over
     version: 2,
   };
   api.claimProperty = property;
-  await expect(adapter(api).apply(claimRequest(owner, "c", "absent"))).rejects.toThrow(
+  await expectRejection(adapter(api).apply(claimRequest(owner, "c", "absent"))).toThrow(
     "claim home github.com/other/home",
   );
-  await expect(adapter(api).restore(restoreRequest())).rejects.toBeInstanceOf(ClaimCollisionError);
-  await expect(
+  await expectRejection(adapter(api).restore(restoreRequest())).toBeInstanceOf(ClaimCollisionError);
+  await expectRejection(
     adapter(api).verify({ ...claimRequest(owner, "c", "absent"), state: "applied" }),
-  ).rejects.toBeInstanceOf(AmbiguousTrackerResultError);
+  ).toBeInstanceOf(AmbiguousTrackerResultError);
   expect(api.claimProperty).toEqual(property);
   expect(api.mutationCount()).toBe(0);
 });
@@ -961,7 +966,7 @@ describe("Jira link_artifact", () => {
   test("a different link under the same globalId is refused, not overwritten", async () => {
     const api = new FakeRemoteLinks();
     api.links.set(pr, { url: "https://elsewhere.test", title: "other" });
-    await expect(linker(api).link_artifact(linkTicket, pr)).rejects.toBeInstanceOf(
+    await expectRejection(linker(api).link_artifact(linkTicket, pr)).toBeInstanceOf(
       ArtifactLinkConflictError,
     );
     expect(api.posts).toBe(0);
@@ -978,7 +983,7 @@ describe("Jira link_artifact", () => {
     ]) {
       const api = new FakeRemoteLinks();
       setup(api);
-      await expect(linker(api).link_artifact(linkTicket, pr)).rejects.toBeInstanceOf(
+      await expectRejection(linker(api).link_artifact(linkTicket, pr)).toBeInstanceOf(
         AmbiguousTrackerResultError,
       );
     }
@@ -993,7 +998,7 @@ describe("Jira link_artifact", () => {
     const unreadable = new FakeRemoteLinks();
     unreadable.postOutcome = "server_error";
     unreadable.readback = "fail";
-    await expect(linker(unreadable).link_artifact(linkTicket, pr)).rejects.toBeInstanceOf(
+    await expectRejection(linker(unreadable).link_artifact(linkTicket, pr)).toBeInstanceOf(
       AmbiguousTrackerResultError,
     );
     unreadable.readback = "ok";
@@ -1007,8 +1012,8 @@ describe("Jira link_artifact", () => {
     const api = new FakeRemoteLinks();
     api.postOutcome = "forbidden";
     const failure = linker(api).link_artifact(linkTicket, pr);
-    await expect(failure).rejects.toThrow("Jira link artifact failed (403)");
-    await expect(linker(api).link_artifact(linkTicket, pr)).rejects.not.toBeInstanceOf(
+    await expectRejection(failure).toThrow("Jira link artifact failed (403)");
+    await expectRejection(linker(api).link_artifact(linkTicket, pr)).not.toBeInstanceOf(
       AmbiguousTrackerResultError,
     );
   });

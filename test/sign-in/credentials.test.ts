@@ -11,6 +11,8 @@ import { type CredentialStore, osCredentialStore } from "../../src/persistence/c
 import { StateStore } from "../../src/persistence/state.ts";
 import type { RuntimeServices } from "../../src/app/runtime-services.ts";
 import { lineInput, type Terminal } from "../../src/sign-in/terminal.ts";
+import { readUserSettings } from "../../src/configuration/store.ts";
+import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 const TOKEN = `ATATT3x${"A".repeat(176)}=0A1B2C3D`;
 const SITE = "https://example.atlassian.net";
@@ -122,7 +124,7 @@ function harness(
 function userSettings(statePath: string) {
   const store = new StateStore(statePath);
   try {
-    return store.userSettings();
+    return readUserSettings(store);
   } finally {
     store.close();
   }
@@ -188,7 +190,7 @@ test("login asks for the site, opens the token page, verifies, stores, and print
 
 test("a rejected token stores nothing and saves no site", async () => {
   const subject = harness({ answers: [SITE, "lane@example.com", "wrong-token"] });
-  await expect(subject.cli("login", "jira")).rejects.toThrow(
+  await expectRejection(subject.cli("login", "jira")).toThrow(
     "Jira rejected the email or API token (401)",
   );
   expect(subject.store.entries.size).toBe(0);
@@ -197,7 +199,7 @@ test("a rejected token stores nothing and saves no site", async () => {
 
 test("login without a terminal names the headless environment variables", async () => {
   const subject = harness({ interactive: false });
-  await expect(subject.cli("login", "jira")).rejects.toThrow(
+  await expectRejection(subject.cli("login", "jira")).toThrow(
     "set JIRA_SITE, JIRA_USER_EMAIL, JIRA_API_TOKEN for headless use",
   );
 });
@@ -275,7 +277,7 @@ test("environment variables bypass the store and need no login or project config
 
 test("pickup refuses to reach Jira before sign-in", async () => {
   const subject = harness();
-  await expect(executionTracker(SITE, "JWB", subject.services, "release")).rejects.toThrow(
+  await expectRejection(executionTracker(SITE, "JWB", subject.services, "release")).toThrow(
     `Not signed in to Jira at ${SITE}; run interlock login jira or set JIRA_USER_EMAIL and JIRA_API_TOKEN`,
   );
   expect(subject.jira.calls).toEqual([]);
@@ -359,7 +361,7 @@ test("a site that is not a full https origin is refused before any prompt for se
     "http://x.atlassian.net",
   ]) {
     const subject = harness({ answers: [site, "lane@example.com", TOKEN] });
-    await expect(subject.cli("login", "jira")).rejects.toThrow(
+    await expectRejection(subject.cli("login", "jira")).toThrow(
       "Jira site must be an https site origin such as https://example.atlassian.net",
     );
     expect(subject.terminal.asked).toEqual([{ label: "Jira site", hidden: false }]);

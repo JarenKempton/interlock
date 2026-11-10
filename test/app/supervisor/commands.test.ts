@@ -7,6 +7,7 @@ import { GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { inspect, lock, pickupRuntimeFixtures, ref } from "../../fixtures/pickup/runtime-suite.ts";
 import { rejection } from "../../fixtures/assertions/rejection.ts";
 import { launchable } from "../../fixtures/host/scripted-t3.ts";
+import { updateUserSettings } from "../../../src/configuration/store.ts";
 
 const fixture = pickupRuntimeFixtures();
 
@@ -14,7 +15,7 @@ async function supervised() {
   const f = await fixture();
   mkdirSync(dirname(f.state), { recursive: true });
   const store = new StateStore(f.state);
-  store.updateUserSettings((settings) => ({
+  updateUserSettings(store, (settings) => ({
     ...settings,
     jira_site: "https://example.atlassian.net",
   }));

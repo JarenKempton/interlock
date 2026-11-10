@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { defineAction } from "../../cli/definition.ts";
+import { defineAction } from "../action.ts";
 import { flag, optional, text } from "../../cli/schema.ts";
 import { readUserSettings } from "../../configuration/local-settings.ts";
 import { bunServiceRunner, installService, serviceDefinition } from "../../distribution/service.ts";

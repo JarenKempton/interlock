@@ -1,8 +1,8 @@
-import { z } from "zod";
-import type {
-  ClaimLockRecord,
-  ClaimLockState,
-  RecoverableClaimLock,
+import {
+  type ClaimLockRecord,
+  type ClaimLockState,
+  lockedPayloadSchema,
+  type RecoverableClaimLock,
 } from "../../domain/claim/lock.ts";
 import {
   AmbiguousTrackerResultError,
@@ -13,10 +13,6 @@ import {
 } from "../../domain/contracts.ts";
 import type { ClaimRef, Ticket, TicketRef, TrackerSnapshot } from "../../domain/model.ts";
 import type { Tracker } from "../../domain/tracker/port.ts";
-
-const lockedPayloadSchema = z.object({
-  tracker: z.object({ version: z.string(), payload: z.unknown() }),
-});
 
 export class ClaimCoordinator {
   constructor(

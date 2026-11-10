@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { heldClaim } from "../../../src/adapters/git/claim-lock.ts";
+import { heldClaim } from "../../../src/domain/claim/lock.ts";
 import type { CommandResult } from "../../../src/adapters/git/workspace.ts";
 import { createApplication } from "../../../src/app/application.ts";
 import { PickupResultError } from "../../../src/execution/pickup/coordinator.ts";
@@ -15,6 +15,7 @@ import {
   pickupRuntimeFixtures,
   ref,
 } from "../../fixtures/pickup/runtime-suite.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const fixture = pickupRuntimeFixtures();
 
@@ -114,7 +115,7 @@ test.each(["property", "assignment", "transition"])(
         throw new Error("response lost");
       }
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
       receipt: { state: "compensated" },
     });
     expect(fired).toBe(true);
@@ -144,7 +145,7 @@ test(
         },
       },
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
       receipt: { state: "compensated" },
     });
     expect(await readFile(join(f.worktree, "user-work.txt"), "utf8")).toBe("preserve me");
@@ -165,7 +166,7 @@ test(
       }
     }
     f.services.execution = { ...f.services.execution, openStore: (path) => new FailingStore(path) };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
       receipt: { state: "compensated" },
     });
     expect(await readFile(join(f.worktree, "user-work.txt"), "utf8")).toBe("preserve me");
@@ -185,7 +186,7 @@ test(
         throw new Error("verification failed");
       }
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
       receipt: { state: "recovery_required" },
     });
     expect(heldClaim(await lock(f).read(ref))).toBeDefined();
@@ -222,7 +223,7 @@ test(
       }
     }
     f.services.execution = { ...f.services.execution, openStore: (path) => new FailingStore(path) };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
       receipt: { state: "compensated" },
     });
     expect((await lock(f).read(ref)).record?.action).toBe("release");
@@ -270,7 +271,7 @@ test.each(["property", "assignment", "transition"])(
     if (!(failure instanceof PickupResultError)) throw new Error("Expected pickup failure");
     expect(failure.receipt.state).toBe("recovery_required");
     const claim = failure.receipt.claim;
-    await expect(createApplication(f.services).claim.release.execute({ claim })).rejects.toThrow(
+    await expectRejection(createApplication(f.services).claim.release.execute({ claim })).toThrow(
       "requires recovery",
     );
     expect(heldClaim(await lock(f).read(ref))?.claim).toBe(claim);

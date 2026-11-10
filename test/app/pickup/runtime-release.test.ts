@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { heldClaim } from "../../../src/adapters/git/claim-lock.ts";
+import { heldClaim } from "../../../src/domain/claim/lock.ts";
 import { createApplication } from "../../../src/app/application.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import type { Claim } from "../../../src/domain/model.ts";
@@ -17,6 +17,7 @@ import {
   pickupRuntimeFixtures,
   ref,
 } from "../../fixtures/pickup/runtime-suite.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const fixture = pickupRuntimeFixtures();
 
@@ -28,7 +29,7 @@ test(
     const result = await app.pickup.execute(f.input);
     if (!("claim" in result)) throw new Error("Expected claim");
     f.jira.owner = "someone-else";
-    await expect(app.claim.release.execute({ claim: result.claim })).rejects.toThrow(
+    await expectRejection(app.claim.release.execute({ claim: result.claim })).toThrow(
       "recorded claim owner",
     );
     expect(heldClaim(await lock(f).read(ref))).toBeDefined();
@@ -39,9 +40,9 @@ test(
       }
     }
     f.services.execution = { ...f.services.execution, openStore: (path) => new FailingStore(path) };
-    await expect(
+    await expectRejection(
       createApplication(f.services).claim.release.execute({ claim: result.claim }),
-    ).rejects.toThrow("requires recovery");
+    ).toThrow("requires recovery");
     expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
     delete f.services.execution.openStore;
     expect(
@@ -72,13 +73,13 @@ test.each(["property", "assignment", "transition"])(
       }
       return request(method, path, body);
     };
-    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+    await expectRejection(app.claim.release.execute({ claim: picked.claim })).toThrow(
       "requires recovery",
     );
     const writes = f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call));
-    await expect(
+    await expectRejection(
       createApplication(f.services).claim.release.execute({ claim: picked.claim }),
-    ).rejects.toThrow("requires recovery");
+    ).toThrow("requires recovery");
     expect(f.jira.calls.filter((call) => /^(PUT|DELETE) |^POST .*transitions/.test(call))).toEqual(
       writes,
     );
@@ -111,7 +112,7 @@ test(
         throw new Error("release response lost");
       }
     };
-    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+    await expectRejection(app.claim.release.execute({ claim: picked.claim })).toThrow(
       "requires recovery",
     );
     expect(heldClaim(await lock(f).read(ref))?.claim).toBe(picked.claim);
@@ -176,7 +177,7 @@ test(
         },
       },
     };
-    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+    await expectRejection(app.claim.release.execute({ claim: picked.claim })).toThrow(
       "Repository origin mismatch",
     );
     expect(heldClaim(await lock(f).read(ref))?.claim).toBe(picked.claim);
@@ -219,7 +220,7 @@ test(
     expect((await f.git.run(["git", "init", "--bare", "--quiet", other], f.root)).exitCode).toBe(0);
     await configure(f, `url.${other}.pushInsteadOf`, f.remote.remote);
     const before = f.jira.calls.length;
-    await expect(app.claim.release.execute({ claim: picked.claim })).rejects.toThrow(
+    await expectRejection(app.claim.release.execute({ claim: picked.claim })).toThrow(
       `claim home ${normalizeClaimHome(f.remote.remote).identity}`,
     );
     expect(f.jira.calls.slice(before).every((call) => call.startsWith("GET "))).toBe(true);
@@ -282,9 +283,9 @@ test.each([
       s.saveClaim(recorded(s.claimForRun(picked.run)));
     });
     const calls = f.jira.calls.length;
-    await expect(
+    await expectRejection(
       app.claim.release.execute({ claim: picked.claim, state: f.state }),
-    ).rejects.toThrow(message);
+    ).toThrow(message);
     expect(f.jira.calls.length).toBe(calls);
     expect(await lock(f).read(ref)).toEqual(before);
   },

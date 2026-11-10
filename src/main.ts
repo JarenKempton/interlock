@@ -1,33 +1,7 @@
 #!/usr/bin/env bun
-import { createApplication } from "./app/application.ts";
-import { dispatch } from "./cli/command-line.ts";
-import { notifyAboutUpdate } from "./distribution/update.ts";
-import { VERSION } from "./distribution/version.ts";
-import type { RuntimeServices } from "./app/runtime-services.ts";
+import { main } from "./app/application.ts";
 
-export { VERSION } from "./distribution/version.ts";
+export { run, VERSION } from "./app/application.ts";
 export type { RuntimeServices } from "./app/runtime-services.ts";
 
-export async function run(
-  args: string[],
-  write: (text: string) => void = console.log,
-  services: RuntimeServices = {},
-): Promise<number> {
-  return dispatch(createApplication(services), args, write);
-}
-
-if (import.meta.main) {
-  run(Bun.argv.slice(2))
-    .then((exitCode) => {
-      process.exitCode = exitCode;
-      return notifyAboutUpdate({
-        currentVersion: VERSION,
-        interactive: Boolean(process.stdout.isTTY && process.stderr.isTTY),
-        json: Bun.argv.slice(2).includes("--json"),
-      });
-    })
-    .catch((error: unknown) => {
-      console.error(`interlock: ${error instanceof Error ? error.message : String(error)}`);
-      process.exitCode = 1;
-    });
-}
+if (import.meta.main) main(Bun.argv.slice(2));

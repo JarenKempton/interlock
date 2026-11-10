@@ -2,13 +2,14 @@ import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { heldClaim } from "../../../src/adapters/git/claim-lock.ts";
+import { heldClaim } from "../../../src/domain/claim/lock.ts";
 import { createApplication } from "../../../src/app/application.ts";
 import { configurationOperations } from "../../../src/configuration/project-files.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import { shellWord } from "../../../src/execution/pickup/launch-prompt.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { inspect, lock, pickupRuntimeFixtures, ref } from "../../fixtures/pickup/runtime-suite.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 const fixture = pickupRuntimeFixtures();
 
@@ -113,7 +114,7 @@ test.each([
     if (marker === "lock") f.jira.property = null;
     const before = await lock(f).read(ref);
     const calls = f.jira.calls.length;
-    await expect(app.pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(app.pickup.execute(f.input)).toThrow(
       `${message} ${normalizeClaimHome(f.remote.remote).identity}`,
     );
     expect(await lock(f).read(ref)).toEqual(before);
@@ -134,7 +135,7 @@ test(
       if (path === "/rest/api/3/field") return { status: 200, body: [] };
       return request(method, path, body);
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "Jira rejected the credentials (401); run interlock login jira or update JIRA_API_TOKEN",
     );
     expect((await lock(f).read(ref)).version).toBe("absent");
@@ -152,7 +153,7 @@ test(
         f.jira.issue.fields.status = { name: "Done", statusCategory: { key: "done" } };
       }
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "not available",
     );
     expect(f.jira.issue.fields.status.name).toBe("Done");
@@ -184,7 +185,7 @@ test(
         f.jira.issue.fields.status = { name: "Done", statusCategory: { key: "done" } };
       }
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toMatchObject({
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toMatchObject({
       receipt: { state: "compensated" },
     });
     expect(f.jira.issue.fields.status.name).toBe("Done");
@@ -221,9 +222,9 @@ test.each([
   async (dryRun, external) => {
     const f = await fixture();
     addBlocker(f, false, external);
-    await expect(
+    await expectRejection(
       createApplication(f.services).pickup.execute({ ...f.input, "dry-run": dryRun }),
-    ).rejects.toThrow("not available");
+    ).toThrow("not available");
     expect((await lock(f).read(ref)).version).toBe("absent");
     expect(f.jira.property).toBeNull();
     expect(f.jira.issue.fields.status.name).toBe("To Do");
@@ -257,7 +258,7 @@ test.each([false, true])(
         if (path.includes("/issue/TEST-491?")) throw new Error("blocker unreadable");
       };
     } else f.jira.relatedIssues = [];
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow();
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow();
     expect((await lock(f).read(ref)).version).toBe("absent");
     expect(existsSync(f.worktree)).toBe(false);
   },
@@ -290,7 +291,7 @@ test.each([false, true])(
           reopen();
       };
     }
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "not available",
     );
     expect(heldClaim(await lock(f).read(ref))).toBeUndefined();
@@ -319,7 +320,7 @@ test(
       }
       return response;
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "not available",
     );
     expect(reads).toBeGreaterThan(0);
@@ -344,9 +345,9 @@ test(
         inwardIssue: { key: "TEST-491", fields: { status: blocker.fields.status } },
       },
     ];
-    await expect(
+    await expectRejection(
       createApplication(f.services).pickup.execute({ ...f.input, "dry-run": true }),
-    ).rejects.toThrow("unfinished dependencies block pickup");
+    ).toThrow("unfinished dependencies block pickup");
   },
   GIT_TEST_TIMEOUT_MS,
 );
@@ -471,7 +472,7 @@ test(
         },
       },
     };
-    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+    await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
       "Cannot fetch main from origin",
     );
     expect((await lock(f).read(ref)).version).toBe("absent");

@@ -5,6 +5,7 @@ import {
   type ClaimLockRecord,
   ClaimLockUnavailableError,
   type ClaimLockState,
+  heldClaim,
   type RecoverableClaimLock,
 } from "../../domain/claim/lock.ts";
 import {
@@ -277,10 +278,6 @@ function identityOf(remote: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-export function heldClaim(state: ClaimLockState): ClaimLockRecord | undefined {
-  return state.record && state.record.action !== "release" ? state.record : undefined;
 }
 
 function heldBy(state: ClaimLockState, claim: ClaimRef): ClaimLockRecord {

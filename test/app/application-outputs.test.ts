@@ -11,6 +11,7 @@ import type { RuntimeServices } from "../../src/app/runtime-services.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../fixtures/git/remote.ts";
 import { laneCompleteFixtures } from "../fixtures/lane/complete.ts";
 import { catalogEnvelope, pickupFixture } from "../fixtures/pickup/runtime.ts";
+import { saveUserSetting } from "../../src/configuration/store.ts";
 
 const now = "2026-11-05T00:00:00.000Z";
 
@@ -52,7 +53,7 @@ test(
       await mkdir(dirname(f.state), { recursive: true });
       const store = new StateStore(f.state);
       try {
-        store.saveUserSetting("reviewers", "correctness");
+        saveUserSetting(store, "reviewers", "correctness");
       } finally {
         store.close();
       }

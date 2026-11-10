@@ -5,11 +5,12 @@ import {
   PendingJiraWriteError,
   pendingJiraWriteSchema,
 } from "../../adapters/trackers/jira/tracker.ts";
-import { GitWorkspaceAdapter } from "../../adapters/git/workspace.ts";
+import { GitWorkspaceAdapter, gitWorkspaceFileSystem } from "../../adapters/git/workspace.ts";
+import { lockExecution } from "../../persistence/execution-lock.ts";
 import { CLAIM_RECORD_VERSION } from "../../domain/claim/lock.ts";
 import { claimRefSchema, runRefSchema, ticketRefSchema } from "../../domain/refs/identifiers.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
-import { claimRef } from "../../persistence/command-store.ts";
+import { claimRef } from "../command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { journalJiraWrite, verifyJournaledJiraWrite } from "../tracker/write-journal.ts";
 import {
@@ -25,6 +26,7 @@ import {
   jiraRankField,
   withExecutionStore,
 } from "../pickup/runtime.ts";
+import { getExecutionConfiguration } from "../../configuration/store.ts";
 
 export const releaseResultSchema = z.strictObject({
   ok: z.literal(true),
@@ -58,7 +60,7 @@ export async function releaseClaim(
       );
     const home = { identity: claim.claimHome, url: claim.claimHomeUrl };
     const run = store.run(claim.run);
-    const configuration = store.getExecutionConfiguration(run.ref);
+    const configuration = getExecutionConfiguration(store, run.ref);
     if (!configuration) throw new Error("Release requires the recorded execution configuration");
     const intent = z
       .object({ receipt_json: z.string() })
@@ -92,7 +94,11 @@ export async function releaseClaim(
     const { claims, claimLock } = claimCoordination(repository, mirror, services, home);
     if ((await claimLock.ref(claim.ticket)) !== claim.lockRef)
       throw new Error(`Claim lock ref ${claim.lockRef} is not supported by this Interlock`);
-    await new GitWorkspaceAdapter(repository, services.execution?.git).preflightRepository();
+    await new GitWorkspaceAdapter(
+      repository,
+      services.execution?.git,
+      gitWorkspaceFileSystem(lockExecution),
+    ).preflightRepository();
     const request = {
       claim: claim.ref,
       ticket: claim.ticket,

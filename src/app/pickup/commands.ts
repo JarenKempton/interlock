@@ -1,15 +1,16 @@
 import { z } from "zod";
-import { defineAction } from "../../cli/definition.ts";
+import { defineAction } from "../action.ts";
 import { flag, optional, positional, text } from "../../cli/schema.ts";
 import { executionConfigurationSchema } from "../../configuration/schema.ts";
 import { type Claim, claimSchema, runSchema } from "../../domain/model.ts";
-import { claimRef, runRef, withStore } from "../../persistence/command-store.ts";
+import { claimRef, runRef, withStore } from "../command-store.ts";
 import { recoveryEvidenceRowSchema } from "../../persistence/schema/recovery-evidence.ts";
 import { transactionStepRowSchema } from "../../persistence/schema/transaction-steps.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 import { laneActions } from "../lane/commands.ts";
 import { executionStatePath, pickup, pickupResultSchema } from "./runtime.ts";
 import { releaseClaim, releaseResultSchema } from "../claim/release.ts";
+import { getExecutionConfiguration } from "../../configuration/store.ts";
 
 const runExportSchema = z.strictObject({
   run: runSchema,
@@ -94,7 +95,7 @@ export function runActions(services: RuntimeServices) {
               claim,
               steps: store.steps(ref),
               recovery: store.recoveryEvidence(ref),
-              configuration: store.getExecutionConfiguration(ref),
+              configuration: getExecutionConfiguration(store, ref),
             };
           }),
       }),

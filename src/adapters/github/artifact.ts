@@ -9,7 +9,7 @@ import type {
   ArtifactTarget,
   ArtifactWorkspace,
   PullRequest,
-} from "../../execution/lane/service.ts";
+} from "../../domain/submission/artifact.ts";
 import type { GitCommandExecutor } from "../git/workspace.ts";
 import { checkedGitCommand, verifyRemoteDestination } from "../git/remote.ts";
 

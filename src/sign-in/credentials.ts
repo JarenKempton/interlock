@@ -3,10 +3,11 @@ import type { HttpTransport } from "../adapters/trackers/http.ts";
 import { jiraSignIn } from "../adapters/trackers/jira/sign-in.ts";
 import type { UserSettingKey } from "../configuration/schema.ts";
 import type { TrackerSignIn } from "../domain/tracker/port.ts";
-import { withStore } from "../persistence/command-store.ts";
+import { withStore } from "../app/command-store.ts";
 import { type CredentialStore, osCredentialStore } from "../persistence/credential-store.ts";
 import type { RuntimeServices } from "../app/runtime-services.ts";
 import { processTerminal, type Terminal } from "./terminal.ts";
+import { readUserSettings } from "../configuration/store.ts";
 
 export interface SignInPlatform {
   credentials?: CredentialStore;
@@ -39,7 +40,7 @@ export function savedSite(services: RuntimeServices, tracker: TrackerName): stri
   const { adapter, setting } = trackerSignIns(services)[tracker];
   const variable = signInPlatform(services).environment[adapter.site.environment];
   if (variable) return adapter.site.parse(variable);
-  return withStore(services, (store) => store.userSettings()[setting]);
+  return withStore(services, (store) => readUserSettings(store)[setting]);
 }
 
 const storedSchema = z.record(z.string(), z.string());

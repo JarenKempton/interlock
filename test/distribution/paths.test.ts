@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { databasePath, dataDirectory } from "../../src/persistence/paths.ts";
+import { databasePath, dataDirectory } from "../../src/distribution/paths.ts";
 
 test("tests never resolve the real user ledger or settings", () => {
   const root = process.env.INTERLOCK_TEST_HOME;

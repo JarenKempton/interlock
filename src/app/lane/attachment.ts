@@ -1,21 +1,10 @@
 import { realpath } from "node:fs/promises";
-import { GitClaimLock, heldClaim } from "../../adapters/git/claim-lock.ts";
+import { GitClaimLock } from "../../adapters/git/claim-lock.ts";
+import { heldClaim } from "../../domain/claim/lock.ts";
 import type { GitCommandExecutor } from "../../adapters/git/workspace.ts";
 import { normalizeClaimHome } from "../../domain/claim/home.ts";
 import type { Claim, Run } from "../../domain/model.ts";
-
-export interface AttachAuthority {
-  verify(run: Run, claim: Claim, worktree: string): Promise<void>;
-}
-
-export class AttachRefusal extends Error {
-  constructor(
-    readonly code: "workspace_unknown" | "claim_collision",
-    message: string,
-  ) {
-    super(message);
-  }
-}
+import { type AttachAuthority, AttachRefusal } from "../../execution/lane/attachment.ts";
 
 export class RecordedAttachAuthority implements AttachAuthority {
   constructor(private readonly git: GitCommandExecutor) {}

@@ -1,17 +1,19 @@
 import { z } from "zod";
 import { supervisorActions } from "./supervisor/commands.ts";
 import { composeActions } from "../cli/catalog.ts";
+import { dispatch } from "../cli/command-line.ts";
 import { completionCandidates, completionScript } from "../cli/completions.ts";
-import { type ActionTree, defineAction } from "../cli/definition.ts";
+import { type ActionTree, defineAction } from "./action.ts";
 import { manPage } from "../cli/manpage.ts";
 import { choice, flag, optional, positional, text } from "../cli/schema.ts";
 import { configurationActions } from "../configuration/commands.ts";
+import { notifyAboutUpdate } from "../distribution/update.ts";
 import { VERSION } from "../distribution/version.ts";
 import { runActions } from "./pickup/commands.ts";
 import { McpServer } from "../mcp/server.ts";
 import { SocketTransport, StdioTransport } from "../mcp/transport.ts";
-import { withStore } from "../persistence/command-store.ts";
-import { databasePath } from "../persistence/paths.ts";
+import { withStore } from "./command-store.ts";
+import { databasePath } from "../distribution/paths.ts";
 import type { RuntimeServices } from "./runtime-services.ts";
 import { signInActions } from "../sign-in/commands.ts";
 import { doctorChecks, doctorConfig, doctorReportSchema, renderDoctor } from "../sign-in/doctor.ts";
@@ -88,6 +90,7 @@ export function createApplication(services: RuntimeServices = {}) {
           .map((entry) => entry.trim())
           .filter(Boolean);
         const server = new McpServer(tree, {
+          version: VERSION,
           lane: input.lane === true,
           ...(allow?.length ? { allow } : {}),
           ...(process.env.INTERLOCK_MCP_TOKEN ? { token: process.env.INTERLOCK_MCP_TOKEN } : {}),
@@ -126,4 +129,30 @@ export function createApplication(services: RuntimeServices = {}) {
   const actions = composeActions(configuration, composeActions(execution, core));
   tree = actions;
   return actions;
+}
+
+export { VERSION };
+
+export async function run(
+  args: string[],
+  write: (text: string) => void = console.log,
+  services: RuntimeServices = {},
+): Promise<number> {
+  return dispatch(createApplication(services), args, write);
+}
+
+export function main(args: string[]): void {
+  run(args)
+    .then((exitCode) => {
+      process.exitCode = exitCode;
+      return notifyAboutUpdate({
+        currentVersion: VERSION,
+        interactive: Boolean(process.stdout.isTTY && process.stderr.isTTY),
+        json: args.includes("--json"),
+      });
+    })
+    .catch((error: unknown) => {
+      console.error(`interlock: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    });
 }

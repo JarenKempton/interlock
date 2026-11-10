@@ -8,7 +8,7 @@ import {
   BunGitCommandExecutor,
   type GitCommandExecutor,
 } from "../../../src/adapters/git/workspace.ts";
-import { createApplication } from "../../../src/app/application.ts";
+import { createApplication, VERSION } from "../../../src/app/application.ts";
 import { run as runCli } from "../../../src/main.ts";
 import {
   type ExecutionConfiguration,
@@ -26,9 +26,11 @@ import {
 } from "../../../src/domain/refs/identifiers.ts";
 import type { Ticket, TicketRef } from "../../../src/domain/model.ts";
 import type { MergeProof } from "../../../src/domain/lane/lifecycle.ts";
-import { LaneService, type LaneTrackerPort } from "../../../src/execution/lane/service.ts";
+import type { LaneTrackerPort } from "../../../src/execution/lane/service.ts";
 import { McpServer } from "../../../src/mcp/server.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
+import { saveExecutionConfiguration } from "../../../src/configuration/store.ts";
+import { gitLaneService } from "../../../src/app/lane/service.ts";
 
 export const ticketRef = ticketRefSchema.parse("jira:x:JWB:ticket:JWB-909");
 
@@ -65,7 +67,7 @@ export function git(argv: string[], cwd: string, allowFailure = false) {
     cwd,
   });
   if (result.exitCode !== 0 && !allowFailure)
-    throw new Error(`git ${argv.join(" ")}: ${result.stderr}`);
+    throw new Error(`git ${argv.join(" ")}: ${result.stderr.toString()}`);
   return result.stdout.toString().trim();
 }
 
@@ -188,8 +190,8 @@ export function laneCompleteFixtures() {
       status: "active",
     });
     if (options.pickedUp)
-      store.saveExecutionConfiguration(runRef, options.configuration ?? legacyPickupConfiguration);
-    const service = new LaneService({
+      saveExecutionConfiguration(store, runRef, options.configuration ?? legacyPickupConfiguration);
+    const service = gitLaneService({
       store,
       newId: () => laneRefSchema.parse("interlock-lane:complete"),
     });
@@ -277,7 +279,7 @@ export function laneCompleteFixtures() {
       selector: { lane?: string; ticket?: string } = { ticket: "JWB-909" },
     ) => {
       if (options.mcp) {
-        const server = new McpServer(createApplication(services));
+        const server = new McpServer(createApplication(services), { version: VERSION });
         const response = await server.handle(
           {
             jsonrpc: "2.0",

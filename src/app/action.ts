@@ -1,6 +1,6 @@
 import type { z } from "zod";
-import { type InputParser, inputParser } from "./parser.ts";
-import { type Input, parseInput, type RawInput } from "./schema.ts";
+import { type InputParser, inputParser } from "../cli/input-parser.ts";
+import { type Input, parseInput, type RawInput } from "../cli/schema.ts";
 
 export interface ActionView {
   readonly kind: "action";
@@ -16,6 +16,16 @@ export interface ActionView {
 export type ActionTree = { readonly [command: string]: ActionView | ActionTree };
 export function isAction(entry: ActionView | ActionTree): entry is ActionView {
   return entry.kind === "action" && typeof entry.invoke === "function";
+}
+export interface RegisteredAction {
+  command: string[];
+  action: ActionView;
+}
+export function registeredActions(tree: ActionTree, prefix: string[] = []): RegisteredAction[] {
+  return Object.entries(tree).flatMap(([name, entry]) => {
+    const command = [...prefix, name];
+    return isAction(entry) ? [{ command, action: entry }] : registeredActions(entry, command);
+  });
 }
 export function defineAction<S extends z.ZodRawShape, R extends z.ZodType>(definition: {
   description: string;

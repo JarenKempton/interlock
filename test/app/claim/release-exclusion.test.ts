@@ -2,13 +2,15 @@ import { expect, test } from "bun:test";
 import { symlink } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { GitClaimLock, heldClaim } from "../../../src/adapters/git/claim-lock.ts";
+import { GitClaimLock } from "../../../src/adapters/git/claim-lock.ts";
+import { heldClaim } from "../../../src/domain/claim/lock.ts";
 import { createApplication } from "../../../src/app/application.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import { ticketRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { pickupFixture } from "../../fixtures/pickup/runtime.ts";
+import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 test.each(["complete", "kill"])(
   "release excludes competing attempts during reads and unlocks after %s",
@@ -71,9 +73,9 @@ test.each(["complete", "kill"])(
       try {
         expect(store.pendingWrite(first.run)).toBeUndefined();
         const calls = [...f.jira.calls];
-        await expect(
+        await expectRejection(
           app.claim.release.execute({ claim: first.claim, state: join(alias, basename(f.state)) }),
-        ).rejects.toThrow("Another pickup or release is using this ledger");
+        ).toThrow("Another pickup or release is using this ledger");
         expect(f.jira.calls).toEqual(calls);
         expect(store.run(first.run).status).toBe("claimed");
         expect(store.recoveryEvidence(first.run)).toHaveLength(0);
@@ -92,7 +94,7 @@ test.each(["complete", "kill"])(
         const successor = await app.pickup.execute(f.input);
         if (!("claim" in successor)) throw new Error("Expected successor claim");
         resume.resolve();
-        await expect(app.claim.release.execute({ claim: first.claim })).rejects.toThrow(
+        await expectRejection(app.claim.release.execute({ claim: first.claim })).toThrow(
           "Claim lock changed",
         );
         const lock = new GitClaimLock({
@@ -115,7 +117,7 @@ test.each(["complete", "kill"])(
       resume.resolve();
       if (child?.exitCode === null) child.kill("SIGKILL");
       if (child) await child.exited;
-      server.stop(true);
+      void server.stop(true);
       await f.dispose();
     }
   },

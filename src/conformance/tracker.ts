@@ -12,9 +12,9 @@ export interface TrackerFixture {
   adapter: Tracker;
   claim: MirrorClaim;
   otherOwner: ActorRef;
-  observe(): Promise<TrackerObservation>;
-  changeOwner(owner: ActorRef): Promise<void>;
-  loseWriteReadback(): void | Promise<void>;
+  observe: () => Promise<TrackerObservation>;
+  changeOwner: (owner: ActorRef) => Promise<void>;
+  loseWriteReadback: () => void | Promise<void>;
 }
 
 export function trackerConformance(create: () => Promise<TrackerFixture>): ConformanceCase[] {
