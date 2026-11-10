@@ -9,6 +9,7 @@ import { launchable } from "../../fixtures/scripted-t3.ts";
 const fixture = pickupRuntimeFixtures();
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+
 async function title(f: Fixture) {
   const planned = await createApplication(f.services).pickup.execute({
     ...f.input,

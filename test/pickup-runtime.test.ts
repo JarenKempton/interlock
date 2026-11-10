@@ -125,6 +125,24 @@ test.each([
 );
 
 test(
+  "a rejected Jira sign-in fails as a sign-in error, not as a missing Rank field",
+  async () => {
+    const f = await fixture();
+    const request = f.jira.request.bind(f.jira);
+    f.jira.request = async (method, path, body) => {
+      if (path === "/rest/api/3/myself") return { status: 401 };
+      if (path === "/rest/api/3/field") return { status: 200, body: [] };
+      return request(method, path, body);
+    };
+    await expect(createApplication(f.services).pickup.execute(f.input)).rejects.toThrow(
+      "Jira rejected the credentials (401); run interlock login jira or update JIRA_API_TOKEN",
+    );
+    expect((await lock(f).read(ref)).version).toBe("absent");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
   "a ticket completed during tracker preflight is never claimed or reopened",
   async () => {
     const f = await fixture();

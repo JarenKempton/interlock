@@ -29,6 +29,10 @@ export const bunT3Process: T3Process = {
   },
 };
 
+export function hostT3Cli(env: Record<string, string | undefined> = process.env): string {
+  return env.T3CODE_CLI_PATH || "t3";
+}
+
 const runtimeStateSchema = z.object({ origin: z.url() });
 
 export async function readT3ServerDescriptor(
@@ -76,15 +80,9 @@ export const listSchema = z.array(threadSchema.omit({ branch: true, worktreePath
 
 export const sentSchema = z.object({ threadId: z.string().min(1) });
 
-const LOG_LINE = /^\[[\d:.]+\] [A-Z]+ /;
-
 export function parseJson<T>(schema: z.ZodType<T>, text: string): T | undefined {
-  const json = text
-    .split("\n")
-    .filter((line) => !LOG_LINE.test(line))
-    .join("\n");
   try {
-    const parsed = schema.safeParse(JSON.parse(json));
+    const parsed = schema.safeParse(JSON.parse(text));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
