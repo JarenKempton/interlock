@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { GitClaimLock } from "../../../src/adapters/claims/git-lock.ts";
-import { createApplication } from "../../../src/application.ts";
-import { normalizeClaimHome } from "../../../src/domain/claim-home.ts";
-import { ticketRefSchema } from "../../../src/domain/identifiers.ts";
+import { GitClaimLock } from "../../../src/adapters/git/claim-lock.ts";
+import { createApplication } from "../../../src/app/application.ts";
+import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
+import { ticketRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
-import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git-remote.ts";
-import { pickupFixture } from "../../fixtures/pickup-runtime.ts";
+import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
+import { pickupFixture } from "../../fixtures/pickup/runtime.ts";
 
 test(
   "claim release recovers a retirement fence without restoring Done or its assignee",

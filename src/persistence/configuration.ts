@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
-import { savedT3Choices, savedT3Configuration } from "../adapters/hosts/t3-legacy.ts";
+import { savedT3Choices, savedT3Configuration } from "../adapters/hosts/t3/legacy.ts";
 import {
   type UserSettingKey,
   validateExecutionConfiguration,

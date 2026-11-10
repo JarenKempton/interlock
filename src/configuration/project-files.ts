@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { normalizeClaimHome } from "../domain/claim-home.ts";
+import { normalizeClaimHome } from "../domain/claim/home.ts";
 import { databasePath } from "../persistence/paths.ts";
 import { StateStore } from "../persistence/state.ts";
 import INITIAL_CONFIGURATION from "./default.toml" with { type: "text" };

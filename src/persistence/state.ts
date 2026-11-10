@@ -14,8 +14,8 @@ import {
   laneRefSchema,
   runRefSchema,
   ticketRefSchema,
-} from "../domain/identifiers.ts";
-import type { Lane, LaneState } from "../domain/lane.ts";
+} from "../domain/refs/identifiers.ts";
+import type { Lane, LaneState } from "../domain/lane/lifecycle.ts";
 import type { Claim, ClaimRef, LaneRef, Run, RunRef } from "../domain/model.ts";
 import { configurationStore } from "./configuration.ts";
 import { ledgerDb } from "./ledger-db.ts";

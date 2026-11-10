@@ -7,7 +7,7 @@ import {
   SERVICE_LABEL,
   serviceDefinition,
 } from "../../src/distribution/service.ts";
-import { rejection } from "../fixtures/rejection.ts";
+import { rejection } from "../fixtures/assertions/rejection.ts";
 
 const homes: string[] = [];
 afterEach(() => {

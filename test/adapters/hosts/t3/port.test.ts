@@ -5,8 +5,8 @@ import {
   type T3Process,
 } from "../../../../src/adapters/hosts/t3/cli.ts";
 import { type T3LaunchPlan, T3HostPort } from "../../../../src/adapters/hosts/t3/port.ts";
-import { laneRefSchema, ticketRefSchema } from "../../../../src/domain/identifiers.ts";
-import { rejection } from "../../../fixtures/rejection.ts";
+import { laneRefSchema, ticketRefSchema } from "../../../../src/domain/refs/identifiers.ts";
+import { rejection } from "../../../fixtures/assertions/rejection.ts";
 
 const lane = laneRefSchema.parse("interlock-lane:one");
 const ticket = ticketRefSchema.parse("jira:acme:W:ticket:W-1");

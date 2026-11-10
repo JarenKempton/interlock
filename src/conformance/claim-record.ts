@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { lockRecordSchema } from "../adapters/claims/git-lock.ts";
-import { claimPropertySchema } from "../adapters/trackers/jira.ts";
-import { CLAIM_RECORD_VERSION } from "../domain/claim-lock.ts";
+import { lockRecordSchema } from "../adapters/git/claim-lock.ts";
+import { claimPropertySchema } from "../adapters/trackers/jira/tracker.ts";
+import { CLAIM_RECORD_VERSION } from "../domain/claim/lock.ts";
 
 export function claimRecordContract(): string {
   const options: Parameters<typeof z.toJSONSchema>[1] = {

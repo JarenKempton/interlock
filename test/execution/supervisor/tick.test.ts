@@ -9,8 +9,13 @@ import {
   mapRefSchema,
   runRefSchema,
   ticketRefSchema,
-} from "../../../src/domain/identifiers.ts";
-import type { Lane, LaneRefusalCode, LaneResult, LaneState } from "../../../src/domain/lane.ts";
+} from "../../../src/domain/refs/identifiers.ts";
+import type {
+  Lane,
+  LaneRefusalCode,
+  LaneResult,
+  LaneState,
+} from "../../../src/domain/lane/lifecycle.ts";
 import type { Claim, LaneRef, Ticket, TicketRef } from "../../../src/domain/model.ts";
 import type {
   JournalEntry,

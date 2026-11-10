@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineAction } from "../cli/definition.ts";
 import { withStore } from "../persistence/command-store.ts";
-import type { RuntimeServices } from "../runtime-services.ts";
+import type { RuntimeServices } from "../app/runtime-services.ts";
 import {
   credentialName,
   savedSite,

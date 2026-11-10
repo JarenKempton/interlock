@@ -1,4 +1,4 @@
-import type { ClaimLock, ClaimLockRecord, ClaimLockState } from "../domain/claim-lock.ts";
+import type { ClaimLock, ClaimLockRecord, ClaimLockState } from "../domain/claim/lock.ts";
 import type { ClaimRequest, ReleaseClaimRequest } from "../domain/contracts.ts";
 import type { ActorRef } from "../domain/model.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";

@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { z } from "zod";
-import { CLAIM_LOCK_NAMESPACE } from "../adapters/claims/git-lock.ts";
-import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
+import { CLAIM_LOCK_NAMESPACE } from "../adapters/git/claim-lock.ts";
+import { BunGitCommandExecutor } from "../adapters/git/workspace.ts";
 import { projectConfigPath } from "../configuration/files.ts";
-import type { RuntimeServices } from "../runtime-services.ts";
+import type { RuntimeServices } from "../app/runtime-services.ts";
 import { lookupCredentials, savedSite, trackerSignIns } from "./credentials.ts";
 
 export const doctorReportSchema = z.strictObject({

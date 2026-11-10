@@ -1,11 +1,11 @@
 import { z } from "zod";
 import type { HttpTransport } from "../adapters/trackers/http.ts";
-import { jiraSignIn } from "../adapters/trackers/jira-sign-in.ts";
+import { jiraSignIn } from "../adapters/trackers/jira/sign-in.ts";
 import type { UserSettingKey } from "../configuration/schema.ts";
-import type { TrackerSignIn } from "../domain/tracker.ts";
+import type { TrackerSignIn } from "../domain/tracker/port.ts";
 import { withStore } from "../persistence/command-store.ts";
 import { type CredentialStore, osCredentialStore } from "../persistence/credential-store.ts";
-import type { RuntimeServices } from "../runtime-services.ts";
+import type { RuntimeServices } from "../app/runtime-services.ts";
 import { processTerminal, type Terminal } from "./terminal.ts";
 
 export interface SignInPlatform {

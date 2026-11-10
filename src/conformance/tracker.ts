@@ -1,5 +1,5 @@
 import type { ActorRef, Ticket } from "../domain/model.ts";
-import type { MirrorClaim, MirrorRestore, Tracker } from "../domain/tracker.ts";
+import type { MirrorClaim, MirrorRestore, Tracker } from "../domain/tracker/port.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";
 
 export interface TrackerObservation {
