@@ -72,6 +72,10 @@ class Tick {
     const edits = await readHumanEdits(this.ports, supervised, this.observedAt());
     for (const evidence of edits.evidence) this.observe(lane.id, evidence);
     if (!edits.hold || !lane.ticket) return false;
+    if (!supervised.claim) {
+      await this.attention(lane, "claim_unrecorded");
+      return true;
+    }
     this.report.held.push({ lane: lane.id, ticket: lane.ticket, reason: edits.hold });
     return true;
   }

@@ -246,12 +246,12 @@ supervisor ([tick](../src/execution/supervisor/tick.ts)). Each tick, in order:
 Human edits win. A ticket reassigned away from the claim owner, moved out of
 the claimed status, re-blocked, or whose remote claim is no longer the lane's,
 is held and not advanced. A released claim record counts as no claim, unless
-the lane's own interrupted completion wrote it, and a lane whose claim cannot be
-resolved is held too. A ticket with only done lanes that is open again is
+the lane's own interrupted completion wrote it. A lane whose claim cannot be
+resolved needs attention. A ticket with only done lanes that is open again is
 reported as reopened and not picked up. The supervisor never releases or
 reassigns a claim. Completion refusals route the lane to attention unless they
-are transient tracker, artifact-host or readback failures, which retry on the
-next tick.
+are transient tracker, claim-lock, artifact-host or readback failures, which
+retry on the next tick without marking the run for recovery.
 
 Each observed fact is journaled as [gate evidence](../src/domain/gate/evidence.ts)
 when its value changes. `interlock status` shows each lane's state, whether it

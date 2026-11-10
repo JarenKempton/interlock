@@ -482,7 +482,7 @@ test("a session seen between misses resets the miss count", async () => {
   expect(reports.map((report) => report.attention)).toEqual([[], []]);
 });
 
-test("a lane without a resolvable claim is held, and one whose run needs recovery is shown", async () => {
+test("a lane without a resolvable claim, or whose run needs recovery, needs attention", async () => {
   const world = new World();
   const unclaimed = world.lane("JWB-2", "implementing");
   world.claims.delete(unclaimed.id);
@@ -497,11 +497,12 @@ test("a lane without a resolvable claim is held, and one whose run needs recover
 
   const report = await superviseTick(world, policy);
 
-  expect(report.held).toEqual([
-    { lane: unclaimed.id, ticket: ref("JWB-2"), reason: "claim_changed" },
+  expect(report.held).toEqual([]);
+  expect(report.attention).toEqual([
+    { lane: unclaimed.id, reason: "claim_unrecorded" },
+    { lane: recovering.id, reason: "recovery_required" },
   ]);
-  expect(report.attention).toEqual([{ lane: recovering.id, reason: "recovery_required" }]);
-  expect(world.log).toEqual([]);
+  expect(world.log).toEqual([`attention ${ref("JWB-2")} claim_unrecorded`]);
 });
 
 test("a human edit holds a running session instead of resuming it", async () => {

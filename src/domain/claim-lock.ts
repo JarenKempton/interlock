@@ -3,6 +3,13 @@ import type { ActorRef, ClaimRef, RunRef, TicketRef } from "./model.ts";
 
 export const CLAIM_RECORD_VERSION = 2;
 
+export class ClaimLockUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClaimLockUnavailableError";
+  }
+}
+
 export interface ClaimLockRecord {
   action: "claim" | "release";
   ticket: TicketRef;

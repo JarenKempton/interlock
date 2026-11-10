@@ -74,6 +74,14 @@ export function laneRun(store: StateStore, lane: Lane): RunRef | undefined {
   )?.ref;
 }
 
+export function runNeedsRecovery(store: StateStore, run: RunRef): boolean {
+  try {
+    return store.run(run).status === "recovery_required";
+  } catch {
+    return true;
+  }
+}
+
 function laneClaim(store: StateStore, lane: Lane, run: RunRef) {
   try {
     return lane.claim ? store.claim(lane.claim) : store.claimForRun(run);
@@ -235,7 +243,7 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
           lane,
           live,
           run,
-          recoveryRequired: store.run(run).status === "recovery_required",
+          recoveryRequired: runNeedsRecovery(store, run),
           ...(claim ? { claim } : {}),
           ...(status ? { claimedStatus: status } : {}),
         };

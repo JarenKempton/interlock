@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
 import { BunGitCommandExecutor, type GitCommandExecutor } from "../adapters/workspaces/git.ts";
 import { normalizeClaimHome } from "../domain/claim-home.ts";
+import { ClaimLockUnavailableError } from "../domain/claim-lock.ts";
 import {
   AmbiguousTrackerResultError,
   ArtifactLinkConflictError,
@@ -500,6 +501,7 @@ export class LaneService {
     try {
       await this.#verifyCompletionOwner(lane);
     } catch (error) {
+      if (error instanceof ClaimLockUnavailableError) return claimLockUnreadable(error);
       this.#completionRecovery(lane, error);
       return fail("claim_collision", errorMessage(error, "Lane ownership is not verified"));
     }
@@ -692,6 +694,7 @@ export class LaneService {
     try {
       await this.#verifyCompletionOwner(lane);
     } catch (error) {
+      if (error instanceof ClaimLockUnavailableError) return claimLockUnreadable(error);
       this.#completionRecovery(lane, error);
       return fail("claim_collision", errorMessage(error, "Remote claim changed"));
     }
@@ -763,6 +766,13 @@ async function openPullRequest(
       return undefined;
     }
   }
+}
+
+function claimLockUnreadable<T>(error: ClaimLockUnavailableError): LaneResult<T> {
+  return fail(
+    "tracker_unavailable",
+    `Claim lock is unreadable; retry completion: ${error.message}`,
+  );
 }
 
 function errorMessage(error: unknown, fallback: string): string {

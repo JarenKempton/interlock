@@ -3,6 +3,7 @@ import { type ClaimHome, normalizeClaimHome } from "../../domain/claim-home.ts";
 import {
   CLAIM_RECORD_VERSION,
   type ClaimLockRecord,
+  ClaimLockUnavailableError,
   type ClaimLockState,
   type RecoverableClaimLock,
 } from "../../domain/claim-lock.ts";
@@ -267,7 +268,9 @@ export class GitClaimLock implements RecoverableClaimLock {
   async #checked(argv: readonly string[]): Promise<string> {
     const result = await this.#run(argv);
     if (result.exitCode !== 0)
-      throw new Error(`Git command failed (${result.exitCode}): ${result.stderr.trim()}`);
+      throw new ClaimLockUnavailableError(
+        `Git command failed (${result.exitCode}): ${result.stderr.trim()}`,
+      );
     return result.stdout.trim();
   }
 }

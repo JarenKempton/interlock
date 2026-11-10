@@ -3,7 +3,7 @@ import { type GateEvidence, gateEvidenceSchema, observedValue } from "../domain/
 import { type Lane, laneResultSchema, laneSchema, laneStateSchema } from "../domain/lane.ts";
 import { laneRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
 import type { StateStore } from "../persistence/state.ts";
-import { journalEntries, laneRun } from "./supervisor.ts";
+import { journalEntries, laneRun, runNeedsRecovery } from "./supervisor.ts";
 
 export const laneStatusSchema = z.strictObject({
   lane: laneRefSchema,
@@ -53,7 +53,7 @@ export function laneStatuses(store: StateStore): LaneStatus[] {
       ...completionReceipts(store, lane),
     ])
       latest.set(evidence.gate, evidence);
-    const recovery = run && store.run(run).status === "recovery_required";
+    const recovery = run && runNeedsRecovery(store, run);
     const reason =
       lane.state === "attention"
         ? lane.attentionReason
