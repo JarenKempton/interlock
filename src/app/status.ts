@@ -53,7 +53,7 @@ export function laneStatuses(store: StateStore): LaneStatus[] {
       ...completionReceipts(store, lane),
     ])
       latest.set(evidence.gate, evidence);
-    const recovery = lane.run && store.run(lane.run).status === "recovery_required";
+    const recovery = run && store.run(run).status === "recovery_required";
     const reason =
       lane.state === "attention"
         ? lane.attentionReason

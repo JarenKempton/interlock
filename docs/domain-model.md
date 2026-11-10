@@ -227,12 +227,14 @@ supervisor ([tick](../src/execution/supervisor/tick.ts)). Each tick, in order:
    then runs `lane complete`, whose receipts cover the merge proof, the Done
    readback, the mirror removal and the claim release.
 2. **Sessions.** For a claimed or implementing lane, or a launched lane that
-   has not attached yet, it reads the host session. A session whose status and
+   has not attached yet, it reads the host session recorded at launch, or the
+   one thread titled with the ticket key when none was recorded. A session whose status and
    last message have not changed for `--stall-minutes` is resumed with a host
    message under `[lane, "resume:N"]`, journaled before it is sent, up to a
    resume allowance per stall window. A lane update, such as a person resuming
-   it from attention, starts a new window. A missing or duplicate session, an
-   unconfirmed resume, a pending resume found after a restart, or a stall past
+   it from attention, starts a new window. A session that is missing,
+   duplicated or unreadable for three ticks in a row, a run that needs
+   recovery, an unconfirmed resume, a pending resume found after a restart, or a stall past
    the allowance moves the lane to attention. Submitted and reviewing lanes are
    not resumed: they wait on checks and a person.
 3. **Frontier.** It lists each map's tickets in rank order and launches each
@@ -243,7 +245,9 @@ supervisor ([tick](../src/execution/supervisor/tick.ts)). Each tick, in order:
 
 Human edits win. A ticket reassigned away from the claim owner, moved out of
 the claimed status, re-blocked, or whose remote claim is no longer the lane's,
-is held and not advanced. A released claim record counts as no claim. A ticket with only done lanes that is open again is
+is held and not advanced. A released claim record counts as no claim, unless
+the lane's own interrupted completion wrote it, and a lane whose claim cannot be
+resolved is held too. A ticket with only done lanes that is open again is
 reported as reopened and not picked up. The supervisor never releases or
 reassigns a claim. Completion refusals route the lane to attention unless they
 are transient tracker, artifact-host or readback failures, which retry on the
@@ -252,8 +256,9 @@ next tick.
 Each observed fact is journaled as [gate evidence](../src/domain/gate/evidence.ts)
 when its value changes. `interlock status` shows each lane's state, whether it
 needs attention, and the latest evidence per gate. `interlock service install`
-writes a systemd user unit or a launchd agent that runs the same command,
-starts at boot and restarts on failure.
+writes a systemd user unit that starts at boot, or a launchd agent that starts
+at login, running the same command and restarting it on failure. A tick that
+runs past 20 minutes exits the process so the service restarts it.
 
 ## Review policy
 

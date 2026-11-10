@@ -19,6 +19,7 @@ import { lockExecution } from "../persistence/execution-lock.ts";
 import { laneStatusSchema, laneStatuses, renderStatus } from "./status.ts";
 import { openSupervisorStore, supervisorPorts } from "./supervisor.ts";
 
+const TICK_LIMIT_MS = 20 * 60_000;
 const DEFAULTS = { parallelism: 2, stallMinutes: 30, intervalSeconds: 60, maxResumes: 2 };
 
 const tickReportSchema = z.strictObject({
@@ -169,12 +170,20 @@ export function supervisorActions(services: RuntimeServices) {
           process.once("SIGTERM", stop);
           try {
             while (!stopping) {
+              const watchdog = setTimeout(() => {
+                process.stderr.write(
+                  `${JSON.stringify({ at: new Date().toISOString(), error: "Tick exceeded 20 minutes; exiting so the service restarts it" })}\n`,
+                );
+                process.exit(75);
+              }, TICK_LIMIT_MS);
               try {
                 process.stderr.write(`${summary(await tickOnce(services, input, statePath))}\n`);
               } catch (error) {
                 process.stderr.write(
                   `${JSON.stringify({ at: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) })}\n`,
                 );
+              } finally {
+                clearTimeout(watchdog);
               }
               if (stopping) break;
               await new Promise<void>((done) => {
@@ -216,7 +225,7 @@ export function supervisorActions(services: RuntimeServices) {
     service: {
       install: defineAction({
         description:
-          "Install the supervisor as a user service (systemd or launchd) that starts on boot and restarts on failure.",
+          "Install the supervisor as a user service that restarts on failure: a systemd unit that starts on boot, or a launchd agent that starts at login.",
         input: {
           ...supervisorInput,
           "dry-run": flag("Print the service definition without writing or activating it."),
@@ -227,6 +236,7 @@ export function supervisorActions(services: RuntimeServices) {
           content: z.string(),
           activate: z.array(z.string()),
           installed: z.boolean(),
+          warning: z.string().optional(),
         }),
         handler: async (input) => {
           const statePath = executionStatePath(services, input.state);
@@ -256,12 +266,18 @@ export function supervisorActions(services: RuntimeServices) {
             content: definition.content,
             activate: definition.activate.map((argv) => argv.join(" ")),
             installed: !input["dry-run"],
+            ...(RELEASE_BUILD
+              ? {}
+              : {
+                  warning: `This is a development build; the service runs ${command[1]} from this checkout.`,
+                }),
           };
         },
         render: (output, json) =>
           json
             ? [JSON.stringify(output, null, 2)]
             : [
+                ...(output.warning ? [`warning: ${output.warning}`] : []),
                 `${output.installed ? "Installed" : "Would install"} ${output.manager} service at ${output.path}`,
                 output.content,
                 ...output.activate.map(

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { GitHubArtifactHost } from "../adapters/artifacts/github.ts";
 import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
+import type { ClaimLockRecord } from "../domain/claim-lock.ts";
 import { T3HostPort } from "../adapters/hosts/t3/port.ts";
 import type { JiraTrackerAdapter } from "../adapters/trackers/jira.ts";
 import { BunGitCommandExecutor } from "../adapters/workspaces/git.ts";
@@ -10,9 +11,9 @@ import { resolveSharedConfiguration, sharedConfiguration } from "../configuratio
 import type { ExecutionConfiguration } from "../configuration/schema.ts";
 import { normalizeClaimHome } from "../domain/claim-home.ts";
 import { gateEvidenceSchema } from "../domain/gate/evidence.ts";
-import { laneRefSchema } from "../domain/identifiers.ts";
+import { adapterRefSchema, laneRefSchema, ticketRefSchema } from "../domain/identifiers.ts";
 import type { Lane } from "../domain/lane.ts";
-import type { LaneRef, RunRef } from "../domain/model.ts";
+import type { Claim, LaneRef, RunRef } from "../domain/model.ts";
 import { parseRef } from "../domain/reference.ts";
 import { resolveClaimHome } from "../execution/claim-home.ts";
 import { pickupEligibility } from "../execution/eligibility.ts";
@@ -47,6 +48,8 @@ const journalEntrySchema: z.ZodType<JournalEntry> = z.discriminatedUnion("kind",
   }),
   z.object({ kind: z.literal("resume_pending"), operation: operationSchema, session: z.string() }),
   z.object({ kind: z.literal("resume_settled"), operation: operationSchema, outcome: z.string() }),
+  z.object({ kind: z.literal("session_miss"), reason: z.string(), at: z.string() }),
+  z.object({ kind: z.literal("session_seen") }),
 ]);
 const LOCK_RETRIES = 40;
 
@@ -64,16 +67,58 @@ export function journalEntries(store: StateStore, run: RunRef): JournalEntry[] {
 
 export function laneRun(store: StateStore, lane: Lane): RunRef | undefined {
   if (lane.run || !lane.ticket) return lane.run;
-  return store.listRuns().find((run) => run.ticket === lane.ticket && run.status === "claimed")
-    ?.ref;
+  const runs = store.listRuns().filter((run) => run.ticket === lane.ticket);
+  return (
+    runs.find((run) => run.status === "claimed") ??
+    runs.find((run) => run.status === "recovery_required")
+  )?.ref;
 }
 
-function runClaim(store: StateStore, run: RunRef) {
+function laneClaim(store: StateStore, lane: Lane, run: RunRef) {
   try {
-    return store.claimForRun(run);
+    return lane.claim ? store.claim(lane.claim) : store.claimForRun(run);
   } catch {
     return undefined;
   }
+}
+
+const launchedSchema = z.object({
+  evidence: z.object({
+    session: z.object({
+      environment: z.string(),
+      host: adapterRefSchema,
+      harness: adapterRefSchema,
+      session: z.string().min(1),
+      lane: laneRefSchema,
+      ticket: ticketRefSchema,
+    }),
+  }),
+});
+
+function launchedSession(store: StateStore, lane: Lane, run: RunRef) {
+  const step = store.steps(run).findLast((item) => item.state === "host_launched");
+  if (!step?.receipt_json) return undefined;
+  try {
+    const parsed = launchedSchema.safeParse(JSON.parse(step.receipt_json));
+    return parsed.success && parsed.data.evidence.session.lane === lane.id
+      ? parsed.data.evidence.session
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function releasedByCompletion(
+  store: StateStore,
+  run: RunRef,
+  record: ClaimLockRecord,
+  claim: Claim,
+) {
+  return (
+    record.action === "release" &&
+    record.claim === claim.ref &&
+    store.steps(run).some((step) => step.state === "completion_release_pending")
+  );
 }
 
 export function claimedStatus(configuration: ExecutionConfiguration | undefined) {
@@ -184,12 +229,13 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
           lane.state !== "queued" ||
           (lane.ticket !== undefined && claimedTickets.has(lane.ticket));
         if (!run) return { lane, live };
-        const claim = lane.claim ? store.claim(lane.claim) : runClaim(store, run);
+        const claim = laneClaim(store, lane, run);
         const status = claimedStatus(store.getExecutionConfiguration(run));
         return {
           lane,
           live,
           run,
+          recoveryRequired: store.run(run).status === "recovery_required",
           ...(claim ? { claim } : {}),
           ...(status ? { claimedStatus: status } : {}),
         };
@@ -203,8 +249,13 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
         home: normalizeClaimHome(claim.claimHomeUrl),
         git,
       });
-      const held = heldClaim(await lock.read(claim.ticket));
-      return { claim: held?.claim, source: claim.lockRef ?? claim.claimHomeUrl };
+      const { record } = await lock.read(claim.ticket);
+      const held =
+        record && (record.action !== "release" || releasedByCompletion(store, run, record, claim));
+      return {
+        claim: held ? record.claim : undefined,
+        source: claim.lockRef ?? claim.claimHomeUrl,
+      };
     },
     merged: async (url) => {
       if (!artifacts.merged) throw new Error("The artifact host cannot read merge state");
@@ -248,6 +299,9 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
     },
     sessions: async (lane) => {
       const port = host(lane);
+      const run = laneRun(store, lane);
+      const recorded = run ? launchedSession(store, lane, run) : undefined;
+      if (recorded) return [await port.read(recorded)];
       const found = await port.find({ lane: lane.id });
       return Promise.all(found.map((session) => port.read(session)));
     },

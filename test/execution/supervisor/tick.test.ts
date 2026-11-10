@@ -430,20 +430,78 @@ test("gate evidence is journaled only when the observed value changes", async ()
   expect(gates()).toEqual([{ value: false }, { value: "b".repeat(40) }]);
 });
 
-test("a session the host cannot find, or finds twice, needs attention", async () => {
+test("a session the host cannot find, finds twice or cannot read needs attention after repeated misses", async () => {
+  const tickThrice = async (world: World) => {
+    const reports = [];
+    for (let tick = 0; tick < 3; tick += 1) reports.push(await superviseTick(world, policy));
+    return reports;
+  };
   const missing = new World();
   const lane = missing.lane("JWB-2", "implementing");
-  expect((await superviseTick(missing, policy)).attention).toEqual([
-    { lane: lane.id, reason: "session_missing" },
+  const reports = await tickThrice(missing);
+  expect(reports.map((report) => report.attention)).toEqual([
+    [],
+    [],
+    [{ lane: lane.id, reason: "session_missing" }],
+  ]);
+  expect(reports[0]?.failures).toEqual([
+    {
+      lane: lane.id,
+      step: "session",
+      message: "session_missing: Host reports 0 sessions for the lane",
+    },
   ]);
 
   const doubled = new World();
   const other = doubled.lane("JWB-2", "queued");
   const view = doubled.view(other, "ready", 1);
   doubled.sessions = async () => [view, view];
-  expect((await superviseTick(doubled, policy)).attention).toEqual([
+  expect((await tickThrice(doubled))[2]?.attention).toEqual([
     { lane: other.id, reason: "session_ambiguous" },
   ]);
+
+  const offline = new World();
+  const third = offline.lane("JWB-2", "implementing");
+  offline.sessions = async () => {
+    throw new Error("host_unavailable: T3 thread thread-1 is unreadable");
+  };
+  expect((await tickThrice(offline))[2]?.attention).toEqual([
+    { lane: third.id, reason: "session_unreachable" },
+  ]);
+});
+
+test("a session seen between misses resets the miss count", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  await superviseTick(world, policy);
+  await superviseTick(world, policy);
+  world.view(lane, "running", 1);
+  await superviseTick(world, policy);
+  world.views.delete(lane.id);
+  const reports = [await superviseTick(world, policy), await superviseTick(world, policy)];
+  expect(reports.map((report) => report.attention)).toEqual([[], []]);
+});
+
+test("a lane without a resolvable claim is held, and one whose run needs recovery is shown", async () => {
+  const world = new World();
+  const unclaimed = world.lane("JWB-2", "implementing");
+  world.claims.delete(unclaimed.id);
+  world.view(unclaimed, "ready", 1);
+  const recovering = world.lane("JWB-3", "queued");
+  world.view(recovering, "ready", 1);
+  const lanes = world.lanes;
+  world.lanes = () =>
+    lanes().map((supervised) =>
+      supervised.lane.id === recovering.id ? { ...supervised, recoveryRequired: true } : supervised,
+    );
+
+  const report = await superviseTick(world, policy);
+
+  expect(report.held).toEqual([
+    { lane: unclaimed.id, ticket: ref("JWB-2"), reason: "claim_changed" },
+  ]);
+  expect(report.attention).toEqual([{ lane: recovering.id, reason: "recovery_required" }]);
+  expect(world.log).toEqual([]);
 });
 
 test("a human edit holds a running session instead of resuming it", async () => {

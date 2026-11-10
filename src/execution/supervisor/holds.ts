@@ -15,7 +15,12 @@ export async function readHumanEdits(
   observedAt: string,
 ): Promise<HoldReading> {
   const { lane, claim } = supervised;
-  if (!lane.ticket || !claim) return { hold: undefined, evidence: [] };
+  if (!lane.ticket) return { hold: undefined, evidence: [] };
+  if (!claim)
+    return {
+      hold: "claim_changed",
+      evidence: [claimEvidence({ claim: undefined, source: "unrecorded" }, observedAt)],
+    };
   const ticket = await ports.read(lane.ticket);
   const remote = await ports.remoteClaim(supervised);
   const open = await openBlockers(ports, ticket);

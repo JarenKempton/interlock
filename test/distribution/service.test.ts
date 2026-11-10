@@ -128,4 +128,12 @@ test("systemd arguments keep percent and dollar signs literal", () => {
     path: "/usr/bin",
   });
   expect(unit.content).toContain('ExecStart=/opt/interlock run --state /s/100%% "$$HOME"');
+  const environment = serviceDefinition(["/opt/interlock"], {
+    platform: "linux",
+    home: home(),
+    uid: 1000,
+    logDirectory: "/state",
+    path: "/opt/$bin:/100%",
+  });
+  expect(environment.content).toContain('Environment="PATH=/opt/$bin:/100%%"');
 });

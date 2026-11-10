@@ -20,6 +20,7 @@ export interface SupervisedLane {
   lane: Lane;
   live: boolean;
   run?: RunRef;
+  recoveryRequired?: boolean;
   claim?: Claim;
   claimedStatus?: string;
 }
@@ -34,7 +35,9 @@ export type JournalEntry =
   | { kind: "gate"; evidence: GateEvidence }
   | { kind: "progress"; mark: ProgressMark }
   | { kind: "resume_pending"; operation: OperationIdentity; session: string }
-  | { kind: "resume_settled"; operation: OperationIdentity; outcome: string };
+  | { kind: "resume_settled"; operation: OperationIdentity; outcome: string }
+  | { kind: "session_miss"; reason: string; at: string }
+  | { kind: "session_seen" };
 
 export interface SupervisorJournal {
   entries(lane: LaneRef): readonly JournalEntry[];

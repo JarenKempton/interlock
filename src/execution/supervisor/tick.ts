@@ -1,4 +1,5 @@
 import { type GateEvidence, observedValue, trackerSource } from "../../domain/gate/evidence.ts";
+import type { HostSessionView } from "../../domain/host/capability.ts";
 import type { LaneRefusalCode, LaneState } from "../../domain/lane.ts";
 import type { LaneRef, Ticket, TicketRef } from "../../domain/model.ts";
 import { readHumanEdits } from "./holds.ts";
@@ -13,6 +14,7 @@ import type {
 import { RESUME_MESSAGE, stallDecision } from "./stall.ts";
 
 const COMPLETABLE = new Set<LaneState>(["approved", "merged"]);
+const SESSION_MISS_LIMIT = 3;
 const SUPERVISED_SESSIONS = new Set<LaneState>(["queued", "claimed", "implementing"]);
 const RETRYABLE_REFUSALS = new Set<LaneRefusalCode>([
   "ambiguous_write",
@@ -116,10 +118,22 @@ class Tick {
       });
       return;
     }
-    const views = await this.ports.sessions(lane);
+    let views: readonly HostSessionView[];
+    try {
+      views = await this.ports.sessions(lane);
+    } catch (error) {
+      return this.missedSession(lane, entries, "session_unreachable", errorMessage(error));
+    }
     const [view] = views;
     if (views.length !== 1 || !view)
-      return this.attention(lane, views.length ? "session_ambiguous" : "session_missing");
+      return this.missedSession(
+        lane,
+        entries,
+        views.length ? "session_ambiguous" : "session_missing",
+        `Host reports ${views.length} sessions for the lane`,
+      );
+    if (trailingMisses(entries, lane.updatedAt) > 0)
+      this.ports.journal.record(lane.id, { kind: "session_seen" });
     const mark = entries.findLast(
       (entry): entry is Extract<JournalEntry, { kind: "progress" }> => entry.kind === "progress",
     )?.mark;
@@ -144,6 +158,19 @@ class Tick {
     if (outcome !== "delivered") return this.attention(lane, "resume_unconfirmed");
     this.mark(lane.id, decision.mark);
     this.report.resumed.push({ lane: lane.id, session });
+  }
+
+  async missedSession(
+    lane: SupervisedLane["lane"],
+    entries: readonly JournalEntry[],
+    reason: string,
+    message: string,
+  ): Promise<void> {
+    const at = this.observedAt();
+    this.ports.journal.record(lane.id, { kind: "session_miss", reason, at });
+    if (trailingMisses(entries, lane.updatedAt) + 1 >= SESSION_MISS_LIMIT)
+      return this.attention(lane, reason);
+    this.report.failures.push({ lane: lane.id, step: "session", message: `${reason}: ${message}` });
   }
 
   mark(lane: LaneRef, mark: ProgressMark): void {
@@ -222,6 +249,15 @@ class Tick {
   }
 }
 
+function trailingMisses(entries: readonly JournalEntry[], since: string): number {
+  let misses = 0;
+  for (const entry of [...entries].reverse()) {
+    if (entry.kind === "session_seen" || entry.kind === "progress") break;
+    if (entry.kind === "session_miss" && Date.parse(entry.at) >= Date.parse(since)) misses += 1;
+  }
+  return misses;
+}
+
 function unsettledResume(entries: readonly JournalEntry[]) {
   const pending = entries.findLast((entry) => entry.kind === "resume_pending");
   if (pending?.kind !== "resume_pending") return undefined;
@@ -248,6 +284,8 @@ export async function superviseTick(
       if (lane.state === "attention")
         tick.report.attention.push({ lane: lane.id, reason: lane.attentionReason ?? "attention" });
       else if (COMPLETABLE.has(lane.state)) await tick.complete(supervised);
+      else if (supervised.recoveryRequired)
+        tick.report.attention.push({ lane: lane.id, reason: "recovery_required" });
       else if (SUPERVISED_SESSIONS.has(lane.state)) await tick.session(supervised);
     } catch (error) {
       tick.report.failures.push({ lane: lane.id, step: lane.state, message: errorMessage(error) });

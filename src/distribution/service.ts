@@ -18,8 +18,9 @@ export interface ServicePlatform {
   path: string;
 }
 
-function systemdWord(value: string): string {
-  const literal = value.replaceAll("%", "%%").replaceAll("$", () => "$$");
+function systemdWord(value: string, expandsVariables = true): string {
+  const specifiers = value.replaceAll("%", "%%");
+  const literal = expandsVariables ? specifiers.replaceAll("$", () => "$$") : specifiers;
   return /^[\w@%+=:,./-]+$/.test(literal)
     ? literal
     : `"${literal.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
@@ -48,8 +49,8 @@ export function serviceDefinition(
         "",
         "[Service]",
         "Type=simple",
-        `Environment=${systemdWord(`PATH=${platform.path}`)}`,
-        `ExecStart=${command.map(systemdWord).join(" ")}`,
+        `Environment=${systemdWord(`PATH=${platform.path}`, false)}`,
+        `ExecStart=${command.map((word) => systemdWord(word)).join(" ")}`,
         "Restart=on-failure",
         "RestartSec=30",
         "",

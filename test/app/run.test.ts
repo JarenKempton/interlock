@@ -104,19 +104,49 @@ test(
 );
 
 test(
-  "a launched lane whose session disappears before it attaches needs attention",
+  "the recorded launch session is followed through a rename, and a lost one needs attention after repeated misses",
   async () => {
     const { f, tick, t3 } = await supervised();
     await tick();
+    if (!t3.bound) throw new Error("launch bound no thread");
+    t3.bound.title = "🔨 TEST-492 — renamed by a person";
     t3.listed = false;
+    expect(await tick()).toMatchObject({ attention: [], failures: [], held: [] });
 
+    t3.bound = undefined;
+    const misses = [await tick(), await tick()];
+    expect(misses.map((report) => report.attention)).toEqual([[], []]);
+    expect(misses.map((report) => report.failures[0]?.step)).toEqual(["session", "session"]);
     const report = await tick();
 
     const lane = inspect(f, (store) => store.laneForTicket(ref));
     if (!lane) throw new Error("pickup recorded no lane");
-    expect(report.attention).toEqual([{ lane: lane.id, reason: "session_missing" }]);
+    expect(report.attention).toEqual([{ lane: lane.id, reason: "session_unreachable" }]);
     expect(lane).toMatchObject({ state: "attention", previousState: "queued" });
     expect(report.launched).toEqual([]);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "an unattached lane whose launch needs recovery is shown as needing attention",
+  async () => {
+    const { f, tick } = await supervised();
+    await tick();
+    const store = new StateStore(f.state);
+    const run = store.listRuns()[0];
+    if (!run) throw new Error("pickup recorded no run");
+    store.saveRun({ ...run, status: "recovery_required" });
+    store.close();
+
+    const report = await tick();
+
+    expect(report.attention).toEqual([
+      { lane: expect.stringMatching(/^interlock-lane:/), reason: "recovery_required" },
+    ]);
+    expect(report.launched).toEqual([]);
+    const status = await createApplication(f.services).status.execute({ state: f.state });
+    expect(status[0]).toMatchObject({ needsAttention: true, reason: "recovery_required" });
   },
   GIT_TEST_TIMEOUT_MS,
 );
@@ -140,6 +170,28 @@ test(
 
     expect(report.held).toEqual([{ lane: lane.id, ticket: ref, reason: "claim_changed" }]);
     expect(report).toMatchObject({ launched: [], resumed: [], attention: [] });
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a release written by the lane's own interrupted completion is not a human edit",
+  async () => {
+    const { f, tick } = await supervised();
+    await tick();
+    const store = new StateStore(f.state);
+    const run = store.listRuns()[0];
+    const lane = store.laneForTicket(ref);
+    if (!run || !lane) throw new Error("pickup recorded no lane");
+    const claim = store.claimForRun(run.ref).ref;
+    store.saveLane({ ...lane, state: "implementing", run: run.ref, claim });
+    store.recordStep(run.ref, "completion_release_pending", { claim });
+    store.close();
+    await lock(f).restore(ref, claim);
+
+    const report = await tick();
+
+    expect(report).toMatchObject({ held: [], attention: [], failures: [] });
   },
   GIT_TEST_TIMEOUT_MS,
 );
