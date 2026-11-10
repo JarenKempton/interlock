@@ -1,9 +1,7 @@
 import type { Ticket, TicketRef } from "../../domain/model.ts";
-import type { TrackerReader } from "../../domain/tracker/port.ts";
+import type { PickableStatuses, TrackerReader } from "../../domain/tracker/port.ts";
 
 export type Eligibility = "eligible" | "unavailable" | "blocked";
-
-export type PickableStatuses = (ticket: Ticket) => readonly string[] | undefined;
 
 type TicketReader = Pick<TrackerReader, "read">;
 

@@ -1,4 +1,4 @@
-import type { PickableStatuses } from "../execution/pickup/eligibility.ts";
+import type { PickableStatuses } from "../domain/tracker/port.ts";
 import { parseRef } from "../domain/refs/parse.ts";
 import type { ExecutionConfiguration } from "./schema.ts";
 

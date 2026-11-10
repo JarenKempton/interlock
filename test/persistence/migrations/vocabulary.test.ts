@@ -12,7 +12,7 @@ import { runRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { embeddedMigrations, migrateLedger } from "../../../src/persistence/migrate.ts";
 import { databasePath } from "../../../src/distribution/paths.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
-import { getExecutionConfiguration, readUserSettings } from "../../../src/configuration/store.ts";
+import { getExecutionConfiguration, storedUserSettings } from "../../../src/configuration/store.ts";
 
 test("upgrading legacy T3 runs preserves known harnesses and marks absent evidence unknown", () => {
   const dir = mkdtempSync(join(tmpdir(), "interlock-vocabulary-"));
@@ -79,7 +79,7 @@ test("upgrading legacy T3 runs preserves known harnesses and marks absent eviden
             status: "claimed",
           });
         }
-        expect(readUserSettings(store)).toEqual({
+        expect(storedUserSettings(store)).toEqual({
           harness: "codex",
           reviewer_harness: "claudeAgent",
         });

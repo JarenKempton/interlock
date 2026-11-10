@@ -40,14 +40,14 @@ import type {
 import { completionRecordMatches, releaseCompletedClaim } from "../claim/completion.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 import { ticketKeyMatches } from "../../domain/submission/commit.ts";
-import type { TrackerRead } from "../../domain/tracker/port.ts";
+import type { PickableStatuses, TrackerRead } from "../../domain/tracker/port.ts";
 import type {
   ArtifactHost,
   ArtifactTarget,
   ArtifactWorkspace,
   PullRequest,
 } from "../../domain/submission/artifact.ts";
-import { type PickableStatuses, unblockedBy } from "../pickup/eligibility.ts";
+import { unblockedBy } from "../pickup/eligibility.ts";
 import { type AttachAuthority, AttachRefusal } from "./attachment.ts";
 
 export interface LaneTrackerPort {

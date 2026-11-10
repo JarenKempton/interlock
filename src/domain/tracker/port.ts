@@ -70,3 +70,5 @@ export interface Tracker extends TrackerReader, TrackerMirror {
   transition?(ticket: TicketRef, status: string): Promise<void>;
   link_artifact?(ticket: TicketRef, url: string, title?: string): Promise<void>;
 }
+
+export type PickableStatuses = (ticket: Ticket) => readonly string[] | undefined;

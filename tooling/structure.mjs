@@ -93,13 +93,19 @@ export default {
         if (portable(relative(root, context.filename)) !== "vite.config.ts") return {};
         return {
           Program(node) {
-            for (const [folder, files] of roots.flatMap((directory) => folders(root, directory))) {
-              for (const file of files.filter((name) => /\.(?:ts|js|mjs)$/.test(name))) {
+            const top = readdirSync(root, { withFileTypes: true })
+              .filter((entry) => entry.isFile())
+              .map((entry) => entry.name);
+            for (const [folder, files] of [
+              [".", top],
+              ...roots.flatMap((directory) => folders(root, directory)),
+            ]) {
+              for (const file of files.filter((name) => /\.[cm]?[jt]sx?$/.test(name))) {
                 if (directive.test(readFileSync(resolve(root, folder, file), "utf8")))
                   context.report({
                     node,
                     messageId: "directive",
-                    data: { file: `${folder}/${file}` },
+                    data: { file: folder === "." ? file : `${folder}/${file}` },
                   });
               }
             }

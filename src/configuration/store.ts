@@ -101,7 +101,7 @@ export function updateUserSettings(
     .immediate();
 }
 
-export function readUserSettings(store: StateStore): UserSettings {
+export function storedUserSettings(store: StateStore): UserSettings {
   return configurationStore(store.database).readUser();
 }
 
@@ -116,7 +116,7 @@ export function saveUserSetting(
 export function saveClaimHomeIfAbsent(store: StateStore, home: string): boolean {
   return store.database
     .transaction(() => {
-      if (readUserSettings(store).claim_home !== undefined) return false;
+      if (storedUserSettings(store).claim_home !== undefined) return false;
       saveUserSetting(store, "claim_home", home);
       return true;
     })

@@ -1,6 +1,6 @@
 import {
   type ClaimLockRecord,
-  type ClaimLockState,
+  heldClaim,
   lockedPayloadSchema,
   type RecoverableClaimLock,
 } from "../../domain/claim/lock.ts";
@@ -111,8 +111,4 @@ function trackerRequest<T extends RestoreClaimRequest>(
   const parsed = lockedPayloadSchema.safeParse(request.originalSnapshot.payload);
   if (!parsed.success) throw new Error("Original snapshot was not taken through the claim lock");
   return { ...request, claimedOwner: request.claimedOwner, originalSnapshot: parsed.data.tracker };
-}
-
-function heldClaim(state: ClaimLockState) {
-  return state.record && state.record.action !== "release" ? state.record : undefined;
 }

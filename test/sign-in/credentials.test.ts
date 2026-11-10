@@ -11,7 +11,7 @@ import { type CredentialStore, osCredentialStore } from "../../src/persistence/c
 import { StateStore } from "../../src/persistence/state.ts";
 import type { RuntimeServices } from "../../src/app/runtime-services.ts";
 import { lineInput, type Terminal } from "../../src/sign-in/terminal.ts";
-import { readUserSettings } from "../../src/configuration/store.ts";
+import { storedUserSettings } from "../../src/configuration/store.ts";
 import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 const TOKEN = `ATATT3x${"A".repeat(176)}=0A1B2C3D`;
@@ -124,7 +124,7 @@ function harness(
 function userSettings(statePath: string) {
   const store = new StateStore(statePath);
   try {
-    return readUserSettings(store);
+    return storedUserSettings(store);
   } finally {
     store.close();
   }
