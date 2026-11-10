@@ -290,7 +290,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
 
   async #t3(args: readonly string[], stdin?: string) {
     try {
-      return await this.#process.run([this.#cli, ...args], stdin);
+      return await this.#process.run([this.#cli, "--log-level", "error", ...args], stdin);
     } catch (error) {
       return {
         exitCode: -1,

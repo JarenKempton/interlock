@@ -259,6 +259,8 @@ async function mainCheckout(git: GitCommandExecutor, directory: string) {
 
 async function jiraRead<T>(transport: JiraTransport, path: string, schema: z.ZodType<T>) {
   const result = await transport.request("GET", `/rest/api/3/${path}`);
+  if (result.status === 401)
+    throw new Error("Jira rejected the stored sign-in (401); run interlock login jira");
   const parsed = schema.safeParse(result.body);
   if (result.status !== 200 || !parsed.success) throw new Error(`Jira ${path} discovery failed`);
   return parsed.data;
@@ -302,8 +304,8 @@ export async function executionTracker(
       { site: site.origin, ...(await requireCredentials(services, "jira", adapter, site.origin)) },
       services.signIn?.http,
     );
-  const metadata = purpose === "pickup" ? { rankField: await jiraRankField(transport) } : {};
   const myself = await jiraRead(transport, "myself", z.object({ accountId: actorRefSchema }));
+  const metadata = purpose === "pickup" ? { rankField: await jiraRankField(transport) } : {};
   const instance = site.hostname.replace(/\.atlassian\.net$/, "");
   const options = {
     instance,

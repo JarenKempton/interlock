@@ -57,13 +57,16 @@ class FakeT3 implements T3Process {
     return this;
   }
 
-  async run(argv: readonly string[], stdin?: string) {
+  async run(raw: readonly string[], stdin?: string) {
+    const quiet = raw[1] === "--log-level" && raw[2] === "error";
+    const argv = quiet ? [raw[0] ?? "", ...raw.slice(3)] : raw;
     this.calls.push(stdin === undefined ? { argv } : { argv, stdin });
     const command = argv.slice(1, 3).join(" ");
     const queue = this.replies.get(command) ?? this.replies.get(argv[1] ?? "");
     const reply = queue && queue.length > 1 ? queue.shift() : queue?.[0];
     if (!reply) return fail(`unexpected ${argv.join(" ")}`);
-    return typeof reply === "function" ? reply(stdin) : reply;
+    const result = typeof reply === "function" ? reply(stdin) : reply;
+    return quiet ? result : { ...result, stdout: `${WARN}\n${result.stdout}` };
   }
 
   commands() {
@@ -101,6 +104,30 @@ describe("T3 host preflight", () => {
     expect(hostT3Cli({ T3CODE_CLI_PATH: "/home/me/.t3/bin/t3" })).toBe("/home/me/.t3/bin/t3");
     expect(hostT3Cli({ T3CODE_CLI_PATH: "" })).toBe("t3");
     expect(hostT3Cli({})).toBe("t3");
+  });
+
+  test("quiets t3 logging so a WARN line on stdout never precedes the JSON", async () => {
+    const raw: (readonly string[])[] = [];
+    const t3 = ready();
+    const recording: T3Process = {
+      run: (argv, stdin) => {
+        raw.push(argv);
+        return t3.run(argv, stdin);
+      },
+    };
+    expect((await t3.run(["/bin/t3", "thread", "list"])).stdout).toStartWith(`${WARN}\n[`);
+    await new T3HostPort({
+      project: "/repo",
+      cli: "/bin/t3",
+      process: recording,
+      server: async () => descriptor,
+      lanes: () => [],
+      branchExists: async () => false,
+    }).preflight();
+    expect(raw.map((argv) => argv.slice(0, 4))).toEqual([
+      ["/bin/t3", "--log-level", "error", "--version"],
+      ["/bin/t3", "--log-level", "error", "thread"],
+    ]);
   });
 
   test("a port without a configured CLI runs the one T3 Code exposes", async () => {
