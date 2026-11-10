@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { run as runCli } from "../src/cli.ts";
 import { resolveConfiguration } from "../src/configuration/schema.ts";
 import { AmbiguousTrackerResultError } from "../src/domain/contracts.ts";
@@ -17,6 +17,7 @@ import { BunGitCommandExecutor } from "../src/adapters/workspaces/git.ts";
 import { GIT_TEST_TIMEOUT_MS } from "./fixtures/git-remote.ts";
 import {
   FakeJira,
+  git,
   laneCompleteFixtures,
   prUrl,
   runRef,
@@ -193,6 +194,94 @@ test("an unreadable claim lock refuses as transient, leaves the run claimed, and
   expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
   expect(lane.tracker.transitions).toEqual(["Done"]);
 });
+
+test("a merged head that only adds a clean merge from main completes on the approved head", async () => {
+  const lane = await mergedLane({ afterApproval: "base_merge" });
+  expect(lane.repo.prHead).not.toBe(lane.repo.head);
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+  expect(lane.tracker.transitions).toEqual(["Done"]);
+});
+
+test("a squash-merged head that only adds a clean merge from main completes", async () => {
+  const lane = await mergedLane({ afterApproval: "base_merge", squash: true });
+  expect((await lane.complete()).result).toMatchObject({ ok: true, value: { state: "done" } });
+});
+
+test("a replace ref cannot disguise an unreviewed commit as a merge from main", async () => {
+  const lane = await mergedLane({ afterApproval: "commit" });
+  const { head, prHead, originalMain } = lane.repo;
+  const tree = git(["merge-tree", "--write-tree", head, originalMain], lane.repo.lane).split(
+    "\n",
+  )[0];
+  const disguise = git(
+    ["commit-tree", tree ?? "", "-p", head, "-p", originalMain, "-m", "Merge main"],
+    lane.repo.lane,
+  );
+  git(["replace", prHead, disguise], lane.repo.lane);
+  expect(git(["rev-list", "--parents", "-n", "1", prHead], lane.repo.lane).split(" ")).toHaveLength(
+    3,
+  );
+  expect((await lane.complete()).result).toMatchObject({
+    ok: false,
+    refusal: { code: "stale_evidence" },
+  });
+  expect(lane.tracker.transitions).toEqual([]);
+});
+
+for (const forged of ["grafts", "shallow"] as const)
+  test(`history rewritten by ${forged} is unverifiable, never accepted`, async () => {
+    const lane = await mergedLane({ afterApproval: "commit" });
+    const { head, prHead, originalMain } = lane.repo;
+    const file = git(
+      [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        forged === "grafts" ? "info/grafts" : "shallow",
+      ],
+      lane.repo.lane,
+    );
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, forged === "grafts" ? `${prHead} ${head} ${originalMain}\n` : `${head}\n`);
+    expect((await lane.complete()).result).toMatchObject({
+      ok: false,
+      refusal: { code: "artifact_host_unavailable" },
+    });
+    expect(lane.tracker.transitions).toEqual([]);
+  });
+
+test("unreadable history between the approved and merged heads is a retryable refusal", async () => {
+  const real = new BunGitCommandExecutor();
+  const lane = await mergedLane({
+    afterApproval: "base_merge",
+    git: {
+      run: async (argv, cwd) => {
+        if (argv[1] === "--no-replace-objects" && argv[2] === "cat-file")
+          return { exitCode: 1, stdout: "", stderr: "missing" };
+        if (argv[1] === "--no-replace-objects" && argv[2] === "fetch")
+          return { exitCode: 128, stdout: "", stderr: "Could not resolve host: github.com" };
+        return real.run(argv, cwd);
+      },
+    },
+  });
+  expect((await lane.complete()).result).toMatchObject({
+    ok: false,
+    refusal: { code: "artifact_host_unavailable" },
+  });
+  expect(lane.tracker.transitions).toEqual([]);
+  lane.intact();
+});
+
+for (const afterApproval of ["commit", "edited_merge", "octopus"] as const)
+  test(`a merged head with unreviewed changes after approval still refuses: ${afterApproval}`, async () => {
+    const lane = await mergedLane({ afterApproval });
+    expect((await lane.complete()).result).toMatchObject({
+      ok: false,
+      refusal: { code: "stale_evidence" },
+    });
+    expect(lane.tracker.transitions).toEqual([]);
+    lane.intact();
+  });
 
 test("released or wrong-ticket claim cannot authorize completion", async () => {
   for (const mode of ["released", "wrong-ticket"] as const) {

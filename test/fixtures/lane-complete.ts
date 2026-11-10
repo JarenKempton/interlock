@@ -30,6 +30,8 @@ import { LaneService, type LaneTrackerPort } from "../../src/execution/lane.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 
+export type AfterApproval = "base_merge" | "edited_merge" | "octopus" | "commit";
+
 export const ticketRef = ticketRefSchema.parse("jira:x:JWB:ticket:JWB-909");
 
 export const runRef = runRefSchema.parse("interlock-run:complete");
@@ -115,7 +117,11 @@ export function laneCompleteFixtures() {
       rmSync(directory, { recursive: true, force: true });
   });
 
-  function repository(options: { merged: boolean; squash?: boolean }) {
+  function repository(options: {
+    merged: boolean;
+    squash?: boolean;
+    afterApproval?: AfterApproval;
+  }) {
     const root = mkdtempSync(join(tmpdir(), "interlock-complete-"));
     directories.push(root);
     const origin = join(root, "origin.git");
@@ -135,6 +141,30 @@ export function laneCompleteFixtures() {
     git(["add", "change"], lane);
     git(["commit", "--quiet", "-m", "work"], lane);
     const head = git(["rev-parse", "HEAD"], lane);
+    if (options.afterApproval) {
+      writeFileSync(join(main, "base-change"), "moved on\n");
+      git(["add", "base-change"], main);
+      git(["commit", "--quiet", "-m", "base moved"], main);
+      git(["push", "--quiet", "origin", "main"], main);
+      if (options.afterApproval === "base_merge")
+        git(["merge", "--quiet", "--no-ff", "-m", "Merge main", "main"], lane);
+      else if (options.afterApproval === "octopus") {
+        git(["switch", "--quiet", "-c", "side"], main);
+        writeFileSync(join(main, "side-change"), "side\n");
+        git(["add", "side-change"], main);
+        git(["commit", "--quiet", "-m", "side"], main);
+        git(["switch", "--quiet", "main"], main);
+        git(["merge", "--quiet", "--no-ff", "-m", "Merge main and side", "main", "side"], lane);
+      } else if (options.afterApproval === "edited_merge") {
+        git(["merge", "--quiet", "--no-ff", "--no-commit", "main"], lane);
+        writeFileSync(join(lane, "change"), "slipped into the merge\n");
+        git(["commit", "--quiet", "-am", "Merge main"], lane);
+      } else {
+        writeFileSync(join(lane, "change"), "unreviewed\n");
+        git(["commit", "--quiet", "-am", "unreviewed"], lane);
+      }
+    }
+    const prHead = git(["rev-parse", "HEAD"], lane);
     const originalMain = git(["rev-parse", "HEAD"], main);
     if (options.merged) {
       if (options.squash) {
@@ -145,7 +175,7 @@ export function laneCompleteFixtures() {
     }
     const merge = git(["rev-parse", "HEAD"], main);
     git(["reset", "--hard", originalMain], main);
-    return { root, main, lane, head, merge, originalMain, origin };
+    return { root, main, lane, head, prHead, merge, originalMain, origin };
   }
 
   async function mergedLane(
@@ -154,6 +184,7 @@ export function laneCompleteFixtures() {
       prMerged?: boolean;
       tracker?: FakeJira;
       squash?: boolean;
+      afterApproval?: AfterApproval;
       git?: GitCommandExecutor;
       state?: "approved" | "merged";
       onProof?: () => Promise<void>;
@@ -163,7 +194,11 @@ export function laneCompleteFixtures() {
       configuration?: ExecutionConfiguration;
     } = {},
   ) {
-    const repo = repository({ merged: options.merged ?? true, squash: options.squash ?? false });
+    const repo = repository({
+      merged: options.merged ?? true,
+      squash: options.squash ?? false,
+      ...(options.afterApproval ? { afterApproval: options.afterApproval } : {}),
+    });
     const statePath = join(repo.root, "interlock.db");
     const store = new StateStore(statePath);
     store.saveRun({
@@ -237,7 +272,7 @@ export function laneCompleteFixtures() {
       url: prUrl,
       repository: "github.com/o/r",
       branch,
-      head: repo.head,
+      head: repo.prHead,
       commit: repo.merge,
     };
     const artifacts = {
