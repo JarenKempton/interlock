@@ -632,6 +632,7 @@ export class LaneService {
       return result.exitCode === 0;
     };
     try {
+      if (process.env.GIT_GRAFT_FILE) return "unverifiable";
       if ((await read("rev-parse", "--is-shallow-repository")) === "true") return "unverifiable";
       if (existsSync(resolve(path, await read("rev-parse", "--git-path", "info/grafts"))))
         return "unverifiable";

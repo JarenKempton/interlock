@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { run as runCli } from "../src/cli.ts";
 import { resolveConfiguration } from "../src/configuration/schema.ts";
 import { AmbiguousTrackerResultError } from "../src/domain/contracts.ts";
@@ -227,6 +227,28 @@ test("a replace ref cannot disguise an unreviewed commit as a merge from main", 
   });
   expect(lane.tracker.transitions).toEqual([]);
 });
+
+for (const forged of ["grafts", "shallow"] as const)
+  test(`history rewritten by ${forged} is unverifiable, never accepted`, async () => {
+    const lane = await mergedLane({ afterApproval: "commit" });
+    const { head, prHead, originalMain } = lane.repo;
+    const file = git(
+      [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        forged === "grafts" ? "info/grafts" : "shallow",
+      ],
+      lane.repo.lane,
+    );
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, forged === "grafts" ? `${prHead} ${head} ${originalMain}\n` : `${head}\n`);
+    expect((await lane.complete()).result).toMatchObject({
+      ok: false,
+      refusal: { code: "artifact_host_unavailable" },
+    });
+    expect(lane.tracker.transitions).toEqual([]);
+  });
 
 test("unreadable history between the approved and merged heads is a retryable refusal", async () => {
   const real = new BunGitCommandExecutor();
