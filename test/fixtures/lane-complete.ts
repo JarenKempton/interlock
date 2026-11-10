@@ -30,6 +30,8 @@ import { LaneService, type LaneTrackerPort } from "../../src/execution/lane.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 
+export type AfterApproval = "base_merge" | "edited_merge" | "octopus" | "commit";
+
 export const ticketRef = ticketRefSchema.parse("jira:x:JWB:ticket:JWB-909");
 
 export const runRef = runRefSchema.parse("interlock-run:complete");
@@ -118,7 +120,7 @@ export function laneCompleteFixtures() {
   function repository(options: {
     merged: boolean;
     squash?: boolean;
-    afterApproval?: "base_merge" | "edited_merge" | "commit";
+    afterApproval?: AfterApproval;
   }) {
     const root = mkdtempSync(join(tmpdir(), "interlock-complete-"));
     directories.push(root);
@@ -146,7 +148,14 @@ export function laneCompleteFixtures() {
       git(["push", "--quiet", "origin", "main"], main);
       if (options.afterApproval === "base_merge")
         git(["merge", "--quiet", "--no-ff", "-m", "Merge main", "main"], lane);
-      else if (options.afterApproval === "edited_merge") {
+      else if (options.afterApproval === "octopus") {
+        git(["switch", "--quiet", "-c", "side"], main);
+        writeFileSync(join(main, "side-change"), "side\n");
+        git(["add", "side-change"], main);
+        git(["commit", "--quiet", "-m", "side"], main);
+        git(["switch", "--quiet", "main"], main);
+        git(["merge", "--quiet", "--no-ff", "-m", "Merge main and side", "main", "side"], lane);
+      } else if (options.afterApproval === "edited_merge") {
         git(["merge", "--quiet", "--no-ff", "--no-commit", "main"], lane);
         writeFileSync(join(lane, "change"), "slipped into the merge\n");
         git(["commit", "--quiet", "-am", "Merge main"], lane);
@@ -175,7 +184,7 @@ export function laneCompleteFixtures() {
       prMerged?: boolean;
       tracker?: FakeJira;
       squash?: boolean;
-      afterApproval?: "base_merge" | "edited_merge" | "commit";
+      afterApproval?: AfterApproval;
       git?: GitCommandExecutor;
       state?: "approved" | "merged";
       onProof?: () => Promise<void>;

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { GitClaimLock, heldClaim } from "../adapters/claims/git-lock.ts";
@@ -477,10 +478,16 @@ export class LaneService {
         "artifact_mismatch",
         "Merged pull request does not match the recorded branch and URL",
       );
-    const baseMergesOnly =
-      lane.head !== undefined &&
-      proof.head !== lane.head &&
-      (await this.#onlyBaseMerges(workspace.path, lane.head, proof));
+    const history =
+      lane.head !== undefined && proof.head !== lane.head
+        ? await this.#onlyBaseMerges(workspace.path, lane.head, proof)
+        : "no";
+    if (history === "unverifiable")
+      return fail(
+        "artifact_host_unavailable",
+        `Could not read the history between the approved head and ${proof.head}; retry completion (needs git 2.38 or later)`,
+      );
+    const baseMergesOnly = history === "yes";
     const gate = transitionLane(
       lane,
       {
@@ -606,32 +613,47 @@ export class LaneService {
     }
   }
 
-  async #onlyBaseMerges(path: string, approved: string, proof: MergeProof): Promise<boolean> {
-    if (!proof.commit) return false;
-    const git = async (...args: string[]) => {
-      const result = await this.#git.run(["git", ...args], path);
-      return result.exitCode === 0 ? result.stdout.trim() : undefined;
+  async #onlyBaseMerges(
+    path: string,
+    approved: string,
+    proof: MergeProof,
+  ): Promise<"yes" | "no" | "unverifiable"> {
+    if (!proof.commit) return "no";
+    const run = (...args: string[]) =>
+      this.#git.run(["git", "--no-replace-objects", ...args], path);
+    const read = async (...args: string[]) => {
+      const result = await run(...args);
+      if (result.exitCode !== 0) throw new Error(result.stderr.trim());
+      return result.stdout.trim();
+    };
+    const holds = async (...args: string[]) => {
+      const result = await run(...args);
+      if (result.exitCode > 1) throw new Error(result.stderr.trim());
+      return result.exitCode === 0;
     };
     try {
+      if ((await read("rev-parse", "--is-shallow-repository")) === "true") return "unverifiable";
+      if (existsSync(resolve(path, await read("rev-parse", "--git-path", "info/grafts"))))
+        return "unverifiable";
       for (const commit of [proof.commit, proof.head])
-        if ((await git("cat-file", "-e", `${commit}^{commit}`)) === undefined)
-          await git("fetch", "--quiet", "origin", commit);
-      const base = await git("rev-parse", "--verify", `${proof.commit}^1`);
-      if (!base || (await git("merge-base", "--is-ancestor", approved, proof.head)) === undefined)
-        return false;
-      const added = await git("rev-list", "--parents", proof.head, `^${approved}`, `^${base}`);
-      if (added === undefined) return false;
+        if ((await run("cat-file", "-e", `${commit}^{commit}`)).exitCode !== 0)
+          await read("fetch", "--quiet", "origin", commit);
+      const base = await read("rev-parse", "--verify", `${proof.commit}^1`);
+      if (!(await holds("merge-base", "--is-ancestor", approved, proof.head))) return "no";
+      const added = await read("rev-list", "--parents", proof.head, `^${approved}`, `^${base}`);
       for (const line of added.split("\n").filter(Boolean)) {
         const [commit, first, second, ...rest] = line.split(" ");
-        if (!commit || !first || !second || rest.length) return false;
-        if ((await git("merge-base", "--is-ancestor", second, base)) === undefined) return false;
-        const merged = await git("merge-tree", "--write-tree", first, second);
-        const tree = await git("rev-parse", `${commit}^{tree}`);
-        if (!merged || !tree || merged.split("\n")[0] !== tree) return false;
+        if (!commit || !first || !second || rest.length) return "no";
+        if (!(await holds("merge-base", "--is-ancestor", second, base))) return "no";
+        const merged = await run("merge-tree", "--write-tree", first, second);
+        if (merged.exitCode === 1) return "no";
+        if (merged.exitCode !== 0) throw new Error(merged.stderr.trim());
+        if (merged.stdout.split("\n")[0] !== (await read("rev-parse", `${commit}^{tree}`)))
+          return "no";
       }
-      return true;
+      return "yes";
     } catch {
-      return false;
+      return "unverifiable";
     }
   }
 

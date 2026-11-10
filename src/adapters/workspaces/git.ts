@@ -27,7 +27,12 @@ export interface PreparedGitWorkspace extends PreparedWorkspace {
 
 export class BunGitCommandExecutor implements GitCommandExecutor {
   async run(argv: readonly string[], cwd: string): Promise<CommandResult> {
-    const process = Bun.spawn([...argv], { cwd, stdout: "pipe", stderr: "pipe" });
+    const process = Bun.spawn([...argv], {
+      cwd,
+      env: { ...Bun.env, GIT_TERMINAL_PROMPT: "0" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const [exitCode, stdout, stderr] = await Promise.all([
       process.exited,
       new Response(process.stdout).text(),
