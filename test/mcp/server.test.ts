@@ -233,6 +233,76 @@ test("requests still in flight when stdin ends are answered before the server st
   });
 });
 
+function serving(tree: Parameters<typeof serveMcpStdio>[0]) {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const written: string[] = [];
+  output.on("data", (chunk: Buffer) => written.push(chunk.toString()));
+  const stopped = serveMcpStdio(tree, { version: VERSION }, input, output);
+  const send = (item: unknown) => input.write(`${JSON.stringify(item)}\n`);
+  const lines = () =>
+    written
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  return { input, stopped, send, lines };
+}
+
+const modernMeta = {
+  "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+  "io.modelcontextprotocol/clientInfo": { name: "interlock-test", version: "0.0.0" },
+  "io.modelcontextprotocol/clientCapabilities": {},
+};
+
+test("an open modern subscription does not keep the server alive after stdin ends", async () => {
+  const server = serving(createApplication());
+  server.send(request(1, "tools/call", { name: "version", arguments: {}, _meta: modernMeta }));
+  server.send(
+    request(2, "subscriptions/listen", {
+      notifications: { toolsListChanged: true },
+      _meta: modernMeta,
+    }),
+  );
+  await Bun.sleep(20);
+  server.input.end();
+  const outcome = await Promise.race([
+    server.stopped.then(() => "stopped"),
+    Bun.sleep(1000).then(() => "hung"),
+  ]);
+  expect(outcome).toBe("stopped");
+  expect(server.lines().find((item) => item.id === 1)).toMatchObject({
+    result: { content: [{ type: "text" }] },
+  });
+});
+
+test("a broken or closed stdin stops the server without an uncaught error", async () => {
+  for (const stop of [
+    (input: PassThrough) => input.destroy(new Error("ECONNRESET")),
+    (input: PassThrough) => input.destroy(),
+  ]) {
+    const server = serving(createApplication());
+    server.send(legacyOpening[0]);
+    await Bun.sleep(10);
+    stop(server.input);
+    const outcome = await Promise.race([
+      server.stopped.then(() => "stopped"),
+      Bun.sleep(1000).then(() => "hung"),
+    ]);
+    expect(outcome).toBe("stopped");
+  }
+});
+
+test("an unknown tool name is not echoed back", async () => {
+  const messages = await exchange(createApplication(), [
+    ...legacyOpening,
+    request(1, "tools/call", { name: secret, arguments: {} }),
+  ]);
+  expect(responseTo(messages, 1)).toMatchObject({
+    error: { code: -32602, message: "Unknown tool" },
+  });
+});
+
 test("an allowlist that names nothing fails closed", async () => {
   expect(() => toolActions(createApplication(), [])).toThrow("MCP allowlist names no actions");
   await expectRejection(dispatch(createApplication(), ["mcp", "--allow", ","], () => {})).toThrow(
