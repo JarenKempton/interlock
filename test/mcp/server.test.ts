@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { PassThrough } from "node:stream";
 import { z } from "zod";
 import { createApplication, VERSION } from "../../src/app/application.ts";
 import { defineAction, registeredActions } from "../../src/app/action.ts";
@@ -6,7 +7,7 @@ import { describeAction } from "../../src/cli/catalog.ts";
 import { dispatch } from "../../src/cli/command-line.ts";
 import { positional, text } from "../../src/cli/schema.ts";
 import { HostRefusal } from "../../src/domain/host/capability.ts";
-import { toolActions } from "../../src/mcp/server.ts";
+import { serveMcpStdio, toolActions } from "../../src/mcp/server.ts";
 import {
   callTool,
   exchange,
@@ -14,6 +15,7 @@ import {
   request,
   responseTo,
 } from "../fixtures/mcp/stdio-client.ts";
+import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 const secret = "lane-secret-DO-NOT-ECHO";
 
@@ -159,6 +161,83 @@ test("the allowlist exposes only named actions and refuses unknown names", async
   expect(tools.map((tool) => tool.name)).toEqual(["runs_list", "version"]);
   expect(() => toolActions(app, ["nope"])).toThrow("MCP allowlist names an unknown action");
   expect(() => toolActions(app, ["mcp"])).toThrow("MCP allowlist names an unknown action");
+});
+
+test("system errors with errno codes are not reported as refusals", async () => {
+  const tree = {
+    open: defineAction({
+      description: "Fail like the filesystem.",
+      input: {},
+      result: z.string(),
+      handler: () => {
+        throw Object.assign(new Error(`EACCES: permission denied, mkdir '${secret}'`), {
+          code: "EACCES",
+        });
+      },
+    }),
+  };
+  expect(await callTool(tree, "open", {})).toEqual({
+    content: [{ type: "text", text: "Tool call failed" }],
+    isError: true,
+  });
+});
+
+test("the action parses raw arguments once and unknown keys are never echoed", async () => {
+  const tree = {
+    measure: defineAction({
+      description: "Measure a value.",
+      input: {
+        value: z
+          .string()
+          .transform((value) => value.length)
+          .pipe(z.number()),
+      },
+      result: z.number(),
+      handler: ({ value }) => value,
+    }),
+  };
+  expect((await callTool(tree, "measure", { value: "abcd" })).content[0]?.text).toBe("4");
+  const unknown = await callTool(tree, "measure", { value: "abcd", [secret]: "v" });
+  expect(unknown.isError).toBe(true);
+  expect(JSON.stringify(unknown)).not.toContain(secret);
+});
+
+test("requests still in flight when stdin ends are answered before the server stops", async () => {
+  let finish = () => {};
+  const tree = {
+    slow: defineAction({
+      description: "Finish later.",
+      input: {},
+      result: z.string(),
+      handler: () => new Promise<string>((resolveSlow) => (finish = () => resolveSlow("done"))),
+    }),
+  };
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const written: string[] = [];
+  output.on("data", (chunk: Buffer) => written.push(chunk.toString()));
+  const serving = serveMcpStdio(tree, { version: VERSION }, input, output);
+  for (const item of [...legacyOpening, request(1, "tools/call", { name: "slow", arguments: {} })])
+    input.write(`${JSON.stringify(item)}\n`);
+  input.end();
+  await Bun.sleep(20);
+  finish();
+  await serving;
+  const answered = written
+    .join("")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  expect(answered.find((item) => item.id === 1)).toMatchObject({
+    result: { content: [{ type: "text", text: "done" }] },
+  });
+});
+
+test("an allowlist that names nothing fails closed", async () => {
+  expect(() => toolActions(createApplication(), [])).toThrow("MCP allowlist names no actions");
+  await expectRejection(dispatch(createApplication(), ["mcp", "--allow", ","], () => {})).toThrow(
+    "MCP allowlist names no actions",
+  );
 });
 
 test("mcp command help offers only the stdio allowlist", async () => {

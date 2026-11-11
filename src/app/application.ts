@@ -79,7 +79,7 @@ export function createApplication(services: RuntimeServices = {}) {
           ?.split(",")
           .map((entry) => entry.trim())
           .filter(Boolean);
-        await serveMcpStdio(tree, { version: VERSION, ...(allow?.length ? { allow } : {}) });
+        await serveMcpStdio(tree, { version: VERSION, ...(allow ? { allow } : {}) });
         return "MCP server stopped.";
       },
       render: () => [],

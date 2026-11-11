@@ -1,8 +1,12 @@
 import type { Readable, Writable } from "node:stream";
-import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
-import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import {
+  type CallToolResult,
+  McpServer,
+  type StandardSchemaWithJSON,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { type ActionTree, type RegisteredAction, registeredActions } from "../app/action.ts";
+import { serveAnsweredStdio } from "./stdio.ts";
 
 export interface McpServerOptions {
   version: string;
@@ -13,6 +17,7 @@ const refusedResult = z.object({
   ok: z.literal(false),
   refusal: z.object({ code: z.string(), message: z.string() }),
 });
+const refusalCode = /^[a-z]+(?:_[a-z]+)*$/;
 
 export function toolName(command: readonly string[]): string {
   return command.join("_").replaceAll("-", "_");
@@ -23,13 +28,20 @@ function toolText(value: unknown): string {
 }
 
 function refusalOf(error: unknown): z.infer<typeof refusedResult> | undefined {
-  if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string")
-    return undefined;
+  if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string") return;
+  if (!refusalCode.test(error.code)) return;
   const prefix = `${error.code}: `;
   const message = error.message.startsWith(prefix)
     ? error.message.slice(prefix.length)
     : error.message;
   return { ok: false, refusal: { code: error.code, message } };
+}
+
+function advertisedInput(fields: z.ZodRawShape): StandardSchemaWithJSON {
+  const { jsonSchema } = z.strictObject(fields)["~standard"];
+  return {
+    "~standard": { version: 1, vendor: "interlock", validate: (value) => ({ value }), jsonSchema },
+  };
 }
 
 async function callTool(entry: RegisteredAction, args: unknown): Promise<CallToolResult> {
@@ -51,6 +63,7 @@ async function callTool(entry: RegisteredAction, args: unknown): Promise<CallToo
 export function toolActions(tree: ActionTree, allow?: readonly string[]): RegisteredAction[] {
   const actions = registeredActions(tree).filter((entry) => entry.command.join(" ") !== "mcp");
   if (!allow) return actions;
+  if (allow.length === 0) throw new Error("MCP allowlist names no actions");
   const labels = new Set(actions.map((entry) => entry.command.join(" ")));
   if (allow.some((label) => !labels.has(label)))
     throw new Error("MCP allowlist names an unknown action");
@@ -62,10 +75,7 @@ export function createMcpServer(tree: ActionTree, options: McpServerOptions): Mc
   for (const entry of toolActions(tree, options.allow)) {
     server.registerTool(
       toolName(entry.command),
-      {
-        description: entry.action.description,
-        inputSchema: z.strictObject(entry.action.fields),
-      },
+      { description: entry.action.description, inputSchema: advertisedInput(entry.action.fields) },
       (args) => callTool(entry, args),
     );
   }
@@ -79,14 +89,5 @@ export async function serveMcpStdio(
   output: Writable = process.stdout,
 ): Promise<void> {
   toolActions(tree, options.allow);
-  const transport = new StdioServerTransport(input, output);
-  const handle = serveStdio(() => createMcpServer(tree, options), { transport });
-  await new Promise<void>((resolveClosed) => {
-    const closed = transport.onclose;
-    transport.onclose = () => {
-      closed?.();
-      resolveClosed();
-    };
-  });
-  await handle.close();
+  await serveAnsweredStdio(() => createMcpServer(tree, options), input, output);
 }
