@@ -10,10 +10,28 @@ import {
 import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
 const streamingMethods = new Set(["subscriptions/listen"]);
+const unsupportedProtocolVersion = -32022;
 
-function withoutEchoedToolName(message: JSONRPCMessage, toolName: unknown): JSONRPCMessage {
-  if (!isJSONRPCErrorResponse(message) || typeof toolName !== "string") return message;
-  if (message.error.message !== `Tool ${toolName} not found`) return message;
+function supportedVersions(data: unknown): { supported?: unknown } {
+  if (typeof data !== "object" || data === null || !("supported" in data)) return {};
+  return { supported: data.supported };
+}
+
+function withoutEchoedInput(message: JSONRPCMessage, toolName: unknown): JSONRPCMessage {
+  if (!isJSONRPCErrorResponse(message)) return message;
+  if (message.error.code === unsupportedProtocolVersion) {
+    const { supported } = supportedVersions(message.error.data);
+    return {
+      ...message,
+      error: {
+        code: unsupportedProtocolVersion,
+        message: "Unsupported protocol version",
+        ...(supported === undefined ? {} : { data: { supported } }),
+      },
+    };
+  }
+  if (typeof toolName !== "string" || message.error.message !== `Tool ${toolName} not found`)
+    return message;
   return { ...message, error: { ...message.error, message: "Unknown tool" } };
 }
 
@@ -49,7 +67,7 @@ export async function serveAnsweredStdio(
   transport.send = async (message) => {
     const answered = isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message);
     try {
-      await send(answered ? withoutEchoedToolName(message, pending.get(message.id)) : message);
+      await send(answered ? withoutEchoedInput(message, pending.get(message.id)) : message);
     } finally {
       if (answered) settle(message.id);
     }

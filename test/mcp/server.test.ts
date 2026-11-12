@@ -303,6 +303,23 @@ test("an unknown tool name is not echoed back", async () => {
   });
 });
 
+test("an unsupported protocol version is refused without echoing the requested version", async () => {
+  const meta = { ...modernMeta, "io.modelcontextprotocol/protocolVersion": secret };
+  const messages = await exchange(createApplication(), [
+    request(1, "tools/list", { _meta: meta }),
+    request(2, "tools/call", { name: "version", arguments: {}, _meta: meta }),
+  ]);
+  for (const id of [1, 2])
+    expect(responseTo(messages, id)).toMatchObject({
+      error: {
+        code: -32022,
+        message: "Unsupported protocol version",
+        data: { supported: expect.any(Array) },
+      },
+    });
+  expect(JSON.stringify(messages)).not.toContain(secret);
+});
+
 test("an allowlist that names nothing fails closed", async () => {
   expect(() => toolActions(createApplication(), [])).toThrow("MCP allowlist names no actions");
   await expectRejection(dispatch(createApplication(), ["mcp", "--allow", ","], () => {})).toThrow(
