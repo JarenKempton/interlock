@@ -16,7 +16,7 @@ import { RESUME_MESSAGE, stallDecision } from "./stall.ts";
 
 const COMPLETABLE = new Set<LaneState>(["approved", "merged"]);
 const SESSION_MISS_LIMIT = 3;
-const SUPERVISED_SESSIONS = new Set<LaneState>(["queued", "claimed", "implementing"]);
+
 const RETRYABLE_REFUSALS = new Set<LaneRefusalCode>([
   "ambiguous_write",
   "artifact_host_unavailable",
@@ -326,7 +326,7 @@ export async function superviseTick(
       else if (COMPLETABLE.has(lane.state)) await tick.complete(supervised);
       else if (supervised.recoveryRequired)
         tick.report.attention.push({ lane: lane.id, reason: "recovery_required" });
-      else if (SUPERVISED_SESSIONS.has(lane.state)) await tick.session(supervised);
+      else if (lane.state === "implementing") await tick.session(supervised);
     } catch (error) {
       tick.report.failures.push({ lane: lane.id, step: lane.state, message: errorMessage(error) });
     }

@@ -460,7 +460,7 @@ test("a session the host cannot find, finds twice or cannot read needs attention
   ]);
 
   const doubled = new World();
-  const other = doubled.lane("JWB-2", "queued");
+  const other = doubled.lane("JWB-2", "implementing");
   const view = doubled.view(other, "ready", 1);
   doubled.sessions = async () => [view, view];
   expect((await tickThrice(doubled))[2]?.attention).toEqual([
@@ -494,7 +494,7 @@ test("a lane without a resolvable claim, or whose run needs recovery, needs atte
   const unclaimed = world.lane("JWB-2", "implementing");
   world.claims.delete(unclaimed.id);
   world.view(unclaimed, "ready", 1);
-  const recovering = world.lane("JWB-3", "queued");
+  const recovering = world.lane("JWB-3", "implementing");
   world.view(recovering, "ready", 1);
   const lanes = world.lanes;
   world.lanes = () =>

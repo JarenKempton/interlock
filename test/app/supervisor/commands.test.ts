@@ -46,7 +46,8 @@ test(
     });
     expect(starts()).toHaveLength(1);
     const lane = inspect(f, (store) => store.laneForTicket(ref));
-    expect(lane?.state).toBe("queued");
+    expect(lane).toMatchObject({ state: "implementing" });
+    expect(lane?.run).toBeUndefined();
     expect(inspect(f, (store) => store.listRuns().map((run) => [run.ticket, run.status]))).toEqual([
       [ref, "claimed"],
     ]);
@@ -59,7 +60,7 @@ test(
     expect(status).toEqual([
       expect.objectContaining({
         ticket: ref,
-        state: "queued",
+        state: "implementing",
         gates: [
           expect.objectContaining({
             gate: "frontier",
@@ -124,7 +125,7 @@ test(
     const lane = inspect(f, (store) => store.laneForTicket(ref));
     if (!lane) throw new Error("pickup recorded no lane");
     expect(report.attention).toEqual([{ lane: lane.id, reason: "session_unreachable" }]);
-    expect(lane).toMatchObject({ state: "attention", previousState: "queued" });
+    expect(lane).toMatchObject({ state: "attention", previousState: "implementing" });
     expect(report.launched).toEqual([]);
   },
   GIT_TEST_TIMEOUT_MS,

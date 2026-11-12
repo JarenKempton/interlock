@@ -73,8 +73,6 @@ export type LaneResult<T> =
   | { ok: false; refusal: { code: LaneRefusalCode; message: string } };
 
 export const laneStateSchema = z.enum([
-  "queued",
-  "claimed",
   "implementing",
   "submitted",
   "reviewing",
@@ -123,8 +121,7 @@ export const laneSchema = z.strictObject({
 export type Lane = z.infer<typeof laneSchema>;
 
 export type LaneCommand =
-  | { type: "claim"; run: RunRef; claim: ClaimRef }
-  | { type: "start" }
+  | { type: "attach"; run: RunRef; claim: ClaimRef }
   | { type: "submit"; artifact: string; head: string; evidence: readonly LaneEvidence[] }
   | { type: "begin_review" }
   | {
@@ -140,8 +137,7 @@ export type LaneCommand =
       baseMergesOnly?: boolean;
     }
   | { type: "attention"; reason: string }
-  | { type: "resume" }
-  | { type: "promote"; ticket: TicketRef };
+  | { type: "resume" };
 
 export interface LaneTransition {
   lane: Lane;
@@ -150,7 +146,6 @@ export interface LaneTransition {
 
 const laneTarget = { lane: laneRefSchema };
 export const laneActionSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("claim"), ...laneTarget }),
   z.strictObject({ kind: z.literal("implement"), ...laneTarget }),
   z.strictObject({ kind: z.literal("submit"), ...laneTarget }),
   z.strictObject({ kind: z.literal("review"), ...laneTarget }),
@@ -163,45 +158,21 @@ export type LaneAction = z.infer<typeof laneActionSchema>;
 
 export const DEFAULT_MAX_REVIEW_ROUNDS = 3;
 
-export function createLane(
-  input: {
-    id: LaneRef;
-    ticket?: TicketRef;
-    title?: string;
-    maxReviewRounds?: number;
-  },
-  now: string,
-): LaneTransition {
-  const maxReviewRounds = input.maxReviewRounds ?? DEFAULT_MAX_REVIEW_ROUNDS;
-  if (!Number.isInteger(maxReviewRounds) || maxReviewRounds < 1)
-    return {
-      lane: emptyLane(input, now, DEFAULT_MAX_REVIEW_ROUNDS),
-      refusal: { code: "gates_unmet", message: "maxReviewRounds must be a positive integer" },
-    };
-  if (!input.ticket && !input.title?.trim())
-    return {
-      lane: emptyLane(input, now, maxReviewRounds),
-      refusal: { code: "gates_unmet", message: "A lane requires a ticket or a title" },
-    };
-  return { lane: emptyLane(input, now, maxReviewRounds) };
-}
-
-function emptyLane(
-  input: { id: LaneRef; ticket?: TicketRef; title?: string },
-  now: string,
-  maxReviewRounds: number,
-): Lane {
+export function createLane(input: { id: LaneRef; ticket: TicketRef }, now: string): Lane {
   return {
     id: input.id,
-    ...(input.ticket ? { ticket: input.ticket } : {}),
-    ...(input.title ? { title: input.title } : {}),
-    state: "queued",
+    ticket: input.ticket,
+    state: "implementing",
     evidence: [],
     reviewRound: 0,
-    maxReviewRounds,
+    maxReviewRounds: DEFAULT_MAX_REVIEW_ROUNDS,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export function isUnattached(lane: Lane): boolean {
+  return lane.state === "implementing" && !lane.run;
 }
 
 export function isVerdictCurrent(lane: Lane): boolean {
@@ -214,10 +185,6 @@ export function isApprovedForHead(lane: Lane, head: string): boolean {
 
 export function nextLaneAction(lane: Lane): LaneAction {
   switch (lane.state) {
-    case "queued":
-      return { kind: "claim", lane: lane.id };
-    case "claimed":
-      return { kind: "implement", lane: lane.id };
     case "implementing":
       return { kind: "implement", lane: lane.id };
     case "submitted":
@@ -247,22 +214,19 @@ function moved(lane: Lane, now: string, patch: Partial<Lane>): LaneTransition {
 }
 
 export function transitionLane(lane: Lane, command: LaneCommand, now: string): LaneTransition {
-  if (lane.state === "done" && command.type !== "promote")
+  if (lane.state === "done")
     return refused(lane, "invalid_transition", `Lane is done and cannot ${command.type}`);
   switch (command.type) {
-    case "claim": {
-      if (lane.state !== "queued")
-        return refused(lane, "invalid_transition", `Cannot claim a lane in ${lane.state}`);
-      return moved(lane, now, { state: "claimed", run: command.run, claim: command.claim });
-    }
-    case "start": {
-      if (lane.state !== "claimed")
-        return refused(lane, "invalid_transition", `Cannot start a lane in ${lane.state}`);
-      return moved(lane, now, { state: "implementing" });
+    case "attach": {
+      if (!isUnattached(lane))
+        return refused(lane, "invalid_transition", `Cannot attach a lane in ${lane.state}`);
+      return moved(lane, now, { run: command.run, claim: command.claim });
     }
     case "submit": {
       if (lane.state !== "implementing")
         return refused(lane, "invalid_transition", `Cannot submit a lane in ${lane.state}`);
+      if (!lane.run)
+        return refused(lane, "invalid_transition", "Cannot submit a lane before lane attach");
       if (!command.artifact.trim())
         return refused(lane, "artifact_required", "Submit requires an artifact");
       if (lane.artifact && lane.artifact !== command.artifact)
@@ -360,18 +324,12 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
         return refused(lane, "invalid_transition", `Cannot resume a lane in ${lane.state}`);
       const next: Lane = {
         ...lane,
-        state: lane.previousState ?? "queued",
+        state: lane.previousState ?? "implementing",
         updatedAt: now,
       };
       delete next.previousState;
       delete next.attentionReason;
       return { lane: next };
-    }
-    case "promote": {
-      if (lane.ticket) return refused(lane, "invalid_transition", "Lane already has a ticket");
-      if (lane.state === "done")
-        return refused(lane, "invalid_transition", "Cannot promote a done lane");
-      return moved(lane, now, { ticket: command.ticket });
     }
   }
 }

@@ -97,16 +97,17 @@ refusal with a machine-readable code. `lane attach --ticket REF`, run from the
 worktree before any work, finds the ticket's one claimed run and its active
 claim, verifies the current directory is that run's worktree root on its
 recorded branch and that the remote claim lock is held by that claim, run and
-owner, then binds the ticket's lane to them and starts it. Any mismatch
-refuses and records no lane; repeating attach returns the same lane. The
+owner, then binds the ticket's lane to them. Any mismatch refuses and records
+no lane; repeating attach returns the same lane. Every lane starts from pickup
+and lane attach: pickup creates the ticket's lane unattached in implementing,
+or attach creates it, and only attach binds a run and claim. The
 [lane state machine](../src/domain/lane/lifecycle.ts) moves a lane
-through queued, claimed, implementing, submitted, reviewing, approved
-and done; legacy merged lanes remain completable; changes_requested loops back to implementing up to the lane's
+through implementing, submitted, reviewing, approved and done; stored queued
+and claimed lanes become implementing when the ledger loads; legacy merged lanes remain completable; changes_requested loops back to implementing up to the lane's
 configured round limit, then routes to attention, which resumes to the prior
 state. Verdicts and evidence are bound to the submitted head and go stale for
 any other head. `lane next` returns exactly one action for the lane's state.
-Lanes persist in the local ledger, with or without a ticket; a one-off lane
-can be promoted to a ticket. `lane complete --ticket KEY` accepts approved or
+Lanes persist in the local ledger. `lane complete --ticket KEY` accepts approved or
 legacy merged lanes. GitHub must prove the recorded PR URL, branch and approved
 head; a missing URL is adopted from the head branch. Before tracker mutation,
 completion re-reads the remote claim's claim/run/owner identity. It journals the
@@ -211,7 +212,7 @@ can replay them. No action gains a capability by the presence of these types.
   send is reported as ambiguous and never resent automatically.
 
   `pickup KEY --launch` runs host preflight and refuses an existing lane branch
-  before claiming, then creates or reuses the ticket's queued lane, claims, and
+  before claiming, then creates or reuses the ticket's unattached lane, claims, and
   launches once under `[lane, "launch"]`. T3 creates the worktree; pickup
   records its path and branch on the run, and `lane attach` still verifies the
   worktree, branch and claim before work. A proven non-launch, or a host refusal
@@ -234,7 +235,7 @@ When a map cannot be listed, the tick launches nothing. Each tick, in order:
    When merged, it re-reads the ticket, its blockers and the remote claim ref,
    then runs `lane complete`, whose receipts cover the merge proof, the Done
    readback, the mirror removal and the claim release.
-2. **Sessions.** For a claimed or implementing lane, or a launched lane that has
+2. **Sessions.** For an implementing lane, including a launched lane that has
    not attached yet, it reads the host session recorded at launch, or the one
    thread titled with the ticket key when none was recorded. A session whose
    status and last message have not changed for `--stall-minutes` is resumed

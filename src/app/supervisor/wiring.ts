@@ -16,7 +16,7 @@ import type { ExecutionConfiguration } from "../../configuration/schema.ts";
 import { normalizeClaimHome } from "../../domain/claim/home.ts";
 import { gateEvidenceSchema } from "../../domain/gate/evidence.ts";
 import { adapterRefSchema, laneRefSchema, ticketRefSchema } from "../../domain/refs/identifiers.ts";
-import type { Lane } from "../../domain/lane/lifecycle.ts";
+import { isUnattached, type Lane } from "../../domain/lane/lifecycle.ts";
 import type { Claim, LaneRef, RunRef } from "../../domain/model.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 import { resolveClaimHome } from "../claim/home.ts";
@@ -239,7 +239,7 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
         const run = laneRun(store, lane);
         const live =
           run !== undefined ||
-          lane.state !== "queued" ||
+          !isUnattached(lane) ||
           (lane.ticket !== undefined && claimedTickets.has(lane.ticket));
         if (!run) return { lane, live };
         const claim = laneClaim(store, lane, run);

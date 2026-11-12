@@ -24,7 +24,7 @@ import {
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
 import type { Ticket, TicketRef } from "../../../src/domain/model.ts";
-import type { MergeProof } from "../../../src/domain/lane/lifecycle.ts";
+import { createLane, type MergeProof, transitionLane } from "../../../src/domain/lane/lifecycle.ts";
 import type { LaneTrackerPort } from "../../../src/execution/lane/service.ts";
 import { callTool } from "../mcp/stdio-client.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
@@ -225,25 +225,25 @@ export function laneCompleteFixtures() {
     });
     if (options.pickedUp)
       saveExecutionConfiguration(store, runRef, options.configuration ?? legacyPickupConfiguration);
-    const service = gitLaneService({
-      store,
-      newId: () => laneRefSchema.parse("interlock-lane:complete"),
-    });
-    const created = service.create({ ticket: String(ticketRef) });
-    if (!created.ok) throw new Error(created.refusal.message);
+    const service = gitLaneService({ store });
+    const created = transitionLane(
+      createLane({ id: laneRefSchema.parse("interlock-lane:complete"), ticket: ticketRef }, now),
+      { type: "attach", run: runRef, claim: claimRefSchema.parse("interlock-claim:complete") },
+      now,
+    );
+    if (created.refusal) throw new Error(created.refusal.message);
+    store.saveLane(created.lane);
     const evidence = [{ gate: "test", head: repo.head, url: "https://ci.test/abc" }];
     for (const command of [
-      { type: "claim", run: runRef, claim: "interlock-claim:complete" },
-      { type: "start" },
       { type: "submit", artifact: prUrl, head: repo.head, evidence },
       { type: "begin_review" },
       { type: "verdict", head: repo.head, decision: "approved", findings: [] },
     ] as const) {
-      const result = await service.apply(created.value.id, command);
+      const result = await service.apply(created.lane.id, command);
       if (!result.ok) throw new Error(result.refusal.message);
     }
     if (options.state === "merged")
-      store.saveLane({ ...store.lane(created.value.id), state: "merged" });
+      store.saveLane({ ...store.lane(created.lane.id), state: "merged" });
     {
       const claim = store.claim(claimRefSchema.parse("interlock-claim:complete"));
       const home = normalizeClaimHome(repo.origin);
@@ -346,7 +346,7 @@ export function laneCompleteFixtures() {
       views,
       complete,
       intact,
-      id: created.value.id,
+      id: created.lane.id,
       statePath,
       proof,
       artifacts,

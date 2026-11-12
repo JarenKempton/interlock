@@ -9,7 +9,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../domain/refs/identifiers.ts";
-import type { Lane, LaneState } from "../domain/lane/lifecycle.ts";
+import { type Lane, laneStateSchema } from "../domain/lane/lifecycle.ts";
 import type { Claim, ClaimRef, LaneRef, Run, RunRef } from "../domain/model.ts";
 import { ledgerDb } from "./ledger-db.ts";
 import { type LedgerMigration, migrateLedger } from "./migrate.ts";
@@ -397,18 +397,6 @@ function claimFromRow(row: typeof claims.$inferSelect): Claim {
   };
 }
 
-const laneStates = [
-  "queued",
-  "claimed",
-  "implementing",
-  "submitted",
-  "reviewing",
-  "approved",
-  "merged",
-  "done",
-  "attention",
-] as const satisfies readonly LaneState[];
-
 function laneFromRow(row: typeof lanes.$inferSelect): Lane {
   return {
     id: laneRefSchema.parse(row.id),
@@ -416,8 +404,8 @@ function laneFromRow(row: typeof lanes.$inferSelect): Lane {
     ...(row.title ? { title: row.title } : {}),
     ...(row.run_ref ? { run: runRefSchema.parse(row.run_ref) } : {}),
     ...(row.claim_ref ? { claim: claimRefSchema.parse(row.claim_ref) } : {}),
-    state: z.enum(laneStates).parse(row.state),
-    ...(row.previous_state ? { previousState: z.enum(laneStates).parse(row.previous_state) } : {}),
+    state: laneStateSchema.parse(row.state),
+    ...(row.previous_state ? { previousState: laneStateSchema.parse(row.previous_state) } : {}),
     ...(row.attention_reason ? { attentionReason: row.attention_reason } : {}),
     ...(row.artifact ? { artifact: row.artifact } : {}),
     ...(row.head ? { head: row.head } : {}),

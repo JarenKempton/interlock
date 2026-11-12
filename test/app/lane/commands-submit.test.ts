@@ -16,7 +16,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
-import type { LaneRef, TicketRef } from "../../../src/domain/model.ts";
+import type { LaneRef, RunRef, TicketRef } from "../../../src/domain/model.ts";
 import { LaneService, type LaneTrackerPort } from "../../../src/execution/lane/service.ts";
 import type {
   ArtifactHost,
@@ -31,6 +31,7 @@ import { GitClaimLock } from "../../../src/adapters/git/claim-lock.ts";
 import { BunGitCommandExecutor } from "../../../src/adapters/git/workspace.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import { actorRefSchema, claimRefSchema } from "../../../src/domain/refs/identifiers.ts";
+import { saveAttachedLane } from "../../fixtures/lane/attached.ts";
 import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { rejection } from "../../fixtures/assertions/rejection.ts";
 import { updateUserSettings } from "../../../src/configuration/store.ts";
@@ -183,16 +184,13 @@ async function setup(
   };
 }
 
-async function implementing(service: LaneService): Promise<LaneRef> {
-  const created = service.create({ ticket: String(ticket) });
-  if (!created.ok) throw new Error(created.refusal.message);
-  await service.apply(created.value.id, {
-    type: "claim",
-    run: runRef,
-    claim: "interlock-claim:submit",
+function implementing(store: StateStore, run: RunRef = runRef): LaneRef {
+  return saveAttachedLane(store, {
+    id: laneRefSchema.parse("interlock-lane:submit"),
+    ticket,
+    run,
+    claim: claimRefSchema.parse("interlock-claim:submit"),
   });
-  await service.apply(created.value.id, { type: "start" });
-  return created.value.id;
 }
 
 async function requestChanges(service: LaneService, id: LaneRef, head: string) {
@@ -209,7 +207,7 @@ test("submit pushes the recorded branch, opens one PR with the key, records and 
   const tracker = new LinkingTracker();
   const { service, store, artifacts, cleanup } = await setup({ tracker });
   try {
-    const id = await implementing(service);
+    const id = implementing(store);
     const submitted = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(submitted).toMatchObject({ ok: true, value: { state: "submitted", artifact: prUrl } });
     expect(artifacts.pushes).toEqual([
@@ -234,7 +232,7 @@ test("submit pushes the recorded branch, opens one PR with the key, records and 
 test("submit without evidence pushes first, then records the gate evidence for the pushed head", async () => {
   const { service, store, artifacts, cleanup } = await setup();
   try {
-    const id = await implementing(service);
+    const id = implementing(store);
     const pushed = await service.submit(id, { head: "abc", evidence: [] });
     expect(pushed).toMatchObject({ ok: true, value: { state: "implementing", artifact: prUrl } });
     expect(store.lane(id).evidence).toEqual([]);
@@ -253,9 +251,9 @@ test("submit without evidence pushes first, then records the gate evidence for t
 });
 
 test("lane commands read the tracker sign-in from the --state ledger", async () => {
-  const { service, store, statePath, artifacts, cleanup } = await setup({ tracker: null });
+  const { store, statePath, artifacts, cleanup } = await setup({ tracker: null });
   try {
-    const id = await implementing(service);
+    const id = implementing(store);
     updateUserSettings(store, (settings) => ({
       ...settings,
       jira_site: "https://x.atlassian.net",
@@ -285,10 +283,10 @@ test("submit refuses a gate without its evidence URL before any push", async () 
 });
 
 test("an existing PR on the lane branch is adopted instead of opening another", async () => {
-  const { service, artifacts, cleanup } = await setup();
+  const { service, store, artifacts, cleanup } = await setup();
   try {
     artifacts.open_.push({ url: prUrl, branch, title: "JWB-878: existing", state: "OPEN" });
-    const id = await implementing(service);
+    const id = implementing(store);
     const submitted = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(submitted).toMatchObject({ ok: true, value: { artifact: prUrl } });
     expect(artifacts.opens).toEqual([]);
@@ -298,14 +296,14 @@ test("an existing PR on the lane branch is adopted instead of opening another", 
 });
 
 test("a second PR for the ticket is refused with duplicate_artifact before any push", async () => {
-  const { service, artifacts, cleanup } = await setup();
+  const { service, store, artifacts, cleanup } = await setup();
   try {
     artifacts.open_.push({
       url: "https://github.com/o/r/pull/JWB-878-other",
       branch: "other",
       state: "OPEN",
     });
-    const id = await implementing(service);
+    const id = implementing(store);
     const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(refused).toMatchObject({ ok: false, refusal: { code: "duplicate_artifact" } });
     expect(artifacts.pushes).toEqual([]);
@@ -317,9 +315,9 @@ test("a second PR for the ticket is refused with duplicate_artifact before any p
 });
 
 test("a lane whose recorded PR is no longer open refuses to open a replacement", async () => {
-  const { service, artifacts, cleanup } = await setup();
+  const { service, store, artifacts, cleanup } = await setup();
   try {
-    const id = await implementing(service);
+    const id = implementing(store);
     await service.submit(id, { head: "abc", evidence: evidence("abc") });
     await requestChanges(service, id, "abc");
     artifacts.open_ = [];
@@ -332,10 +330,10 @@ test("a lane whose recorded PR is no longer open refuses to open a replacement",
 });
 
 test("a failed push followed by a retry opens exactly one PR", async () => {
-  const { service, artifacts, cleanup } = await setup();
+  const { service, store, artifacts, cleanup } = await setup();
   try {
     artifacts.failPush = true;
-    const id = await implementing(service);
+    const id = implementing(store);
     const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(refused).toMatchObject({ ok: false, refusal: { code: "push_failed" } });
     expect(artifacts.opens).toEqual([]);
@@ -352,10 +350,10 @@ test("a failed push followed by a retry opens exactly one PR", async () => {
 });
 
 test("an ambiguous create adopts the PR it finds on readback", async () => {
-  const { service, artifacts, cleanup } = await setup();
+  const { service, store, artifacts, cleanup } = await setup();
   try {
     artifacts.openOutcome = "lost_response";
-    const id = await implementing(service);
+    const id = implementing(store);
     const submitted = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(submitted).toMatchObject({ ok: true, value: { artifact: prUrl } });
     expect(artifacts.opens).toHaveLength(1);
@@ -365,10 +363,10 @@ test("an ambiguous create adopts the PR it finds on readback", async () => {
 });
 
 test("an unverified create retries after a fresh lookup finds no PR", async () => {
-  const { service, artifacts, cleanup } = await setup();
+  const { service, store, artifacts, cleanup } = await setup();
   try {
     artifacts.openOutcome = "failed";
-    const id = await implementing(service);
+    const id = implementing(store);
     const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(refused).toMatchObject({ ok: false, refusal: { code: "ambiguous_write" } });
     expect(service.get(id)).toMatchObject({ ok: true, value: { state: "implementing" } });
@@ -385,9 +383,9 @@ test("an unverified create retries after a fresh lookup finds no PR", async () =
 test("an unverified tracker link is ambiguous_write and a retry relinks the same PR", async () => {
   const tracker = new LinkingTracker();
   tracker.failWith = new AmbiguousTrackerResultError("Jira remote link was not verified");
-  const { service, artifacts, cleanup } = await setup({ tracker });
+  const { service, store, artifacts, cleanup } = await setup({ tracker });
   try {
-    const id = await implementing(service);
+    const id = implementing(store);
     const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
     expect(refused).toMatchObject({ ok: false, refusal: { code: "ambiguous_write" } });
     expect(service.get(id)).toMatchObject({ ok: true, value: { state: "implementing" } });
@@ -408,10 +406,10 @@ test("submit refuses without a host, workspace, key-bearing branch or readable P
     { options: {}, failList: true, code: "artifact_host_unavailable" },
   ] as const;
   for (const item of cases) {
-    const { service, artifacts, cleanup } = await setup(item.options);
+    const { service, store, artifacts, cleanup } = await setup(item.options);
     try {
       artifacts.failList = "failList" in item;
-      const id = await implementing(service);
+      const id = implementing(store);
       const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
       expect(refused).toMatchObject({ ok: false, refusal: { code: item.code } });
       expect(artifacts.pushes).toEqual([]);
@@ -419,24 +417,18 @@ test("submit refuses without a host, workspace, key-bearing branch or readable P
       cleanup();
     }
   }
-  const { service, artifacts, cleanup } = await setup();
+  const { service, store, artifacts, cleanup } = await setup();
   try {
-    const created = service.create({ ticket: String(ticket) });
-    if (!created.ok) throw new Error(created.refusal.message);
-    await service.apply(created.value.id, {
-      type: "claim",
-      run: runRefSchema.parse("interlock-run:unknown"),
-      claim: "interlock-claim:submit",
-    });
-    await service.apply(created.value.id, { type: "start" });
-    const refused = await service.submit(created.value.id, {
+    const id = implementing(store, runRefSchema.parse("interlock-run:unknown"));
+    const refused = await service.submit(id, {
       head: "abc",
       evidence: evidence("abc"),
     });
     expect(refused).toMatchObject({ ok: false, refusal: { code: "workspace_unknown" } });
-    expect(
-      await service.submit(created.value.id, { head: "abc", evidence: evidence("other") }),
-    ).toMatchObject({ ok: false, refusal: { code: "stale_evidence" } });
+    expect(await service.submit(id, { head: "abc", evidence: evidence("other") })).toMatchObject({
+      ok: false,
+      refusal: { code: "stale_evidence" },
+    });
     expect(artifacts.pushes).toEqual([]);
   } finally {
     cleanup();
@@ -459,6 +451,7 @@ test("CLI lane submit goes through the artifact host and records the PR", async 
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
   await seedClaim(seed, directory);
+  const id = implementing(seed);
   seed.close();
   const artifacts = new FakeArtifacts();
   const tracker = new LinkingTracker();
@@ -472,9 +465,6 @@ test("CLI lane submit goes through the artifact host and records the PR", async 
     return { code, value: JSON.parse(output.join("\n")) };
   };
   try {
-    const id = (await call(["lane", "create", "--ticket", String(ticket)])).value.value.id;
-    await call(["lane", "claim", id, "--run", runRef, "--claim", "interlock-claim:submit"]);
-    await call(["lane", "start", id]);
     const args = ["lane", "submit", id, "--head", "abc", "--gate", "test"];
     const submitted = await call([...args, "--evidence-url", "https://ci.test/abc", "--draft"]);
     expect(submitted.code).toBe(0);
@@ -488,9 +478,9 @@ test("CLI lane submit goes through the artifact host and records the PR", async 
 
 test("a ticket lane refuses tracker_unavailable before any push when it cannot link", async () => {
   for (const tracker of [null, Object.assign(new LinkingTracker(), { unavailable: true })]) {
-    const { service, artifacts, cleanup } = await setup({ tracker });
+    const { service, store, artifacts, cleanup } = await setup({ tracker });
     try {
-      const id = await implementing(service);
+      const id = implementing(store);
       const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
       expect(refused).toMatchObject({ ok: false, refusal: { code: "tracker_unavailable" } });
       expect(artifacts.pushes).toEqual([]);
@@ -508,9 +498,9 @@ test("tracker link conflicts and definite failures refuse with distinct codes", 
   ];
   for (const item of cases) {
     const tracker = Object.assign(new LinkingTracker(), { failWith: item.error });
-    const { service, cleanup } = await setup({ tracker });
+    const { service, store, cleanup } = await setup({ tracker });
     try {
-      const id = await implementing(service);
+      const id = implementing(store);
       const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
       expect(refused).toMatchObject({ ok: false, refusal: { code: item.code } });
       expect(service.get(id)).toMatchObject({ ok: true, value: { state: "implementing" } });
@@ -535,15 +525,17 @@ async function cliLane(services: RuntimeServices, statePath: string, directory: 
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
   await seedClaim(seed, directory);
+  const id = saveAttachedLane(seed, {
+    ticket: ticketRefSchema.parse(jiraTicket),
+    run: runRef,
+    claim: claimRefSchema.parse("interlock-claim:submit"),
+  });
   seed.close();
   const call = async (args: string[]) => {
     const output: string[] = [];
     const code = await runCli([...args, "--json"], (text) => output.push(text), services);
     return { code, value: JSON.parse(output.join("\n")) };
   };
-  const id = (await call(["lane", "create", "--ticket", jiraTicket])).value.value.id;
-  await call(["lane", "claim", id, "--run", runRef, "--claim", "interlock-claim:submit"]);
-  await call(["lane", "start", id]);
   const submit = ["lane", "submit", id, "--head", "abc", "--gate", "t"];
   return call([...submit, "--evidence-url", "https://ci.test/abc"]);
 }
@@ -618,7 +610,7 @@ test("tracker failure retains the PR identity before a retry after closure", asy
   tracker.failWith = new Error("403");
   const { service, store, artifacts, cleanup } = await setup({ tracker });
   try {
-    const id = await implementing(service);
+    const id = implementing(store);
     expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
       ok: false,
       refusal: { code: "tracker_write_failed" },
@@ -638,9 +630,9 @@ test("tracker failure retains the PR identity before a retry after closure", asy
 
 test("a similarly prefixed ticket is not the branch ticket", async () => {
   for (const branch of ["feature/JWB-8780-core", "task/X_JWB-878"]) {
-    const { service, artifacts, cleanup } = await setup({ branch });
+    const { service, store, artifacts, cleanup } = await setup({ branch });
     try {
-      const id = await implementing(service);
+      const id = implementing(store);
       expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
         ok: false,
         refusal: { code: "gates_unmet" },
@@ -656,7 +648,7 @@ test("title prefix and existing title checks require the complete ticket key", a
   for (const title of ["JWB-8780: other", "X_JWB-878: other"]) {
     const first = await setup();
     try {
-      const id = await implementing(first.service);
+      const id = implementing(first.store);
       await first.service.submit(id, { head: "abc", evidence: evidence("abc"), title });
       expect(first.artifacts.opens[0]?.title).toBe(`JWB-878: ${title}`);
     } finally {
@@ -664,10 +656,10 @@ test("title prefix and existing title checks require the complete ticket key", a
     }
   }
   for (const title of ["Unrelated feature", "JWB-8780: other", "X_JWB-878: other"]) {
-    const { service, artifacts, cleanup } = await setup();
+    const { service, store, artifacts, cleanup } = await setup();
     try {
       artifacts.open_ = [{ url: prUrl, branch, title, state: "OPEN" }];
-      const id = await implementing(service);
+      const id = implementing(store);
       expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
         ok: false,
         refusal: { code: "artifact_mismatch" },
@@ -687,7 +679,7 @@ for (const states of [
   ["OPEN", "MERGED"],
 ] as const) {
   test(`submit refuses branch PR candidates in states ${states.join(", ")}`, async () => {
-    const { service, artifacts, cleanup } = await setup();
+    const { service, store, artifacts, cleanup } = await setup();
     try {
       artifacts.open_ = states.map((state, index) => ({
         url: `https://github.com/o/r/pull/${index + 1}`,
@@ -695,7 +687,7 @@ for (const states of [
         title: "JWB-878: existing",
         state,
       }));
-      const id = await implementing(service);
+      const id = implementing(store);
       expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
         ok: false,
         refusal: { code: states.length > 1 ? "duplicate_artifact" : "artifact_mismatch" },
@@ -722,7 +714,7 @@ for (const invalid of [
   test(`submit verifies active local ownership and workspace: ${invalid}`, async () => {
     const { service, store, artifacts, claim, cleanup } = await setup();
     try {
-      const id = await implementing(service);
+      const id = implementing(store);
       const run = store.run(runRef);
       if (invalid === "run_status") store.saveRun({ ...run, status: "released" });
       if (invalid === "claim_status") store.saveClaim({ ...claim, status: "released" });
@@ -763,7 +755,7 @@ for (const remote of ["released", "claim", "run", "owner", "unreadable"] as cons
   test(`submit freshly verifies the remote claim after PR lookup: ${remote}`, async () => {
     const { service, artifacts, store, claim, lock, cleanup } = await setup();
     try {
-      const id = await implementing(service);
+      const id = implementing(store);
       artifacts.pullRequests = async () => {
         await lock.release({
           ticket,
@@ -800,7 +792,7 @@ for (const remote of ["released", "claim", "run", "owner", "unreadable"] as cons
 test("an ambiguous create adopts its eventual PR after service restart", async () => {
   const fixture = await setup();
   try {
-    const id = await implementing(fixture.service);
+    const id = implementing(fixture.store);
     fixture.artifacts.openOutcome = "failed";
     await fixture.service.submit(id, { head: "abc", evidence: evidence("abc") });
     const restarted = gitLaneService({
