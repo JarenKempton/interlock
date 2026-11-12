@@ -9,7 +9,13 @@ import { pickupResultSchema } from "../../src/app/pickup/runtime.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 import type { RuntimeServices } from "../../src/app/runtime-services.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../fixtures/git/remote.ts";
+import { saveAttachedLane } from "../fixtures/lane/attached.ts";
 import { laneCompleteFixtures } from "../fixtures/lane/complete.ts";
+import {
+  claimRefSchema,
+  runRefSchema,
+  ticketRefSchema,
+} from "../../src/domain/refs/identifiers.ts";
 import { catalogEnvelope, pickupFixture } from "../fixtures/pickup/runtime.ts";
 import { saveUserSetting } from "../../src/configuration/store.ts";
 
@@ -132,7 +138,7 @@ test(
         ]);
         expect(byTicket).toEqual(byRef);
       }
-      for (const action of ["show", "next", "start", "claim", "review", "resume", "complete"]) {
+      for (const action of ["show", "next", "review", "resume", "complete"]) {
         const missing = await command(services, ["lane", action, "--ticket", "TEST-999"]);
         expect(missing.code).toBe(1);
         expect(missing.output).toMatchObject({ ok: false, refusal: { code: "lane_not_found" } });
@@ -197,10 +203,16 @@ test(
           normalize(await command(services, ["lane", "next", lane]), replacements),
         ).toMatchSnapshot(`lane next after ${step[0]}`);
       }
-      const secondTicket = "jira:example:TEST:ticket:TEST-493";
-      expect((await command(services, ["lane", "create", "--ticket", secondTicket])).code).toBe(0);
-      for (const action of ["claim", "start"])
-        expect((await command(services, ["lane", action, "--ticket", secondTicket])).code).toBe(0);
+      const secondStore = new StateStore(f.state);
+      try {
+        saveAttachedLane(secondStore, {
+          ticket: ticketRefSchema.parse("jira:example:TEST:ticket:TEST-493"),
+          run: runRefSchema.parse("interlock-run:second"),
+          claim: claimRefSchema.parse("interlock-claim:second"),
+        });
+      } finally {
+        secondStore.close();
+      }
       expect((await command(services, ["lane", "list", "--ticket", "TEST-999"])).output).toEqual(
         [],
       );
@@ -219,8 +231,6 @@ test(
       for (const step of [
         ["show"],
         ["next"],
-        ["claim"],
-        ["start"],
         ["complete"],
         ...steps.map((step) => [String(step[0]), ...step.slice(2)]),
       ]) {

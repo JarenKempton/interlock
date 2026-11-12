@@ -48,7 +48,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../domain/refs/identifiers.ts";
-import { createLane } from "../../domain/lane/lifecycle.ts";
+import { createLane, isUnattached } from "../../domain/lane/lifecycle.ts";
 import type { RepositorySpec, RunRef, Ticket } from "../../domain/model.ts";
 import { ticketKeyMatches } from "../../domain/submission/commit.ts";
 import { lockExecution } from "../../persistence/execution-lock.ts";
@@ -595,17 +595,17 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     let launcher: HostLaunchWorkspace<T3LaunchPlan> | undefined;
     if (host && baseCommit) {
       const existing = store.laneForTicket(ref);
-      const queued = existing?.state === "queued" && !existing.run ? existing : undefined;
-      if (existing && existing.state !== "done" && !queued)
+      const unattached = existing && isUnattached(existing) ? existing : undefined;
+      if (existing && existing.state !== "done" && !unattached)
         throw new Error(`claim_collision: ${input.key} already has lane ${existing.id}`);
-      const created = queued
-        ? { lane: queued }
-        : createLane(
-            { id: laneRefSchema.parse(`interlock-lane:${randomUUID()}`), ticket: ref },
-            clock.now().toISOString(),
-          );
-      if (!queued) store.saveLane(created.lane);
-      binding = { lane: created.lane.id, ticket: ref, key: input.key };
+      const lane =
+        unattached ??
+        createLane(
+          { id: laneRefSchema.parse(`interlock-lane:${randomUUID()}`), ticket: ref },
+          clock.now().toISOString(),
+        );
+      if (!unattached) store.saveLane(lane);
+      binding = { lane: lane.id, ticket: ref, key: input.key };
       launcher = new HostLaunchWorkspace({
         workspace,
         host,
@@ -625,7 +625,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
               }
             : {}),
         },
-        operation: [created.lane.id, "launch"],
+        operation: [lane.id, "launch"],
         record(state, evidence) {
           if (!journalRun) throw new Error("Host launch requires a recorded run");
           store.recordStep(journalRun, state, { evidence, plan });

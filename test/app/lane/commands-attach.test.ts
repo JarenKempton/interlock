@@ -10,10 +10,13 @@ import {
   actorRefSchema,
   adapterRefSchema,
   claimRefSchema,
+  laneRefSchema,
   runRefSchema,
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
+import { createLane } from "../../../src/domain/lane/lifecycle.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
+import { saveAttachedLane } from "../../fixtures/lane/attached.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 
 const ticket = ticketRefSchema.parse("jira:x:JWB:ticket:JWB-877");
@@ -129,17 +132,21 @@ test("attach from the claimed worktree binds one implementing lane to the run an
   expect(fixture.lanes()).toHaveLength(1);
 });
 
-test("attach adopts a queued lane created for the ticket", async () => {
+test("attach adopts the unattached lane pickup created for the ticket", async () => {
   const fixture = await claimedRun();
-  const output: string[] = [];
-  await runCli(
-    ["lane", "create", "--ticket", ticket, "--state", fixture.statePath, "--json"],
-    (text) => output.push(text),
-    { statePath: fixture.statePath },
+  const store = new StateStore(fixture.statePath);
+  const pending = createLane(
+    { id: laneRefSchema.parse("interlock-lane:pickup"), ticket: ticketRefSchema.parse(ticket) },
+    new Date().toISOString(),
   );
-  const queued = JSON.parse(output.join("\n")).value.id;
+  store.saveLane(pending);
+  store.close();
   const { result } = await fixture.attach();
-  expect(result).toMatchObject({ ok: true, value: { id: queued, state: "implementing" } });
+  expect(result).toMatchObject({
+    ok: true,
+    value: { id: pending.id, run: runRef, claim: claimRef, state: "implementing" },
+  });
+  expect(fixture.lanes()).toHaveLength(1);
 });
 
 test("attach from another checkout refuses and records no lane", async () => {
@@ -203,18 +210,13 @@ test("attach refuses without exactly one claimed run with an active claim", asyn
 
 test("an active lane bound to another run refuses attach", async () => {
   const fixture = await claimedRun();
-  const output: string[] = [];
-  const statePath = fixture.statePath;
-  for (const argv of [
-    ["lane", "create", "--ticket", ticket],
-    ["lane", "claim", "", "--run", "interlock-run:old", "--claim", "interlock-claim:old"],
-  ]) {
-    if (argv[2] === "") argv[2] = JSON.parse(output.join("\n")).value.id;
-    output.length = 0;
-    await runCli([...argv, "--state", statePath, "--json"], (text) => output.push(text), {
-      statePath,
-    });
-  }
+  const store = new StateStore(fixture.statePath);
+  saveAttachedLane(store, {
+    ticket: ticketRefSchema.parse(ticket),
+    run: runRefSchema.parse("interlock-run:old"),
+    claim: claimRefSchema.parse("interlock-claim:old"),
+  });
+  store.close();
   const { result } = await fixture.attach();
   expect(result.refusal.code).toBe("claim_collision");
 });

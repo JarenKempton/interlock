@@ -88,6 +88,15 @@ test("current completion queries derive subcommands and options from the live tr
   expect(registeredActions(app).some((entry) => entry.command.join(" ") === "pickup")).toBe(true);
 });
 
+test("lanes start only from pickup and lane attach", () => {
+  const lane = registeredActions(createApplication())
+    .filter((entry) => entry.command[0] === "lane")
+    .map((entry) => entry.command[1]);
+  expect(lane).toContain("attach");
+  for (const removed of ["create", "claim", "start", "promote"])
+    expect(lane).not.toContain(removed);
+});
+
 // These compile-only examples fail typecheck if action/input/dependency types become permissive.
 export function actionTypeChecks(app: ReturnType<typeof createApplication>) {
   // @ts-expect-error Action names must exist on the application.
