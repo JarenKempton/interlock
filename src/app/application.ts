@@ -5,13 +5,12 @@ import { dispatch } from "../cli/command-line.ts";
 import { completionCandidates, completionScript } from "../cli/completions.ts";
 import { type ActionTree, defineAction } from "./action.ts";
 import { manPage } from "../cli/manpage.ts";
-import { choice, flag, optional, positional, text } from "../cli/schema.ts";
+import { choice, optional, positional, text } from "../cli/schema.ts";
 import { configurationActions } from "../configuration/commands.ts";
 import { notifyAboutUpdate } from "../distribution/update.ts";
 import { VERSION } from "../distribution/version.ts";
 import { runActions } from "./pickup/commands.ts";
-import { McpServer } from "../mcp/server.ts";
-import { SocketTransport, StdioTransport } from "../mcp/transport.ts";
+import { serveMcpStdio } from "../mcp/server.ts";
 import { withStore } from "./command-store.ts";
 import { databasePath } from "../distribution/paths.ts";
 import type { RuntimeServices } from "./runtime-services.ts";
@@ -70,47 +69,17 @@ export function createApplication(services: RuntimeServices = {}) {
       handler: (): string => manPage(VERSION, tree),
     }),
     mcp: defineAction({
-      description: "Serve the registered actions as MCP tools.",
+      description: "Serve the registered actions as MCP tools over stdio.",
       input: {
-        transport: optional(choice("MCP transport.", ["stdio", "socket"] as const)),
-        socket: optional(text("Local socket path for the socket transport.", "PATH")),
-        lane: flag("Expose only the allowlisted lane actions; token from INTERLOCK_MCP_TOKEN."),
-        allow: optional(text("Comma-separated action commands exposed in lane mode.", "LIST")),
+        allow: optional(text("Comma-separated action commands to expose as tools.", "LIST")),
       },
       result: z.string(),
-      validate(input) {
-        if (input.transport === "socket" && !input.socket)
-          throw new Error("Socket transport requires a socket path");
-        if (input.transport !== "socket" && input.socket)
-          throw new Error("Socket path requires the socket transport");
-      },
       handler: async (input) => {
         const allow = input.allow
           ?.split(",")
           .map((entry) => entry.trim())
           .filter(Boolean);
-        const server = new McpServer(tree, {
-          version: VERSION,
-          lane: input.lane === true,
-          ...(allow?.length ? { allow } : {}),
-          ...(process.env.INTERLOCK_MCP_TOKEN ? { token: process.env.INTERLOCK_MCP_TOKEN } : {}),
-        });
-        if (input.transport === "socket") {
-          const transport = new SocketTransport(input.socket ?? "");
-          const stop = () => void transport.close();
-          process.once("SIGINT", stop);
-          process.once("SIGTERM", stop);
-          try {
-            process.stderr.write(`interlock mcp listening on ${transport.path}\n`);
-            await transport.serve(server);
-          } finally {
-            process.removeListener("SIGINT", stop);
-            process.removeListener("SIGTERM", stop);
-            await transport.close();
-          }
-        } else {
-          await new StdioTransport().serve(server);
-        }
+        await serveMcpStdio(tree, { version: VERSION, ...(allow ? { allow } : {}) });
         return "MCP server stopped.";
       },
       render: () => [],

@@ -2,13 +2,12 @@ import { afterEach, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
 import { GitClaimLock } from "../../../src/adapters/git/claim-lock.ts";
 import {
   BunGitCommandExecutor,
   type GitCommandExecutor,
 } from "../../../src/adapters/git/workspace.ts";
-import { createApplication, VERSION } from "../../../src/app/application.ts";
+import { createApplication } from "../../../src/app/application.ts";
 import { run as runCli } from "../../../src/main.ts";
 import {
   type ExecutionConfiguration,
@@ -27,7 +26,7 @@ import {
 import type { Ticket, TicketRef } from "../../../src/domain/model.ts";
 import { createLane, type MergeProof, transitionLane } from "../../../src/domain/lane/lifecycle.ts";
 import type { LaneTrackerPort } from "../../../src/execution/lane/service.ts";
-import { McpServer } from "../../../src/mcp/server.ts";
+import { callTool } from "../mcp/stdio-client.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
 import { saveExecutionConfiguration } from "../../../src/configuration/store.ts";
 import { gitLaneService } from "../../../src/app/lane/service.ts";
@@ -314,22 +313,10 @@ export function laneCompleteFixtures() {
       selector: { lane?: string; ticket?: string } = { ticket: "JWB-909" },
     ) => {
       if (options.mcp) {
-        const server = new McpServer(createApplication(services), { version: VERSION });
-        const response = await server.handle(
-          {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tools/call",
-            params: {
-              name: "lane_complete",
-              arguments: { ...selector, state: statePath },
-            },
-          },
-          server.newSession(),
-        );
-        const content = z
-          .object({ result: z.object({ content: z.array(z.object({ text: z.string() })) }) })
-          .parse(response).result.content;
+        const { content } = await callTool(createApplication(services), "lane_complete", {
+          ...selector,
+          state: statePath,
+        });
         const result = JSON.parse(content.map((item) => item.text).join(""));
         return { code: result.ok ? 0 : 1, result };
       }
