@@ -129,9 +129,9 @@ through implementing, submitted, reviewing, approved and done; stored queued
 and claimed lanes become implementing when the ledger loads; legacy merged lanes remain completable; changes_requested loops back to implementing up to the lane's
 configured round limit, then routes to attention, which resumes to the prior
 state. A submitted or reviewing lane takes a new head, such as a conflict
-resolution, as its next round within the same limit. `lane grant-round` raises
-the limit by one, journals `review_round_granted` on the run, and resumes a lane
-held at the limit. Verdicts and evidence are bound to the submitted head and go
+resolution, as its next round within the same limit. A lane held at the limit
+cannot be resumed; only `lane grant-round`, accepted only at the limit, allows
+one more round, journals `review_round_granted` on the run, and resumes it. Verdicts and evidence are bound to the submitted head and go
 stale for any other head. `lane next` returns exactly one action for the lane's state.
 Lanes persist in the local ledger. `lane complete --ticket KEY` accepts approved or
 legacy merged lanes. GitHub must prove the recorded PR URL, branch and approved
@@ -280,8 +280,9 @@ When a map cannot be listed, the tick launches nothing. Each tick, in order:
    attached yet counts. Its T3 thread is titled `🔨 KEY: summary`.
 
 With `--orchestrator THREAD`, launched lanes are told that thread, and the
-supervisor sends it one message, prefixed 🤖, when a lane's head is approved
-and not yet merged, and one per attention episode with its reason, through
+supervisor sends it one message, prefixed 🤖, when the pull request's tip is
+the lane's approved head and is not yet merged, and one per attention episode
+with its reason, through
 `t3 thread send`. Each report is journaled once sent; an undelivered report is
 retried on the next tick.
 

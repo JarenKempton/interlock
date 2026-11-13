@@ -208,6 +208,10 @@ export function nextLaneAction(lane: Lane): LaneAction {
 
 export const REVIEW_ROUND_LIMIT = "review_round_limit";
 
+function isAtRoundLimit(lane: Lane): boolean {
+  return lane.attentionReason === REVIEW_ROUND_LIMIT && lane.reviewRound >= lane.maxReviewRounds;
+}
+
 function isResubmittable(lane: Lane): boolean {
   return lane.state === "submitted" || lane.state === "reviewing";
 }
@@ -350,6 +354,12 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
     case "resume": {
       if (lane.state !== "attention")
         return refused(lane, "invalid_transition", `Cannot resume a lane in ${lane.state}`);
+      if (isAtRoundLimit(lane))
+        return refused(
+          lane,
+          "gates_unmet",
+          `Lane is held at its review round limit ${lane.maxReviewRounds}; grant one more with lane grant-round`,
+        );
       const next: Lane = {
         ...lane,
         state: lane.previousState ?? "implementing",
@@ -360,13 +370,20 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
       return { lane: next };
     }
     case "grant_round": {
-      const granted: Lane = {
-        ...lane,
-        maxReviewRounds: Math.max(lane.maxReviewRounds, lane.reviewRound) + 1,
-        updatedAt: now,
-      };
-      if (lane.state !== "attention" || lane.attentionReason !== REVIEW_ROUND_LIMIT)
-        return { lane: granted };
+      if (lane.reviewRound < lane.maxReviewRounds)
+        return refused(
+          lane,
+          "invalid_transition",
+          `Lane has used ${lane.reviewRound} of ${lane.maxReviewRounds} review rounds; grant one only at the limit`,
+        );
+      if (lane.state === "attention" && lane.attentionReason !== REVIEW_ROUND_LIMIT)
+        return refused(
+          lane,
+          "invalid_transition",
+          `Lane needs attention for ${lane.attentionReason ?? "another reason"}, not its round limit`,
+        );
+      const granted: Lane = { ...lane, maxReviewRounds: lane.reviewRound + 1, updatedAt: now };
+      if (lane.state !== "attention") return { lane: granted };
       const resumed: Lane = { ...granted, state: lane.previousState ?? "implementing" };
       delete resumed.previousState;
       delete resumed.attentionReason;

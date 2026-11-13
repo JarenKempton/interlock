@@ -74,7 +74,8 @@ class Tick {
   }
 
   async attention(lane: Lane, reason: string): Promise<void> {
-    await this.flag(await this.ports.attention(lane, reason), reason);
+    const routed = await this.ports.attention(lane, reason);
+    if (routed.state === "attention") await this.flag(routed, routed.attentionReason ?? reason);
   }
 
   async flag(lane: Lane, reason: string): Promise<void> {
@@ -137,8 +138,8 @@ class Tick {
       observed: { value: proof.merged ? (proof.commit ?? proof.head) : false },
       observedAt: this.observedAt(),
     });
-    if (!proof.merged && lane.state === "approved" && lane.head)
-      await this.tell(lane, `ready:${lane.head}`, readyMessage(lane, lane.artifact));
+    if (!proof.merged && lane.state === "approved" && proof.head === lane.head)
+      await this.tell(lane, `ready:${proof.head}`, readyMessage(lane, lane.artifact, proof.head));
     if (!proof.merged || (await this.humanEdits(supervised))) return;
     const result = await this.ports.complete(lane);
     if (result.ok) {
@@ -363,23 +364,25 @@ function nativeKey(ticket: TicketRef | undefined): string | undefined {
   }
 }
 
-function readyMessage(lane: Lane, artifact: string): string {
+function readyMessage(lane: Lane, artifact: string, head: string): string {
   return [
     `🤖 ${nativeKey(lane.ticket) ?? lane.id} is approved and ready to merge`,
-    `PR ${artifact}, approved head ${lane.head ?? "unknown"}`,
+    `PR ${artifact}, approved head ${head}`,
     "Interlock completes the lane after the merge.",
   ].join("\n");
 }
 
 function attentionMessage(lane: Lane, reason: string): string {
   const next =
-    reason === REVIEW_ROUND_LIMIT
-      ? `Grant a round with: interlock lane grant-round ${lane.id}`
-      : `Resume after fixing it with: interlock lane resume ${lane.id}`;
+    lane.state !== "attention"
+      ? []
+      : reason === REVIEW_ROUND_LIMIT
+        ? [`Grant a round with: interlock lane grant-round ${lane.id}`]
+        : [`Resume after fixing it with: interlock lane resume ${lane.id}`];
   return [
     `🤖 ${nativeKey(lane.ticket) ?? lane.id} is blocked: ${reason}`,
     ...(lane.artifact ? [`PR ${lane.artifact}`] : []),
-    next,
+    ...next,
   ].join("\n");
 }
 

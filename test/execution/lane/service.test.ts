@@ -281,7 +281,11 @@ test("changes_requested loops to implementing until the round limit routes to at
     lane: lane.id,
     reason: "review_round_limit",
   });
-  lane = drive(lane, { type: "resume" });
+  expect(transitionLane(lane, { type: "resume" }, now).refusal).toMatchObject({
+    code: "gates_unmet",
+    message: expect.stringContaining("lane grant-round"),
+  });
+  lane = drive(lane, { type: "grant_round" });
   expect(lane.state).toBe("implementing");
 });
 
@@ -533,10 +537,15 @@ test("granting a round resumes a lane held at its round limit and allows one mor
   });
   expect(lane).toMatchObject({ state: "submitted", reviewRound: 2 });
   const reviewing = drive(lane, { type: "begin_review" });
-  expect(drive(reviewing, { type: "grant_round" })).toMatchObject({
-    state: "reviewing",
-    maxReviewRounds: 3,
-  });
+  const granted = drive(reviewing, { type: "grant_round" });
+  expect(granted).toMatchObject({ state: "reviewing", maxReviewRounds: 3 });
+  expect(transitionLane(granted, { type: "grant_round" }, now).refusal?.code).toBe(
+    "invalid_transition",
+  );
+  const blocked = drive(granted, { type: "attention", reason: "reviewer_unavailable" });
+  expect(
+    transitionLane({ ...blocked, reviewRound: 3 }, { type: "grant_round" }, now).refusal?.message,
+  ).toContain("reviewer_unavailable");
 });
 
 test("CLI lane grant-round records the grant in the ledger", async () => {
@@ -560,7 +569,7 @@ test("CLI lane grant-round records the grant in the ledger", async () => {
     { type: "submit", artifact: "https://example.test/pr/1", head: "abc", evidence },
     { type: "attention", reason: "review_round_limit" },
   );
-  seed.saveLane({ ...held, previousState: "implementing" });
+  seed.saveLane({ ...held, previousState: "implementing", maxReviewRounds: 1 });
   seed.close();
   try {
     const output: string[] = [];
@@ -572,7 +581,7 @@ test("CLI lane grant-round records the grant in the ledger", async () => {
     expect(code).toBe(0);
     expect(JSON.parse(output.join("\n"))).toMatchObject({
       ok: true,
-      value: { state: "implementing", maxReviewRounds: 4 },
+      value: { state: "implementing", maxReviewRounds: 2 },
     });
     const store = new StateStore(statePath);
     try {
@@ -581,7 +590,7 @@ test("CLI lane grant-round records the grant in the ledger", async () => {
       ).toEqual([
         [
           "review_round_granted",
-          { lane: held.id, reviewRound: 1, maxReviewRounds: 4, state: "implementing" },
+          { lane: held.id, reviewRound: 1, maxReviewRounds: 2, state: "implementing" },
         ],
       ]);
     } finally {
