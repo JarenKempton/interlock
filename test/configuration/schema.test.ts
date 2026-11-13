@@ -45,6 +45,7 @@ import {
 } from "../../src/domain/refs/identifiers.ts";
 import type { Run } from "../../src/domain/model.ts";
 import { executionTarget } from "../../src/app/pickup/runtime.ts";
+import { trackerNamed } from "../../src/app/tracker/registry.ts";
 import { configurationStore } from "../../src/configuration/store.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 import {
@@ -649,9 +650,15 @@ test("a ledger holding a version 1 execution configuration is refused with a cle
   }
 });
 
-test("execution targets come from the recorded repository and tracker site", () => {
+test("execution targets come from the recorded repository and the claimed ticket's tracker site", () => {
+  const jira = trackerNamed("jira");
+  const github = trackerNamed("github");
+  if (!jira || !github) throw new Error("Trackers are not registered");
   const configuration = {
-    ...resolveConfiguration(undefined, { jira_site: "https://example.atlassian.net" }),
+    ...resolveConfiguration(undefined, {
+      jira_site: "https://example.atlassian.net",
+      github_repo: "octo-org/repo",
+    }),
     repository: {
       name: "app",
       remote: "https://github.com/o/app.git",
@@ -660,14 +667,18 @@ test("execution targets come from the recorded repository and tracker site", () 
       baseBranch: "main",
     },
   };
-  expect(executionTarget(validateResolvedConfiguration(configuration))).toEqual({
+  expect(executionTarget(validateResolvedConfiguration(configuration), jira)).toEqual({
     repository: configuration.repository,
     site: "https://example.atlassian.net",
     claimedStatus: "In Progress",
   });
+  expect(executionTarget(validateResolvedConfiguration(configuration), github).site).toBe(
+    "octo-org/repo",
+  );
   expect(() =>
     executionTarget(
       resolveConfiguration(undefined, { jira_site: "https://example.atlassian.net" }),
+      jira,
     ),
   ).toThrow("no repository or tracker site");
 });

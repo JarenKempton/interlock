@@ -43,10 +43,10 @@ export async function doctorChecks(services: RuntimeServices, project: string | 
   const sites = Object.fromEntries(
     TRACKERS.map((entry) => [entry.setting, savedSite(services, trackerAccount(entry, services))]),
   );
-  const { entry } = configuredTracker(sites);
-  const trackers: Record<string, TrackerReport> = {
-    [entry.name]: await trackerSignIn(services, trackerAccount(entry, services), project),
-  };
+  const configured = TRACKERS.filter((entry) => sites[entry.setting]);
+  const trackers: Record<string, TrackerReport> = {};
+  for (const entry of configured.length ? configured : [configuredTracker(sites).entry])
+    trackers[entry.name] = await trackerSignIn(services, trackerAccount(entry, services), project);
   const claimLock = await pushAccess(services);
   return {
     trackers,

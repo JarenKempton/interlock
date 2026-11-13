@@ -110,11 +110,21 @@ export function trackerNamed(name: string | undefined): RegisteredTracker | unde
 
 export type TrackerSettings = { [K in RegisteredTracker["setting"]]?: string | undefined };
 
-export function configuredTracker(settings: TrackerSettings): {
+export function configuredTracker(
+  settings: TrackerSettings,
+  key?: string,
+): {
   entry: RegisteredTracker;
   site: string | undefined;
 } {
-  const entry = TRACKERS.find((item) => settings[item.setting]) ?? jira;
+  const serving = TRACKERS.filter(
+    (item) => settings[item.setting] && (key === undefined || item.namespace(key)),
+  );
+  const entry =
+    serving.find((item) => item !== jira) ??
+    serving[0] ??
+    TRACKERS.find((item) => settings[item.setting]) ??
+    jira;
   return { entry, site: settings[entry.setting] };
 }
 

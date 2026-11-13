@@ -28,9 +28,10 @@ export const githubIssues = {
   namespace: githubNamespace,
   async connect(services: GitHubServices, site: string) {
     const issues = transport(services);
+    const owner = await githubOwner(issues)();
     return {
       instance: githubInstance(githubRepository(site)),
-      owner: githubOwner(issues),
+      owner: async () => owner,
       tracker: ({ claimedStatus, validateClaim }: GitHubTrackerOptions = {}) =>
         new GitHubIssuesTracker({
           transport: issues,

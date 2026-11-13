@@ -214,9 +214,9 @@ export async function withExecutionStore<T>(
   }
 }
 
-export function executionTarget(configuration: ResolvedConfiguration) {
+export function executionTarget(configuration: ResolvedConfiguration, entry: RegisteredTracker) {
   const { repository, settings } = configuration;
-  const { site } = configuredTracker(settings);
+  const site = settings[entry.setting];
   if (!repository || !site)
     throw new Error("Recorded execution configuration has no repository or tracker site");
   return { repository, site, claimedStatus: settings.claimed_status };
@@ -302,7 +302,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     user,
   );
   const { settings } = configuration;
-  const { entry, site } = configuredTracker(settings);
+  const { entry, site } = configuredTracker(settings, input.key);
   const namespace = entry.namespace(input.key);
   if (!namespace) throw new Error(`Pickup requires a canonical ${entry.label} key`);
   if (!site) throw siteUnknown(entry);

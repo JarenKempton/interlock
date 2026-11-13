@@ -380,6 +380,24 @@ test("doctor checks only the configured tracker, signing in to GitHub through gh
   );
 });
 
+test("doctor checks every configured tracker when Jira and GitHub are both set", async () => {
+  const subject = harness({ answers: [SITE, "lane@example.com", TOKEN] });
+  await subject.cli("login", "jira");
+  subject.services.execution = {
+    ...subject.services.execution,
+    github: new FakeGitHub().transport,
+  };
+  const store = new StateStore(subject.statePath);
+  try {
+    saveUserSetting(store, "github_repo", "octo-org/repo");
+  } finally {
+    store.close();
+  }
+  const report = await doctor(subject);
+  expect(Object.keys(report.trackers)).toEqual(["jira", "github"]);
+  expect(report.trackers.github).toMatchObject({ signedIn: true, account: "octocat" });
+});
+
 test("doctor shows a tracker that needs no sign-in as ready", () => {
   expect(
     renderDoctor({

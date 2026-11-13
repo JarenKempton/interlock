@@ -40,7 +40,8 @@ Pickup works in the current Git repo (or `--repo PATH`) with no project file.
 For GitHub Issues instead of Jira, sign in with `gh auth login` (Interlock
 stores no GitHub secret), run `config edit --set github_repo OWNER/NAME`, and
 pick up issue 42 as `GH-42`. Claiming assigns you and adds the `interlock`
-label; completion closes the issue.
+label; completion closes the issue. With both `jira_site` and `github_repo`
+set, `GH-` keys go to GitHub and every other key to Jira.
 
 For commands and options, use `--help`, including `config edit --help`.
 Help and shell completion derive from the registered actions.
