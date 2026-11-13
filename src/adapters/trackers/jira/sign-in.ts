@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { TrackerSignIn } from "../../../domain/tracker/port.ts";
+import type { TokenSignIn } from "../../../domain/tracker/port.ts";
 import { fetchTransport, type HttpTransport } from "../http.ts";
 import { jiraBasicAuthTransport, jiraOrigin } from "./tracker.ts";
 
@@ -27,10 +27,11 @@ const jiraCredentialsSchema = z.object({ email: z.string().min(1), token: z.stri
 
 export function jiraSignIn(
   http: HttpTransport = fetchTransport,
-): TrackerSignIn<z.infer<typeof jiraCredentialsSchema>> {
+): TokenSignIn<z.infer<typeof jiraCredentialsSchema>> {
   const transport = (site: string, credentials: { email: string; token: string }) =>
     jiraBasicAuthTransport({ site, ...credentials }, http);
   return {
+    kind: "token",
     site: { label: "Jira site", environment: "JIRA_SITE", parse: jiraOrigin },
     credentials: jiraCredentialsSchema,
     tokenPage: "https://id.atlassian.com/manage-profile/security/api-tokens",
@@ -52,24 +53,27 @@ export function jiraSignIn(
         throw new Error(`Jira sign-in check failed (${response.status})`);
       return { name: parsed.data.displayName };
     },
-    async missingPermissions(site, credentials, project) {
-      const query = new URLSearchParams({
-        permissions: Object.keys(REQUIRED_PERMISSIONS).join(","),
-      });
-      if (project) query.set("projectKey", project);
-      const response = await transport(site, credentials).request(
-        "GET",
-        `/rest/api/3/mypermissions?${query.toString()}`,
-      );
-      if (project && response.status === 404) return [`Jira project ${project} is not visible`];
-      const parsed = permissionsSchema.safeParse(response.body);
-      if (response.status !== 200 || !parsed.success)
-        throw new Error(`Jira permission check failed (${response.status})`);
-      return Object.entries(REQUIRED_PERMISSIONS)
-        .filter(([key]) => parsed.data.permissions[key]?.havePermission !== true)
-        .map(
-          ([key, label]) => `Jira permission ${label} (${key})${project ? ` in ${project}` : ""}`,
+    permissions: {
+      summary: "browse, transition, assign, edit issue properties",
+      missing: async (site, credentials, project) => {
+        const query = new URLSearchParams({
+          permissions: Object.keys(REQUIRED_PERMISSIONS).join(","),
+        });
+        if (project) query.set("projectKey", project);
+        const response = await transport(site, credentials).request(
+          "GET",
+          `/rest/api/3/mypermissions?${query.toString()}`,
         );
+        if (project && response.status === 404) return [`Jira project ${project} is not visible`];
+        const parsed = permissionsSchema.safeParse(response.body);
+        if (response.status !== 200 || !parsed.success)
+          throw new Error(`Jira permission check failed (${response.status})`);
+        return Object.entries(REQUIRED_PERMISSIONS)
+          .filter(([key]) => parsed.data.permissions[key]?.havePermission !== true)
+          .map(
+            ([key, label]) => `Jira permission ${label} (${key})${project ? ` in ${project}` : ""}`,
+          );
+      },
     },
   };
 }

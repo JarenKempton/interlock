@@ -153,7 +153,7 @@ test(
           read: async () => {
             throw new Error("Unexpected tracker read");
           },
-          link_artifact: async () => {},
+          linkArtifact: async () => {},
         },
         artifacts: {
           prepare: async (workspace, head) => ({

@@ -5,7 +5,8 @@ import {
   HostRefusal,
   type HostSessionView,
 } from "../../domain/host/capability.ts";
-import type { PreparedWorkspace, Ticket } from "../../domain/model.ts";
+import type { PreparedWorkspace } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import type { OperationIdentity } from "../../domain/operation/identity.ts";
 
 export interface HostLaunchWorkspaceOptions<Plan> {

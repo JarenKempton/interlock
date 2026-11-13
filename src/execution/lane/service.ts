@@ -29,15 +29,8 @@ import {
   type Unblocked,
 } from "../../domain/lane/lifecycle.ts";
 import { type GateEvidence, trackerSource } from "../../domain/gate/evidence.ts";
-import type {
-  Claim,
-  ClaimRef,
-  LaneRef,
-  Run,
-  RunRef,
-  Ticket,
-  TicketRef,
-} from "../../domain/model.ts";
+import type { Claim, ClaimRef, LaneRef, Run, RunRef, TicketRef } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import { completionRecordMatches, releaseCompletedClaim } from "../claim/completion.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 import { ticketKeyMatches } from "../../domain/submission/commit.ts";
@@ -53,8 +46,8 @@ import { type AttachAuthority, AttachRefusal } from "./attachment.ts";
 
 export interface LaneTrackerPort {
   read(ticket: TicketRef): Promise<TrackerRead>;
-  transition?(ticket: TicketRef, status: string): Promise<void>;
-  link_artifact?(ticket: TicketRef, url: string, title?: string): Promise<void>;
+  complete?(ticket: TicketRef): Promise<void>;
+  linkArtifact?(ticket: TicketRef, url: string, title?: string): Promise<void>;
   available?(ticket: TicketRef): Promise<void>;
   removeMirror?(claim: Claim): Promise<void>;
 }
@@ -227,7 +220,7 @@ export class LaneService {
     if (!workspace)
       return fail("workspace_unknown", "Lane has no recorded workspace branch to push");
     if (lane.ticket) {
-      if (!this.#tracker?.link_artifact)
+      if (!this.#tracker?.linkArtifact)
         return fail("tracker_unavailable", "Submit requires a tracker that links artifacts");
       try {
         await this.#tracker.available?.(lane.ticket);
@@ -323,9 +316,9 @@ export class LaneService {
       return fail("artifact_mismatch", "Created PR identity could not be verified");
     const artifact = pullRequest.url;
     this.#store.saveLane({ ...lane, artifact, updatedAt: now });
-    if (lane.ticket && this.#tracker?.link_artifact) {
+    if (lane.ticket && this.#tracker?.linkArtifact) {
       try {
-        await this.#tracker.link_artifact(lane.ticket, artifact, pullRequest.title);
+        await this.#tracker.linkArtifact(lane.ticket, artifact, pullRequest.title);
       } catch (error) {
         return linkRefusal(error, artifact);
       }
@@ -647,7 +640,7 @@ export class LaneService {
     const before = await read();
     if (!before.ok) return before;
     if (before.value) return ok(before.value);
-    if (!tracker.transition)
+    if (!tracker.complete)
       return fail("unsupported_capability", "Tracker cannot mark the ticket done");
     try {
       await this.#verifyCompletionOwner(lane);
@@ -659,7 +652,7 @@ export class LaneService {
     let failure: unknown;
     try {
       if (lane.run) this.#store.recordStep(lane.run, "completion_done_pending", { ticket });
-      await tracker.transition(ticket, "Done");
+      await tracker.complete(ticket);
     } catch (error) {
       failure = error ?? new Error("Tracker done transition failed");
     }

@@ -17,7 +17,7 @@ import {
   nextLaneAction,
   transitionLane,
 } from "../../../src/domain/lane/lifecycle.ts";
-import type { Ticket } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
 import type { ArtifactHost } from "../../../src/domain/submission/artifact.ts";
 import { LaneService, type LaneTrackerPort } from "../../../src/execution/lane/service.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
@@ -338,7 +338,6 @@ class FakeTracker implements LaneTrackerPort {
       kind: "task",
       state,
       status,
-      order: 0,
     };
   }
 
@@ -347,7 +346,8 @@ class FakeTracker implements LaneTrackerPort {
     return { ticket: this.ticket, snapshot: { version: "1", payload: null } };
   }
 
-  async transition(_ticket: Ticket["ref"], status: string) {
+  async complete(_ticket: Ticket["ref"]) {
+    const status = "Done";
     this.transitions.push(status);
     if (this.failTransition) throw new Error("transition failed");
     if (this.markDoneOnTransition) this.ticket = { ...this.ticket, state: "closed", status };
@@ -446,7 +446,6 @@ test("CLI reviews an attached lane and refuses completion without an owned claim
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch: "local/cli" },
-    capabilities: {},
     status: "claimed",
     createdAt: now,
     updatedAt: now,

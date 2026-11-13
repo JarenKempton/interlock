@@ -126,13 +126,12 @@ test.each([
 );
 
 test(
-  "a rejected Jira sign-in fails as a sign-in error, not as a missing Rank field",
+  "a rejected Jira sign-in fails as a sign-in error before any claim",
   async () => {
     const f = await fixture();
     const request = f.jira.request.bind(f.jira);
     f.jira.request = async (method, path, body) => {
       if (path === "/rest/api/3/myself") return { status: 401 };
-      if (path === "/rest/api/3/field") return { status: 200, body: [] };
       return request(method, path, body);
     };
     await expectRejection(createApplication(f.services).pickup.execute(f.input)).toThrow(
@@ -147,9 +146,9 @@ test(
   "a ticket completed during tracker preflight is never claimed or reopened",
   async () => {
     const f = await fixture();
-    let searches = 0;
+    let reads = 0;
     f.jira.fail = (method, path, after) => {
-      if (!after && method === "POST" && path.endsWith("/search/jql") && ++searches === 3) {
+      if (!after && method === "GET" && path.includes("/issue/TEST-492?") && ++reads === 3) {
         f.jira.issue.fields.status = { name: "Done", statusCategory: { key: "done" } };
       }
     };

@@ -10,7 +10,8 @@ import {
   type WorkspaceFileSystem,
 } from "../../../src/adapters/git/workspace.ts";
 import { mapRefSchema, ticketRefSchema } from "../../../src/domain/refs/identifiers.ts";
-import type { RepositorySpec, Ticket } from "../../../src/domain/model.ts";
+import type { RepositorySpec } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
 import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
 class FakeGit implements GitCommandExecutor {
@@ -65,7 +66,6 @@ const ticket: Ticket = {
   kind: "task",
   state: "open",
   status: "To Do",
-  order: 0,
 };
 const worktreePath = resolve(repository.worktreeRoot, "ABC-123");
 const branch = "task/ABC-123";

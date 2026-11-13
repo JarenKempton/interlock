@@ -16,7 +16,8 @@ import type {
   LaneResult,
   LaneState,
 } from "../../../src/domain/lane/lifecycle.ts";
-import type { Claim, LaneRef, Ticket, TicketRef } from "../../../src/domain/model.ts";
+import type { Claim, LaneRef, TicketRef } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
 import type {
   JournalEntry,
   SupervisorPolicy,
@@ -56,7 +57,6 @@ class World implements SupervisorPorts {
       kind: "task",
       state: "open",
       status: "To Do",
-      order: Number(key.split("-")[1]),
       ...patch,
     };
     this.tickets.set(ticket.ref, ticket);

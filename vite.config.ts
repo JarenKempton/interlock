@@ -54,10 +54,16 @@ export default defineConfig({
       "eslint-plugin-boundaries",
       { name: "structure", specifier: "./tooling/structure.mjs" },
     ],
-    overrides: Object.entries(baseline.violations).map(([rule, files]) => ({
-      files,
-      rules: { [rule]: "off" },
-    })),
+    overrides: [
+      ...Object.entries(baseline.violations).map(([rule, files]) => ({
+        files,
+        rules: { [rule]: "off" as const },
+      })),
+      {
+        files: ["src/app/tracker/registry.ts", "src/adapters/trackers/**", "test/**"],
+        rules: { "no-restricted-imports": "off" as const },
+      },
+    ],
     options: { typeAware: true, typeCheck: true },
     ignorePatterns: ["**/node_modules/**", "dist/**", "site/**", "src/persistence/migrations/**"],
     categories: { correctness: "error" },
@@ -70,6 +76,17 @@ export default defineConfig({
       "typescript/no-unsafe-type-assertion": "error",
       "unicorn/filename-case": ["error", { case: "kebabCase" }],
       "import/no-cycle": "error",
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/adapters/trackers/*/**"],
+              message: "Only src/app/tracker/registry.ts names a tracker adapter.",
+            },
+          ],
+        },
+      ],
       "boundaries/no-unknown-files": "error",
       "boundaries/no-unknown-dependencies": "error",
       "boundaries/dependencies": [

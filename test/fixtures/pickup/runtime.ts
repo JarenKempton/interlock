@@ -21,7 +21,6 @@ export class PickupJira implements JiraTransport {
       status: { name: "To Do", statusCategory: { key: "new" } },
       issuetype: { name: "Task" },
       parent: { key: "TEST-470" },
-      customfield_rank: "0|a:",
       issuelinks: z.array(z.unknown()).parse([]),
     },
   };
@@ -34,15 +33,7 @@ export class PickupJira implements JiraTransport {
     this.calls.push(`${method} ${path}`);
     this.fail?.(method, path, false);
     let response: { status: number; body?: unknown };
-    if (path === "/rest/api/3/field")
-      response = {
-        status: 200,
-        body: [
-          { id: "customfield_rank", schema: { custom: "com.pyxis.greenhopper.jira:gh-lexo-rank" } },
-        ],
-      };
-    else if (path === "/rest/api/3/myself")
-      response = { status: 200, body: { accountId: this.owner } };
+    if (path === "/rest/api/3/myself") response = { status: 200, body: { accountId: this.owner } };
     else if (path === "/rest/api/3/search/jql") {
       const { jql } = z.object({ jql: z.string() }).parse(body);
       const issues = [this.issue, ...this.relatedIssues].filter(

@@ -1,5 +1,6 @@
-import type { ActorRef, Ticket } from "../domain/model.ts";
+import type { ActorRef } from "../domain/model.ts";
 import type { MirrorClaim, MirrorRestore, Tracker } from "../domain/tracker/port.ts";
+import type { Ticket } from "../domain/tracker/ticket.ts";
 import { type ConformanceCase, requireBehavior, requireRejection } from "./runner.ts";
 
 export interface TrackerObservation {
@@ -26,16 +27,12 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
       const before = await observe();
       const read = await adapter.read(claim.ticket);
       requireBehavior(read.ticket.ref === claim.ticket, "read returned a different ticket");
-      if (read.ticket.map)
+      if (read.ticket.map && adapter.listWork)
         requireBehavior(
-          (await adapter.list_work(read.ticket.map)).some((ticket) => ticket.ref === claim.ticket),
-          "list_work lost ticket",
+          (await adapter.listWork(read.ticket.map)).some((ticket) => ticket.ref === claim.ticket),
+          "listWork lost ticket",
         );
       requireBehavior((await observe()).writes === before.writes, "Tracker reads mutated state");
-      requireBehavior(
-        !("conditional_update" in (await adapter.describe())),
-        "Tracker advertised version-checked writes",
-      );
     }),
     scenario("mirror_and_restore", async (fixture) => {
       const { adapter, claim, observe } = fixture;
@@ -47,18 +44,15 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
       await adapter.apply(claim);
       await adapter.verify({ ...claim, state: "applied" });
       const applied = await observe();
-      requireBehavior(
-        applied.mirror?.claim === claim.claim &&
-          applied.mirror.run === claim.run &&
-          applied.ticket.assignee === claim.owner,
-        "Mirror did not install the exact holder",
-      );
+      requireBehavior(applied.ticket.assignee === claim.owner, "Mirror did not assign the owner");
+      if (adapter.mirror === "structured")
+        requireBehavior(
+          applied.mirror?.claim === claim.claim && applied.mirror.run === claim.run,
+          "Structured mirror did not install the exact holder",
+        );
       await adapter.apply(claim);
       requireBehavior((await observe()).writes === applied.writes, "Repeated apply wrote again");
-      for (const conflicting of [
-        { ...claim, run: "interlock-run:different" as const },
-        { ...claim, owner: fixture.otherOwner },
-      ]) {
+      for (const conflicting of conflictingClaims(fixture)) {
         await requireRejection(() => adapter.apply(conflicting), "claim_collision");
         requireBehavior((await observe()).writes === applied.writes, "Rejected apply wrote");
       }
@@ -78,6 +72,21 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
       );
       await adapter.restore(restore);
       requireBehavior((await observe()).writes === restored.writes, "Repeated restore wrote");
+    }),
+    scenario("remove_mirror", async (fixture) => {
+      const { adapter, claim, observe } = fixture;
+      await adapter.apply(claim);
+      if (adapter.mirror === "structured")
+        await requireRejection(
+          () => adapter.removeMirror({ ...claim, run: "interlock-run:different" }),
+          "claim_collision",
+        );
+      await adapter.removeMirror(claim);
+      const removed = await observe();
+      requireBehavior(removed.mirror === null, "Mirror removal left the claim marker");
+      requireBehavior(removed.ticket.assignee === claim.owner, "Mirror removal unassigned");
+      await adapter.removeMirror(claim);
+      requireBehavior((await observe()).writes === removed.writes, "Repeated removal wrote");
     }),
     scenario("preserve_human_change", async (fixture) => {
       const { adapter, claim, observe, changeOwner, otherOwner } = fixture;
@@ -110,6 +119,13 @@ export function trackerConformance(create: () => Promise<TrackerFixture>): Confo
       );
     }),
   ];
+}
+
+function conflictingClaims({ adapter, claim, otherOwner }: TrackerFixture): MirrorClaim[] {
+  const otherHuman = { ...claim, owner: otherOwner };
+  return adapter.mirror === "structured"
+    ? [{ ...claim, run: "interlock-run:different" }, otherHuman]
+    : [otherHuman];
 }
 
 function restoration(

@@ -29,10 +29,6 @@ export function claimLockConformance(create: () => Promise<ClaimLockFixture>): C
   }
   return [
     scenario("collision", async ({ adapter, contender, request, otherOwner }) => {
-      requireBehavior(
-        (await adapter.describe()).conditional_update === true,
-        "Lock must verify conditional writes",
-      );
       const initial = await adapter.read(request.ticket);
       const results = await Promise.allSettled([
         adapter.claim({ ...request, expectedVersion: initial.version }),

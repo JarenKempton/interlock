@@ -10,7 +10,6 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../src/domain/refs/identifiers.ts";
-import { capabilities } from "../../src/domain/model.ts";
 import { embeddedMigrations, latestLedgerVersion } from "../../src/persistence/migrate.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 
@@ -26,7 +25,6 @@ function sampleRun(ref = "interlock-run:migration-test") {
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities(),
     status: "planning" as const,
     createdAt: now,
     updatedAt: now,

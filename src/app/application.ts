@@ -23,7 +23,7 @@ export function createApplication(services: RuntimeServices = {}) {
     doctor: defineAction({
       description:
         "Check local state, tracker sign-in and permissions, and claim-lock push access.",
-      input: { project: optional(text("Jira project key to check permissions in.", "KEY")) },
+      input: { project: optional(text("Tracker project key to check permissions in.", "KEY")) },
       result: doctorReportSchema,
       handler: async (input) => {
         const checks = await doctorChecks(services, input.project);

@@ -12,7 +12,7 @@ import {
 import { INITIAL_CONFIGURATION } from "../../../src/configuration/project-files.ts";
 import { resolveConfiguration } from "../../../src/configuration/schema.ts";
 import { mapRefSchema, ticketRefSchema } from "../../../src/domain/refs/identifiers.ts";
-import type { Ticket, TicketKind } from "../../../src/domain/model.ts";
+import type { Ticket, TicketKind } from "../../../src/domain/tracker/ticket.ts";
 import {
   acceptanceCriteria,
   buildLaunchPrompt,
@@ -24,7 +24,6 @@ const fakePlanningTicket: Ticket = {
   kind: "task",
   state: "open",
   status: "To Do",
-  order: 0,
   title: "Carry complete ticket context",
   description:
     "OUTCOME\nBuild inspectable configuration.\n\nVERIFY (all must pass)\n- Prompt contains ticket title and description.\n\nRULES\nUse fake tracker input only.",

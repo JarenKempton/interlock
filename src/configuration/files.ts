@@ -34,7 +34,7 @@ export function parseProjectToml(content: string): ProjectConfiguration {
 /** Read-only instruction loading. Content identities belong in the eventual execution receipt. */
 export function loadConfigurationInstructions(
   configuration: import("./schema.ts").ResolvedConfiguration,
-  role: import("../domain/model.ts").TicketKind,
+  role: import("../domain/tracker/ticket.ts").TicketKind,
 ) {
   const references = configuration.project?.instructions;
   const source = configuration.source;

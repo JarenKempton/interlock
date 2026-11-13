@@ -1,7 +1,8 @@
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { WorkspaceAdapter, WorkspacePlan } from "../../domain/contracts.ts";
-import type { PreparedWorkspace, RepositorySpec, Ticket, TicketRef } from "../../domain/model.ts";
+import type { PreparedWorkspace, RepositorySpec, TicketRef } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 
 export interface CommandResult {

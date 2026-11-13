@@ -5,10 +5,10 @@ import type {
   PreparedWorkspace,
   Run,
   RunRef,
-  Ticket,
   TicketRef,
   TrackerSnapshot,
 } from "./model.ts";
+import type { Ticket } from "./tracker/ticket.ts";
 
 export interface ClaimRequest {
   claim: ClaimRef;
@@ -70,6 +70,15 @@ export class AmbiguousTrackerResultError extends Error {
   constructor(message = "Tracker mutation result is ambiguous") {
     super(message);
     this.name = "AmbiguousTrackerResultError";
+  }
+}
+
+export class PendingTrackerWriteError extends AmbiguousTrackerResultError {
+  constructor(
+    readonly pendingWrite: unknown,
+    message: string,
+  ) {
+    super(message);
   }
 }
 

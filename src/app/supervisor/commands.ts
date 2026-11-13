@@ -14,6 +14,12 @@ import { superviseTick } from "../../execution/supervisor/tick.ts";
 import { lockExecution } from "../../persistence/execution-lock.ts";
 import { laneStatusSchema, laneStatuses, renderStatus } from "./status.ts";
 import { openSupervisorStore, supervisorPorts } from "./wiring.ts";
+import {
+  configuredTracker,
+  mapRef,
+  siteUnknown,
+  type TrackerSettings,
+} from "../tracker/registry.ts";
 
 const TICK_LIMIT_MS = 20 * 60_000;
 const DEFAULTS = { parallelism: 2, stallMinutes: 30, intervalSeconds: 60, maxResumes: 2 };
@@ -82,7 +88,8 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
   return parsed;
 }
 
-export function parseProjects(value: string, jiraSite: string | undefined): SupervisorProject[] {
+export function parseProjects(value: string, settings: TrackerSettings): SupervisorProject[] {
+  const { entry, site } = configuredTracker(settings);
   const projects = value
     .split(",")
     .map((pair) => pair.trim())
@@ -94,16 +101,9 @@ export function parseProjects(value: string, jiraSite: string | undefined): Supe
       if (separator < 1 || !repository) throw new Error(`Project ${pair} must be MAP=REPO`);
       if (map.includes(":"))
         return { map: mapRefSchema.parse(map), repository: resolve(repository) };
-      if (!/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(map))
-        throw new Error(`Map ${map} is not a Jira key`);
-      if (!jiraSite)
-        throw new Error("Jira site is unknown; run interlock config edit --set jira_site URL");
-      const instance = new URL(jiraSite).hostname.replace(/\.atlassian\.net$/, "");
-      const namespace = map.slice(0, map.lastIndexOf("-"));
-      return {
-        map: mapRefSchema.parse(`jira:${instance}:${namespace}:map:${map}`),
-        repository: resolve(repository),
-      };
+      if (!entry.namespace(map)) throw new Error(`Map ${map} is not a ${entry.label} key`);
+      if (!site) throw siteUnknown(entry);
+      return { map: mapRef(entry, site, map), repository: resolve(repository) };
     });
   if (projects.length === 0) throw new Error("The supervisor needs at least one MAP=REPO project");
   return projects;
@@ -126,7 +126,7 @@ export function parseOnly(value: string | undefined): string[] | undefined {
 function policyFrom(input: SupervisorInput, statePath: string): SupervisorPolicy {
   const only = parseOnly(input.only);
   return {
-    projects: parseProjects(input.project, readUserSettings(statePath).jira_site),
+    projects: parseProjects(input.project, readUserSettings(statePath)),
     ...(only ? { only } : {}),
     parallelism: positiveInteger(input.parallelism, DEFAULTS.parallelism, "parallelism"),
     stallAfterMs:

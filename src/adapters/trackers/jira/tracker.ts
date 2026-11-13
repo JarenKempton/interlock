@@ -1,25 +1,20 @@
 import { z } from "zod";
-import { CLAIM_RECORD_VERSION } from "../../../domain/claim/lock.ts";
+import { CLAIM_RECORD_VERSION, claimMarkerSchema } from "../../../domain/claim/lock.ts";
 import {
   AmbiguousTrackerResultError,
   ArtifactLinkConflictError,
   ClaimCollisionError,
+  PendingTrackerWriteError,
 } from "../../../domain/contracts.ts";
 import { actorRefSchema, mapRefSchema, ticketRefSchema } from "../../../domain/refs/identifiers.ts";
-import type {
-  ActorRef,
-  Dependency,
-  MapRef,
-  Ticket,
-  TicketKind,
-  TicketRef,
-} from "../../../domain/model.ts";
+import type { ActorRef, MapRef, TicketRef } from "../../../domain/model.ts";
+import type { Dependency, Ticket, TicketKind } from "../../../domain/tracker/ticket.ts";
 import { parseRef } from "../../../domain/refs/parse.ts";
 import type {
   MirrorClaim,
   MirrorExpectation,
   MirrorRestore,
-  Tracker,
+  StructuredTracker,
   TrackerRead,
 } from "../../../domain/tracker/port.ts";
 import { fetchTransport, type HttpTransport } from "../http.ts";
@@ -117,36 +112,32 @@ const issueSchema = z.object({
   }),
 });
 type JiraIssue = z.infer<typeof issueSchema>;
-export const claimPropertySchema = z.object({
-  claim: z.string(),
-  run: z.string(),
-  owner: z.string(),
-  home: z.string(),
-  version: z.literal(CLAIM_RECORD_VERSION),
-});
 const claimPropertyVersionSchema = z.object({
   value: z.object({ version: z.number().int().optional() }),
 });
-type JiraClaimProperty = z.infer<typeof claimPropertySchema>;
+type JiraClaimProperty = z.infer<typeof claimMarkerSchema>;
 const claimSnapshotSchema = z.object({
   assignee: z.string().nullable(),
   status: z.string(),
-  claim: claimPropertySchema.nullable(),
+  claim: claimMarkerSchema.nullable(),
 });
 export const pendingJiraWriteSchema = z.object({
   ticket: ticketRefSchema,
   operation: z.string(),
   expected: z.discriminatedUnion("field", [
-    z.object({ field: z.literal("claim"), value: claimPropertySchema.nullable() }),
+    z.object({ field: z.literal("claim"), value: claimMarkerSchema.nullable() }),
     z.object({ field: z.literal("assignee"), value: z.string().nullable() }),
     z.object({ field: z.literal("status"), value: z.string() }),
   ]),
 });
 type PendingJiraWrite = z.infer<typeof pendingJiraWriteSchema>;
 
-export class PendingJiraWriteError extends AmbiguousTrackerResultError {
-  constructor(readonly pendingWrite: PendingJiraWrite) {
-    super(`Jira ${pendingWrite.operation} outcome is unknown: ${JSON.stringify(pendingWrite)}`);
+export class PendingJiraWriteError extends PendingTrackerWriteError {
+  constructor(override readonly pendingWrite: PendingJiraWrite) {
+    super(
+      pendingWrite,
+      `Jira ${pendingWrite.operation} outcome is unknown: ${JSON.stringify(pendingWrite)}`,
+    );
   }
 }
 const transitionsSchema = z.object({
@@ -164,8 +155,6 @@ export interface JiraTrackerOptions {
   instance: string;
   namespace: string;
   transport: JiraTransport;
-  /** Jira's site-specific field id for the standard LexoRank Rank field. */
-  rankField?: string;
   claimProperty?: string;
   claimHome?: string;
   claimedStatus?: string;
@@ -174,13 +163,13 @@ export interface JiraTrackerOptions {
   journalWrite?: (pending: PendingJiraWrite) => () => void;
 }
 
-export class JiraTrackerAdapter implements Tracker {
+export class JiraTrackerAdapter implements StructuredTracker {
+  readonly mirror = "structured";
   readonly #transport: JiraTransport;
   readonly #prefix: string;
   readonly #claimProperty: string;
   readonly #claimHome: string | undefined;
   readonly #claimedStatus: string;
-  readonly #rankField: string | undefined;
   readonly #pageSize: number;
   readonly #validateClaim: JiraTrackerOptions["validateClaim"];
   readonly #pendingWrites = new Map<TicketRef, PendingJiraWrite>();
@@ -188,8 +177,6 @@ export class JiraTrackerAdapter implements Tracker {
   readonly #completeWrites = new Map<TicketRef, () => void>();
 
   constructor(options: JiraTrackerOptions) {
-    if (options.rankField !== undefined && !options.rankField)
-      throw new Error("Jira Rank field id is required");
     if (
       options.pageSize !== undefined &&
       (!Number.isInteger(options.pageSize) || options.pageSize < 1 || options.pageSize > 100)
@@ -200,21 +187,16 @@ export class JiraTrackerAdapter implements Tracker {
     this.#claimProperty = options.claimProperty ?? "interlock.claim";
     this.#claimHome = options.claimHome;
     this.#claimedStatus = options.claimedStatus ?? "In Progress";
-    this.#rankField = options.rankField;
     this.#pageSize = options.pageSize ?? 100;
     this.#validateClaim = options.validateClaim;
     this.#journalWrite = options.journalWrite;
   }
 
-  async describe() {
-    return { link_artifact: true, transition: true } as const;
+  async complete(ticket: TicketRef): Promise<void> {
+    await this.#transition(ticket, "Done");
   }
 
-  async transition(ticket: TicketRef, status: string): Promise<void> {
-    await this.#transition(ticket, status);
-  }
-
-  async link_artifact(ticket: TicketRef, url: string, title = url): Promise<void> {
+  async linkArtifact(ticket: TicketRef, url: string, title = url): Promise<void> {
     const existing = await this.#remoteLink(ticket, url);
     if (existing) return sameRemoteLink(existing, url);
     let status: number | undefined;
@@ -262,26 +244,14 @@ export class JiraTrackerAdapter implements Tracker {
   }
 
   async read(ticket: TicketRef): Promise<TrackerRead> {
-    this.#readConfiguration();
     const issue = await this.#issue(ticket);
-    const map = this.#mapOf(issue);
-    let order = 0;
-    if (map) {
-      const found = (await this.list_work(map)).find((item) => item.ref === ticket);
-      if (!found) throw new Error(`Jira ticket is not a child of its reported map: ${ticket}`);
-      order = found.order;
-    }
-    const latest = await this.#issue(ticket);
-    if (latest.fields.parent?.key !== issue.fields.parent?.key)
-      throw new Error("Jira ticket changed maps during read; retry pickup");
     return {
-      ticket: this.#normalize(latest, ticket, map, order),
-      snapshot: { version: latest.fields.updated, payload: await this.#claimState(ticket, latest) },
+      ticket: this.#normalize(issue, ticket),
+      snapshot: { version: issue.fields.updated, payload: await this.#claimState(ticket, issue) },
     };
   }
 
-  async list_work(map: MapRef): Promise<Ticket[]> {
-    this.#readConfiguration();
+  async listWork(map: MapRef): Promise<Ticket[]> {
     const mapKey = this.#mapKey(map);
     const issues: JiraIssue[] = [];
     let nextPageToken: string | undefined;
@@ -304,9 +274,7 @@ export class JiraTrackerAdapter implements Tracker {
       if (page.nextPageToken === nextPageToken) throw new Error("Jira search page token repeated");
       nextPageToken = page.nextPageToken;
     } while (nextPageToken !== undefined);
-    return issues.map((issue, order) =>
-      this.#normalize(issue, this.#ticketRef(issue.key), map, order),
-    );
+    return issues.map((issue) => this.#normalize(issue, this.#ticketRef(issue.key)));
   }
 
   async claimMarker(ticket: TicketRef): Promise<JiraClaimProperty | null> {
@@ -325,7 +293,7 @@ export class JiraTrackerAdapter implements Tracker {
     const issue = await this.#issue(request.ticket);
     const current = await this.#claimState(request.ticket, issue);
     if (this.#validateClaim && current.claim?.claim !== request.claim)
-      await this.#validateClaim(this.#normalize(issue, request.ticket, this.#mapOf(issue), 0));
+      await this.#validateClaim(this.#normalize(issue, request.ticket));
     if (current.claim !== null && !sameClaimIdentity(current.claim, property))
       throw new ClaimCollisionError(
         `Jira ticket is marked by another claim in claim home ${current.claim.home}`,
@@ -445,21 +413,13 @@ export class JiraTrackerAdapter implements Tracker {
     return this.#claimHome;
   }
 
-  #readConfiguration() {
-    if (!this.#rankField) throw new Error("Jira normalized reads require Rank configuration");
-    return this.#rankField;
-  }
-
   #mapOf(issue: JiraIssue): MapRef | undefined {
     const parent = issue.fields.parent?.key;
     return parent ? mapRefSchema.parse(`${this.#prefix}:map:${parent}`) : undefined;
   }
 
-  #normalize(issue: JiraIssue, ref: TicketRef, map: MapRef | undefined, order: number): Ticket {
-    const rankField = this.#readConfiguration();
-    const rank = issue.fields[rankField];
-    if (typeof rank !== "string" || rank.length === 0)
-      throw new Error(`Jira Rank field is missing or invalid: ${rankField}`);
+  #normalize(issue: JiraIssue, ref: TicketRef): Ticket {
+    const map = this.#mapOf(issue);
     const dependencies: Dependency[] = [];
     const dependents: Dependency[] = [];
     for (const link of issue.fields.issuelinks ?? []) {
@@ -491,12 +451,10 @@ export class JiraTrackerAdapter implements Tracker {
         : {}),
       dependencies,
       dependents,
-      order,
       metadata: {
         nativeKey: issue.key,
         version: issue.fields.updated,
         versionSource: "jira.fields.updated",
-        rank,
       },
     };
   }
@@ -613,7 +571,10 @@ export class JiraTrackerAdapter implements Tracker {
     throw new PendingJiraWriteError(pending);
   }
 
-  async verifyPendingWrite(pending: PendingJiraWrite): Promise<void> {
+  async verifyPendingWrite(write: unknown, ticket: TicketRef): Promise<void> {
+    const pending = pendingJiraWriteSchema.parse(write);
+    if (pending.ticket !== ticket)
+      throw new Error("Pending Jira write ticket does not match the claim");
     let current: JiraClaimSnapshot;
     try {
       current = await this.#claimState(pending.ticket);
@@ -632,7 +593,7 @@ export class JiraTrackerAdapter implements Tracker {
   async #settlePendingWrite(ticket: TicketRef): Promise<void> {
     const pending = this.#pendingWrites.get(ticket);
     if (!pending) return;
-    await this.verifyPendingWrite(pending);
+    await this.verifyPendingWrite(pending, ticket);
     this.#completeWrite(ticket);
   }
 
@@ -664,7 +625,6 @@ export class JiraTrackerAdapter implements Tracker {
       "issuetype",
       "parent",
       "issuelinks",
-      ...(this.#rankField ? [this.#rankField] : []),
     ];
   }
 
@@ -821,7 +781,7 @@ export function parseClaimProperty(
     throw new Error(
       `Jira ${property} on ${key} is version ${found}; upgrade Interlock before touching it`,
     );
-  const parsed = z.object({ value: claimPropertySchema }).safeParse(body);
+  const parsed = z.object({ value: claimMarkerSchema }).safeParse(body);
   if (!parsed.success) throw new Error("Invalid Jira claim property");
   return parsed.data.value;
 }

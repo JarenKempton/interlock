@@ -8,11 +8,6 @@ import { heldClaim } from "../../domain/claim/lock.ts";
 import type { T3Process } from "../../adapters/hosts/t3/cli.ts";
 import { type T3LaneBinding, type T3LaunchPlan, T3HostPort } from "../../adapters/hosts/t3/port.ts";
 import {
-  JiraTrackerAdapter,
-  type JiraTransport,
-  jiraBasicAuthTransport,
-} from "../../adapters/trackers/jira/tracker.ts";
-import {
   BunGitCommandExecutor,
   type GitCommandExecutor,
   GitWorkspaceAdapter,
@@ -41,7 +36,6 @@ import type { Clock, Ledger } from "../../domain/contracts.ts";
 import { reviewPolicy, reviewPolicySchema } from "../../domain/gate/review.ts";
 import { HostRefusal } from "../../domain/host/capability.ts";
 import {
-  actorRefSchema,
   adapterRefSchema,
   claimRefSchema,
   laneRefSchema,
@@ -49,7 +43,8 @@ import {
   ticketRefSchema,
 } from "../../domain/refs/identifiers.ts";
 import { createLane, isUnattached } from "../../domain/lane/lifecycle.ts";
-import type { RepositorySpec, RunRef, Ticket } from "../../domain/model.ts";
+import type { RepositorySpec, RunRef } from "../../domain/model.ts";
+import { type Ticket, ticketKind } from "../../domain/tracker/ticket.ts";
 import { ticketKeyMatches } from "../../domain/submission/commit.ts";
 import { lockExecution } from "../../persistence/execution-lock.ts";
 import { databasePath } from "../../distribution/paths.ts";
@@ -57,11 +52,18 @@ import { StateStore } from "../../persistence/state.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
 
 export type { RuntimeServices };
-import { requireCredentials, trackerSignIns } from "../../sign-in/credentials.ts";
 import { CHANGE_CLAIM_HOME, resolveClaimHome } from "../claim/home.ts";
 import { ClaimCoordinator } from "../../execution/claim/coordinator.ts";
 import { pickupEligibility } from "../../execution/pickup/eligibility.ts";
-import { journalJiraWrite } from "../tracker/write-journal.ts";
+import { journalTrackerWrite } from "../tracker/write-journal.ts";
+import {
+  configuredTracker,
+  type RegisteredTracker,
+  siteUnknown,
+  type TrackerTransports,
+  ticketRef,
+} from "../tracker/registry.ts";
+import type { Tracker } from "../../domain/tracker/port.ts";
 import { buildLaunchPrompt } from "../../execution/pickup/launch-prompt.ts";
 import { PickupCoordinator } from "../../execution/pickup/coordinator.ts";
 import { HostLaunchWorkspace } from "../../execution/pickup/host-launch.ts";
@@ -152,8 +154,7 @@ export const pickupResultSchema = z.discriminatedUnion("dryRun", [
 ]);
 export type PickupResult = z.infer<typeof pickupResultSchema>;
 
-export interface ExecutionPlatform {
-  jira?: JiraTransport;
+export interface ExecutionPlatform extends TrackerTransports {
   git?: GitCommandExecutor;
   clock?: Clock;
   openStore?: (path: string) => StateStore;
@@ -221,8 +222,8 @@ export function executionTarget(configuration: ExecutionConfiguration, repositor
   if (configuration.version === 2) {
     const { repository, settings } = configuration;
     if (!repository || !settings.jira_site)
-      throw new Error("Recorded execution configuration has no repository or Jira site");
-    return { repository, jiraSite: settings.jira_site, claimedStatus: settings.claimed_status };
+      throw new Error("Recorded execution configuration has no repository or tracker site");
+    return { repository, site: settings.jira_site, claimedStatus: settings.claimed_status };
   }
   const repository = configuration.project.repositories[repositoryName];
   if (!repository) throw new Error("Configured repository is missing");
@@ -234,7 +235,7 @@ export function executionTarget(configuration: ExecutionConfiguration, repositor
       baseBranch: repository.base_branch,
       remote: `https://github.com/${repository.github}.git`,
     },
-    jiraSite: configuration.project.tracker.jira.site,
+    site: configuration.project.tracker.jira.site,
     claimedStatus: "In Progress",
   };
 }
@@ -275,70 +276,19 @@ async function mainCheckout(git: GitCommandExecutor, directory: string) {
   return basename(commonDirectory) === ".git" ? dirname(commonDirectory) : topLevel;
 }
 
-async function jiraRead<T>(transport: JiraTransport, path: string, schema: z.ZodType<T>) {
-  const result = await transport.request("GET", `/rest/api/3/${path}`);
-  if (result.status === 401)
-    throw new Error(
-      "Jira rejected the credentials (401); run interlock login jira or update JIRA_API_TOKEN",
-    );
-  const parsed = schema.safeParse(result.body);
-  if (result.status !== 200 || !parsed.success) throw new Error(`Jira ${path} discovery failed`);
-  return parsed.data;
-}
-
-export async function jiraRankField(transport: JiraTransport): Promise<string> {
-  const fields = await jiraRead(
-    transport,
-    "field",
-    z.array(
-      z.object({
-        id: z.string(),
-        schema: z.object({ custom: z.string().optional() }).optional(),
-      }),
-    ),
-  );
-  const ranks = fields.filter(
-    (f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-lexo-rank",
-  );
-  if (ranks.length !== 1 || !ranks[0]) throw new Error("Jira Rank field is missing or ambiguous");
-  return ranks[0].id;
-}
-
 export async function executionTracker(
-  jiraSite: string,
+  entry: RegisteredTracker,
+  site: string,
   namespace: string,
   services: RuntimeServices,
-  purpose: "pickup" | "release" = "pickup",
 ) {
-  const site = new URL(jiraSite);
-  if (
-    !services.execution?.jira &&
-    process.env.JIRA_SITE &&
-    new URL(process.env.JIRA_SITE).origin !== site.origin
-  )
-    throw new Error("JIRA_SITE does not match the configured Jira site");
-  const { adapter } = trackerSignIns(services).jira;
-  const transport =
-    services.execution?.jira ??
-    jiraBasicAuthTransport(
-      { site: site.origin, ...(await requireCredentials(services, "jira", adapter, site.origin)) },
-      services.signIn?.http,
-    );
-  const myself = await jiraRead(transport, "myself", z.object({ accountId: actorRefSchema }));
-  const metadata = purpose === "pickup" ? { rankField: await jiraRankField(transport) } : {};
-  const instance = site.hostname.replace(/\.atlassian\.net$/, "");
-  const options = {
-    instance,
-    namespace,
-    transport,
-    ...metadata,
-  };
-  return { tracker: new JiraTrackerAdapter(options), owner: myself.accountId, instance, options };
+  const connection = await entry.connect(services, site, namespace);
+  return { connection, tracker: connection.tracker(), owner: await connection.owner() };
 }
 
 export function claimCoordination(
   repository: RepositorySpec,
-  tracker: JiraTrackerAdapter,
+  tracker: Tracker,
   services: RuntimeServices,
   home: ClaimHome,
   beforeClaimWrite?: () => void,
@@ -354,8 +304,6 @@ export function claimCoordination(
 }
 
 export async function pickup(services: RuntimeServices, input: PickupInput) {
-  if (!/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(input.key))
-    throw new Error("Pickup requires a canonical Jira key");
   const cwd = services.configuration?.cwd ?? process.cwd();
   const statePath = executionStatePath(services, input.state);
   const git = services.execution?.git ?? new BunGitCommandExecutor();
@@ -372,10 +320,10 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     user,
   );
   const { settings } = configuration;
-  if (!settings.jira_site)
-    throw new Error(
-      "Jira site is unknown; run interlock login jira or interlock config edit --set jira_site URL",
-    );
+  const { entry, site } = configuredTracker(settings);
+  const namespace = entry.namespace(input.key);
+  if (!namespace) throw new Error(`Pickup requires a canonical ${entry.label} key`);
+  if (!site) throw siteUnknown(entry);
   const branch = input.branch ?? settings.branch.replaceAll("{key}", input.key);
   if (!ticketKeyMatches(branch, input.key))
     throw new Error(`Branch ${branch} must contain ${input.key}`);
@@ -399,24 +347,17 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     input.launch && !catalog
       ? planHostLaunchModels(configuration, reviewChoicesFrom(user))
       : planT3Models(configuration, catalog, reviewChoicesFrom(user));
-  const jira = await executionTracker(
-    settings.jira_site,
-    input.key.slice(0, input.key.lastIndexOf("-")),
-    services,
-  );
-  const ref = ticketRefSchema.parse(
-    `jira:${jira.instance}:${input.key.slice(0, input.key.lastIndexOf("-"))}:ticket:${input.key}`,
-  );
-  const ticket = (await jira.tracker.read(ref)).ticket;
+  const tracker = await executionTracker(entry, site, namespace, services);
+  const ref = ticketRef(entry, tracker.connection.instance, input.key);
+  const ticket = (await tracker.tracker.read(ref)).ticket;
   const pickable = settings.pickable_statuses;
   const eligible = async (current: Ticket) => {
-    const eligibility = await pickupEligibility(jira.tracker, current, pickable);
+    const eligibility = await pickupEligibility(tracker.tracker, current, pickable);
     if (eligibility === "unavailable")
       throw new Error(
         `Ticket is not available; pickup needs an open, unassigned ticket in ${pickable.join(", ")}`,
       );
-    const planned = (value: Ticket) =>
-      JSON.stringify({ ...value, order: 0, dependents: undefined });
+    const planned = (value: Ticket) => JSON.stringify({ ...value, dependents: undefined });
     if (planned(current) !== planned(ticket))
       throw new Error("Ticket changed during planning; retry pickup");
     if (eligibility === "blocked")
@@ -439,9 +380,15 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
   );
   await workspace.preflight(ticket);
   const worktree = await workspace.plan(ticket);
-  const marker = await jira.tracker.claimMarker(ref);
+  const marker =
+    tracker.tracker.mirror === "structured" ? await tracker.tracker.claimMarker(ref) : null;
   if (marker) throw new Error(`${input.key} is already claimed through claim home ${marker.home}`);
-  const homeLock = claimCoordination(repository, jira.tracker, services, claimHome.home).claimLock;
+  const homeLock = claimCoordination(
+    repository,
+    tracker.tracker,
+    services,
+    claimHome.home,
+  ).claimLock;
   if (heldClaim(await homeLock.read(ref)))
     throw new Error(`${input.key} is already claimed in claim home ${claimHome.home.identity}`);
   const claimTarget = {
@@ -451,13 +398,13 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     lockRef: await homeLock.ref(ref),
     configCommit: claimHome.configCommit,
   };
-  const instructions = loadConfigurationInstructions(configuration, ticket.kind);
+  const instructions = loadConfigurationInstructions(configuration, ticketKind(ticket));
   const defaultsMessage =
     "T3 uses the calling thread's or project's default harness, model and modes; modelSelection is omitted and no catalog selection is verified.";
   const prompt =
     (catalog ? "" : `${defaultsMessage}\n\n`) +
     buildLaunchPrompt(ticket, {
-      tracker: settings.jira_site,
+      tracker: site,
       ...(instructions.runtimeContract
         ? { runtimeContract: instructions.runtimeContract.resolvedPath }
         : {}),
@@ -555,14 +502,13 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     : undefined;
   return withExecutionStore(services, statePath, async (store) => {
     let journalRun: RunRef | undefined;
-    const mirror = new JiraTrackerAdapter({
-      ...jira.options,
+    const mirror = tracker.connection.tracker({
       claimHome: claimHome.home.identity,
       claimedStatus: settings.claimed_status,
       validateClaim: eligible,
       journalWrite(pending) {
-        if (!journalRun) throw new Error("Jira write requires a recorded run");
-        return journalJiraWrite(store, journalRun, pending);
+        if (!journalRun) throw new Error("Tracker write requires a recorded run");
+        return journalTrackerWrite(store, journalRun, pending);
       },
     });
     const { claimLock } = claimCoordination(repository, mirror, services, claimHome.home, () => {
@@ -585,10 +531,10 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       recordStep: (run, state, receipt, error) =>
         store.recordStep(run, state, { receipt, plan }, error),
       saveRecoveryRequired: (run, receipt, error, evidence) => {
-        const pendingJiraWrite = mirror.pendingWrite(ref);
+        const pendingTrackerWrite = mirror.pendingWrite?.(ref);
         store.saveRecoveryRequired(run, receipt, error, {
           ...z.record(z.string(), z.unknown()).parse(evidence),
-          ...(pendingJiraWrite ? { pendingJiraWrite } : {}),
+          ...(pendingTrackerWrite ? { pendingTrackerWrite } : {}),
         });
       },
     };
@@ -646,7 +592,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       },
     }).prepare({
       ticket: ref,
-      owner: jira.owner,
+      owner: tracker.owner,
       host: adapterRefSchema.parse("t3"),
       harness: adapterRefSchema.parse(models.implementer?.harness ?? "host-default"),
       ...(models.implementer ? { model: models.implementer.model } : {}),
