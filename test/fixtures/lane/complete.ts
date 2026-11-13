@@ -10,8 +10,8 @@ import {
 import { createApplication } from "../../../src/app/application.ts";
 import { run as runCli } from "../../../src/main.ts";
 import {
-  type ExecutionConfiguration,
-  validateExecutionConfiguration,
+  type ResolvedConfiguration,
+  resolveConfiguration,
 } from "../../../src/configuration/schema.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import {
@@ -43,25 +43,16 @@ export const prUrl = "https://github.com/o/r/pull/9";
 
 const now = "2026-01-01T00:00:00.000Z";
 
-const legacyPickupConfiguration = validateExecutionConfiguration({
-  version: 1,
-  source: { path: "/project/interlock.toml", version: "sha256:fixture" },
-  project: {
-    version: 1,
-    repositories: {
-      r: { github: "o/r", path: "main", worktree_root: "worktrees", base_branch: "main" },
-    },
-    maps: {
-      "JWB-556": { repository: "r", claim_status: "In Progress", available_statuses: ["To Do"] },
-    },
-    tracker: { jira: { site: "https://x.atlassian.net" } },
-    t3: { harness: "codex", model: "test-model" },
-    defaults: {},
-    required: {},
+const pickupConfiguration: ResolvedConfiguration = {
+  ...resolveConfiguration(undefined, { jira_site: "https://x.atlassian.net" }),
+  repository: {
+    name: "r",
+    remote: "https://github.com/o/r.git",
+    path: "/project/main",
+    worktreeRoot: "/project/worktrees",
+    baseBranch: "main",
   },
-  settings: { host: "t3", harness: "codex", model: "test-model" },
-  sources: { host: "default", harness: "default", model: "default" },
-});
+};
 
 export function git(argv: string[], cwd: string, allowFailure = false) {
   const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...argv], {
@@ -192,7 +183,7 @@ export function laneCompleteFixtures() {
       mcp?: boolean;
       leaseExpiresAt?: string;
       pickedUp?: boolean;
-      configuration?: ExecutionConfiguration;
+      configuration?: ResolvedConfiguration;
     } = {},
   ) {
     const repo = repository({
@@ -224,7 +215,7 @@ export function laneCompleteFixtures() {
       status: "active",
     });
     if (options.pickedUp)
-      saveExecutionConfiguration(store, runRef, options.configuration ?? legacyPickupConfiguration);
+      saveExecutionConfiguration(store, runRef, options.configuration ?? pickupConfiguration);
     const service = gitLaneService({ store });
     const created = transitionLane(
       createLane({ id: laneRefSchema.parse("interlock-lane:complete"), ticket: ticketRef }, now),

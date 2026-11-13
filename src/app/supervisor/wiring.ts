@@ -12,7 +12,7 @@ import {
   resolveSharedConfiguration,
   sharedConfiguration,
 } from "../../configuration/project-files.ts";
-import type { ExecutionConfiguration } from "../../configuration/schema.ts";
+import type { ResolvedConfiguration } from "../../configuration/schema.ts";
 import { normalizeClaimHome } from "../../domain/claim/home.ts";
 import { gateEvidenceSchema } from "../../domain/gate/evidence.ts";
 import { adapterRefSchema, laneRefSchema, ticketRefSchema } from "../../domain/refs/identifiers.ts";
@@ -134,15 +134,12 @@ function releasedByCompletion(
   );
 }
 
-export function claimedStatus(configuration: ExecutionConfiguration | undefined) {
-  if (!configuration) return undefined;
-  return configuration.version === 2 ? configuration.settings.claimed_status : "In Progress";
+export function claimedStatus(configuration: ResolvedConfiguration | undefined) {
+  return configuration?.settings.claimed_status;
 }
 
-function repositoryPath(configuration: ExecutionConfiguration | undefined, fallback: string) {
-  return configuration?.version === 2 && configuration.repository
-    ? configuration.repository.path
-    : fallback;
+function repositoryPath(configuration: ResolvedConfiguration | undefined, fallback: string) {
+  return configuration?.repository?.path ?? fallback;
 }
 
 async function locked<T>(

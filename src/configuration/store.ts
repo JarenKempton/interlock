@@ -1,14 +1,15 @@
 import type { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { savedT3Choices, savedT3Configuration } from "../adapters/hosts/t3/legacy.ts";
 import type { RunRef } from "../domain/model.ts";
 import type { StateStore } from "../persistence/state.ts";
 import {
-  type ExecutionConfiguration,
+  type ResolvedConfiguration,
   type UserSettingKey,
   type UserSettings,
   userSettingsSchema,
-  validateExecutionConfiguration,
+  validateResolvedConfiguration,
   validateUserSettings,
 } from "./schema.ts";
 import { ledgerDb } from "../persistence/ledger-db.ts";
@@ -26,9 +27,16 @@ function decode(content: string): unknown {
   }
 }
 
-const snapshotRow = executionConfigurationRowSchema.transform((row) =>
-  validateExecutionConfiguration(savedT3Configuration(decode(row.snapshot_json))),
-);
+const versionOne = z.object({ version: z.literal(1) });
+
+const snapshotRow = executionConfigurationRowSchema.transform((row) => {
+  const snapshot = savedT3Configuration(decode(row.snapshot_json));
+  if (versionOne.safeParse(snapshot).success)
+    throw new Error(
+      `Run ${row.run_ref} was picked up with a version 1 execution configuration, which this Interlock no longer reads; finish or release it with Interlock 0.1.0-alpha.7 or earlier`,
+    );
+  return validateResolvedConfiguration(snapshot);
+});
 
 function guarded<T>(operation: () => T): T {
   try {
@@ -42,7 +50,7 @@ export function configurationStore(database: Database) {
   const db = ledgerDb(database);
   return {
     saveSnapshot(run: string, input: unknown) {
-      const snapshot = validateExecutionConfiguration(input);
+      const snapshot = validateResolvedConfiguration(input);
       guarded(() =>
         db
           .insert(executionConfigurations)
@@ -126,7 +134,7 @@ export function saveClaimHomeIfAbsent(store: StateStore, home: string): boolean 
 export function saveExecutionConfiguration(
   store: StateStore,
   run: RunRef,
-  configuration: ExecutionConfiguration,
+  configuration: ResolvedConfiguration,
 ): void {
   configurationStore(store.database).saveSnapshot(run, configuration);
 }
@@ -134,6 +142,6 @@ export function saveExecutionConfiguration(
 export function getExecutionConfiguration(
   store: StateStore,
   run: RunRef,
-): ExecutionConfiguration | undefined {
+): ResolvedConfiguration | undefined {
   return configurationStore(store.database).readSnapshot(run);
 }

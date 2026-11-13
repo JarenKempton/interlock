@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { savedT3Configuration } from "../../../src/adapters/hosts/t3/legacy.ts";
 import {
   resolveConfiguration,
-  validateExecutionConfiguration,
+  validateResolvedConfiguration,
 } from "../../../src/configuration/schema.ts";
 import { runRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { embeddedMigrations, migrateLedger } from "../../../src/persistence/migrate.ts";
@@ -97,15 +97,15 @@ test("upgrading legacy T3 runs preserves known harnesses and marks absent eviden
   }
 });
 
-test("legacy configuration translation preserves namespace keys and rejects conflicting choices", () => {
+test("legacy configuration translation renames saved choices only and rejects conflicts", () => {
   expect(
     savedT3Configuration({
-      project: { maps: { agent: "keep" }, t3: { provider: "codex" } },
+      project: { statuses: { claimed: "agent" } },
       settings: { agent: "codex" },
       sources: { agent: "default" },
     }),
   ).toEqual({
-    project: { maps: { agent: "keep" }, t3: { harness: "codex" } },
+    project: { statuses: { claimed: "agent" } },
     settings: { harness: "codex" },
     sources: { harness: "default" },
   });
@@ -113,7 +113,7 @@ test("legacy configuration translation preserves namespace keys and rejects conf
     "Conflicting",
   );
   const current = resolveConfiguration(undefined, { harness: "codex" });
-  expect(validateExecutionConfiguration(savedT3Configuration(current))).toEqual(current);
+  expect(validateResolvedConfiguration(savedT3Configuration(current))).toEqual(current);
 });
 
 test("config show reads legacy harness settings before migration without mutating the ledger", () => {

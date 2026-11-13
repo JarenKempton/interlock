@@ -111,43 +111,21 @@ export async function notifyAboutUpdate(options: UpdateCheckOptions): Promise<vo
 }
 
 interface Version {
-  parts: [number, number, number];
+  raw: string;
   prerelease: string[];
 }
 
 function parseVersion(raw: string): Version | undefined {
   const match =
-    /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+    /^v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
       raw,
     );
   if (!match) return undefined;
-  return {
-    parts: [Number(match[1]), Number(match[2]), Number(match[3])],
-    prerelease: match[4]?.split(".") ?? [],
-  };
+  return { raw: raw.replace(/^v/, ""), prerelease: match[1]?.split(".") ?? [] };
 }
 
 function compareVersions(left: Version, right: Version): number {
-  for (let index = 0; index < left.parts.length; index += 1) {
-    const difference = (left.parts[index] ?? 0) - (right.parts[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  if (left.prerelease.length === 0) return right.prerelease.length === 0 ? 0 : 1;
-  if (right.prerelease.length === 0) return -1;
-  const length = Math.max(left.prerelease.length, right.prerelease.length);
-  for (let index = 0; index < length; index += 1) {
-    const leftPart = left.prerelease[index];
-    const rightPart = right.prerelease[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-    if (leftPart === rightPart) continue;
-    const leftNumeric = /^\d+$/.test(leftPart);
-    const rightNumeric = /^\d+$/.test(rightPart);
-    if (leftNumeric && rightNumeric) return Number(leftPart) - Number(rightPart);
-    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-    return leftPart < rightPart ? -1 : 1;
-  }
-  return 0;
+  return Bun.semver.order(left.raw, right.raw);
 }
 
 function isEnabled(value: string | undefined): boolean {
