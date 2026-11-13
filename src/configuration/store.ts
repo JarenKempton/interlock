@@ -33,7 +33,7 @@ const snapshotRow = executionConfigurationRowSchema.transform((row) => {
   const snapshot = savedT3Configuration(decode(row.snapshot_json));
   if (versionOne.safeParse(snapshot).success)
     throw new Error(
-      `Run ${row.run_ref} was picked up with a version 1 execution configuration, which this Interlock no longer reads; finish or release it with Interlock 0.1.0-alpha.7 or earlier`,
+      `Run ${row.run_ref} has a version 1 execution configuration, which this Interlock no longer reads; use Interlock 0.1.0-alpha.7 or earlier for this run`,
     );
   return validateResolvedConfiguration(snapshot);
 });

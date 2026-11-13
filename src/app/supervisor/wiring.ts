@@ -138,6 +138,18 @@ export function claimedStatus(configuration: ResolvedConfiguration | undefined) 
   return configuration?.settings.claimed_status;
 }
 
+function recordedClaimedStatus(
+  store: StateStore,
+  run: RunRef,
+): { claimedStatus?: string; configurationError?: string } {
+  try {
+    const status = claimedStatus(getExecutionConfiguration(store, run));
+    return status ? { claimedStatus: status } : {};
+  } catch (error) {
+    return { configurationError: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function repositoryPath(configuration: ResolvedConfiguration | undefined, fallback: string) {
   return configuration?.repository?.path ?? fallback;
 }
@@ -240,14 +252,14 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
           (lane.ticket !== undefined && claimedTickets.has(lane.ticket));
         if (!run) return { lane, live };
         const claim = laneClaim(store, lane, run);
-        const status = claimedStatus(getExecutionConfiguration(store, run));
+        const recorded = recordedClaimedStatus(store, run);
         return {
           lane,
           live,
           run,
           recoveryRequired: runNeedsRecovery(store, run),
           ...(claim ? { claim } : {}),
-          ...(status ? { claimedStatus: status } : {}),
+          ...recorded,
         };
       });
     },

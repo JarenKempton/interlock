@@ -24,6 +24,7 @@ export interface SupervisedLane {
   recoveryRequired?: boolean;
   claim?: Claim;
   claimedStatus?: string;
+  configurationError?: string;
 }
 
 export interface ProgressMark {

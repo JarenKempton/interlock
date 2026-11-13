@@ -8,6 +8,14 @@ import { inspect, lock, pickupRuntimeFixtures, ref } from "../../fixtures/pickup
 import { rejection } from "../../fixtures/assertions/rejection.ts";
 import { launchable } from "../../fixtures/host/scripted-t3.ts";
 import { updateUserSettings } from "../../../src/configuration/store.ts";
+import { createLane, transitionLane } from "../../../src/domain/lane/lifecycle.ts";
+import {
+  adapterRefSchema,
+  claimRefSchema,
+  laneRefSchema,
+  runRefSchema,
+  ticketRefSchema,
+} from "../../../src/domain/refs/identifiers.ts";
 
 const fixture = pickupRuntimeFixtures();
 
@@ -78,6 +86,45 @@ test(
         ],
       }),
     ]);
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "a historical run with a version 1 configuration does not stop the supervisor",
+  async () => {
+    const { f, tick } = await supervised();
+    const now = "2026-01-01T00:00:00.000Z";
+    const ticket = ticketRefSchema.parse("jira:example:OLD:ticket:OLD-1");
+    const run = runRefSchema.parse("interlock-run:historical");
+    const store = new StateStore(f.state);
+    try {
+      store.saveRun({
+        ref: run,
+        ticket,
+        host: adapterRefSchema.parse("t3"),
+        harness: adapterRefSchema.parse("codex"),
+        workspace: { path: "/historical" },
+        capabilities: {},
+        status: "claimed",
+        createdAt: now,
+        updatedAt: now,
+      });
+      store.database
+        .query("INSERT INTO execution_configurations(run_ref,snapshot_json) VALUES(?,?)")
+        .run(run, JSON.stringify({ version: 1, settings: { host: "t3" }, sources: {} }));
+      const attached = transitionLane(
+        createLane({ id: laneRefSchema.parse("interlock-lane:historical"), ticket }, now),
+        { type: "attach", run, claim: claimRefSchema.parse("interlock-claim:historical") },
+        now,
+      );
+      if (attached.refusal) throw new Error(attached.refusal.message);
+      store.saveLane(attached.lane);
+    } finally {
+      store.close();
+    }
+
+    expect(await tick()).toMatchObject({ launched: [{ ticket: ref }], failures: [] });
   },
   GIT_TEST_TIMEOUT_MS,
 );

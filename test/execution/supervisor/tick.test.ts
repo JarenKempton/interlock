@@ -48,6 +48,7 @@ class World implements SupervisorPorts {
   launchFailure: string | undefined;
   log: string[] = [];
   journalEntries = new Map<LaneRef, JournalEntry[]>();
+  configurationErrors = new Map<LaneRef, string>();
 
   ticket(key: string, patch: Partial<Ticket> = {}): Ticket {
     const ticket: Ticket = {
@@ -110,12 +111,14 @@ class World implements SupervisorPorts {
   lanes = () =>
     [...this.lanesById.values()].map((lane) => {
       const claim = this.claims.get(lane.id);
+      const configurationError = this.configurationErrors.get(lane.id);
       return {
         lane,
         live: true,
         ...(lane.run ? { run: lane.run } : {}),
         ...(claim ? { claim } : {}),
         claimedStatus: "In Progress",
+        ...(configurationError ? { configurationError } : {}),
       };
     });
 
@@ -405,6 +408,23 @@ test("unrecoverable completion refusals need attention while transient ones retr
     { lane: other.id, step: "complete", message: "tracker_unavailable: refused" },
   ]);
   expect(offline.lanesById.get(other.id)?.state).toBe("approved");
+});
+
+test("a merged lane with an unreadable recorded configuration fails alone; its siblings still complete", async () => {
+  const world = new World();
+  const historical = world.lane("JWB-2", "approved");
+  const current = world.lane("JWB-3", "approved");
+  world.mergedUrls.add(historical.artifact ?? "");
+  world.mergedUrls.add(current.artifact ?? "");
+  world.configurationErrors.set(historical.id, "version 1 refused");
+
+  const report = await superviseTick(world, policy);
+
+  expect(report.failures).toEqual([
+    { lane: historical.id, step: "approved", message: "version 1 refused" },
+  ]);
+  expect(report.completed.map((item) => item.ticket)).toEqual([ref("JWB-3")]);
+  expect(world.lanesById.get(historical.id)?.state).toBe("approved");
 });
 
 test("a failed launch stops launching for the tick", async () => {

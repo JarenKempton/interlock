@@ -641,7 +641,7 @@ test("a ledger holding a version 1 execution configuration is refused with a cle
         }),
       );
     expect(() => getExecutionConfiguration(store, ref)).toThrow(
-      "Run interlock-run:historical was picked up with a version 1 execution configuration, which this Interlock no longer reads; finish or release it with Interlock 0.1.0-alpha.7 or earlier",
+      "Run interlock-run:historical has a version 1 execution configuration, which this Interlock no longer reads; use Interlock 0.1.0-alpha.7 or earlier for this run",
     );
     expect(() => configurationStore(store.database).saveSnapshot(ref, { version: 1 })).toThrow(
       "Invalid configuration at resolved",

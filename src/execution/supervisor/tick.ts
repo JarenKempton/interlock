@@ -323,8 +323,10 @@ export async function superviseTick(
     try {
       if (lane.state === "attention")
         tick.report.attention.push({ lane: lane.id, reason: lane.attentionReason ?? "attention" });
-      else if (COMPLETABLE.has(lane.state)) await tick.complete(supervised);
-      else if (supervised.recoveryRequired)
+      else if (COMPLETABLE.has(lane.state)) {
+        if (supervised.configurationError) throw new Error(supervised.configurationError);
+        await tick.complete(supervised);
+      } else if (supervised.recoveryRequired)
         tick.report.attention.push({ lane: lane.id, reason: "recovery_required" });
       else if (lane.state === "implementing") await tick.session(supervised);
     } catch (error) {
