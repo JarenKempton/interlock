@@ -467,6 +467,7 @@ test("CLI reviews an attached lane and refuses completion without an owned claim
     push: async () => {},
     pullRequests: async () => [],
     open: async () => ({ url: "https://example.test/pr/1", branch: "local/cli", state: "OPEN" }),
+    update: async () => ({ url: "https://example.test/pr/1", branch: "local/cli", state: "OPEN" }),
   };
   const services = { statePath, lane: { artifacts } };
   try {
@@ -512,4 +513,81 @@ test("the no-lens procedure reaches merge: review, attention, resume, then a per
     { type: "verdict", head: "abc", decision: "approved", findings: [] },
   );
   expect(lane.state).toBe("approved");
+});
+
+test("granting a round resumes a lane held at its round limit and allows one more round", () => {
+  let lane = drive(
+    submitted(domainLane(1)),
+    { type: "begin_review" },
+    { type: "verdict", head: "abc", decision: "changes_requested", findings: ["one"] },
+  );
+  expect(lane).toMatchObject({ state: "attention", attentionReason: "review_round_limit" });
+  lane = drive(lane, { type: "grant_round" });
+  expect(lane).toMatchObject({ state: "implementing", maxReviewRounds: 2, reviewRound: 1 });
+  expect(lane.attentionReason).toBeUndefined();
+  lane = drive(lane, {
+    type: "submit",
+    artifact: "https://example.test/pr/1",
+    head: "def",
+    evidence: [{ gate: "test", head: "def", url: "https://example.test/2" }],
+  });
+  expect(lane).toMatchObject({ state: "submitted", reviewRound: 2 });
+  const reviewing = drive(lane, { type: "begin_review" });
+  expect(drive(reviewing, { type: "grant_round" })).toMatchObject({
+    state: "reviewing",
+    maxReviewRounds: 3,
+  });
+});
+
+test("CLI lane grant-round records the grant in the ledger", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "interlock-lane-grant-"));
+  const statePath = join(directory, "interlock.db");
+  const run = runRefSchema.parse("interlock-run:grant");
+  const seed = new StateStore(statePath);
+  seed.saveRun({
+    ref: run,
+    ticket: ticketRef,
+    host: adapterRefSchema.parse("t3"),
+    harness: adapterRefSchema.parse("t3"),
+    workspace: { path: directory, branch: "task/A-1" },
+    status: "claimed",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const held = drive(
+    createLane({ id: laneRefSchema.parse("interlock-lane:grant"), ticket: ticketRef }, now),
+    { type: "attach", run, claim: "interlock-claim:grant" },
+    { type: "submit", artifact: "https://example.test/pr/1", head: "abc", evidence },
+    { type: "attention", reason: "review_round_limit" },
+  );
+  seed.saveLane({ ...held, previousState: "implementing" });
+  seed.close();
+  try {
+    const output: string[] = [];
+    const code = await runCli(
+      ["lane", "grant-round", "--ticket", "A-1", "--state", statePath, "--json"],
+      (text) => output.push(text),
+      {},
+    );
+    expect(code).toBe(0);
+    expect(JSON.parse(output.join("\n"))).toMatchObject({
+      ok: true,
+      value: { state: "implementing", maxReviewRounds: 4 },
+    });
+    const store = new StateStore(statePath);
+    try {
+      expect(
+        store.steps(run).map((step) => [step.state, JSON.parse(step.receipt_json ?? "")]),
+      ).toEqual([
+        [
+          "review_round_granted",
+          { lane: held.id, reviewRound: 1, maxReviewRounds: 4, state: "implementing" },
+        ],
+      ]);
+    } finally {
+      store.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

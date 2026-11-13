@@ -277,6 +277,7 @@ export function laneCompleteFixtures() {
       push: async () => {},
       pullRequests: async () => [{ url: prUrl, branch, state: "MERGED" as const }],
       open: async () => ({ url: prUrl, branch, state: "OPEN" as const }),
+      update: async () => ({ url: prUrl, branch, state: "OPEN" as const }),
       merged: async (url: string) => {
         views.push(url);
         await options.onProof?.();

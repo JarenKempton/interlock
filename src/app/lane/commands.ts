@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { GitHubArtifactHost } from "../../adapters/github/artifact.ts";
@@ -130,7 +131,15 @@ export function laneActions(services: RuntimeServices) {
         "evidence-url": optional(
           text("Evidence URL for the gate at the pushed head commit.", "URL"),
         ),
-        title: optional(text("Pull request title; the ticket key is prefixed.", "TITLE")),
+        title: optional(
+          text("Pull request title; defaults to the ticket title, prefixed with its key.", "TITLE"),
+        ),
+        "body-file": optional(
+          text(
+            "Markdown file with the pull request body, such as the acceptance evidence.",
+            "PATH",
+          ),
+        ),
         draft: flag("Open the pull request as a draft."),
         state,
       },
@@ -148,6 +157,14 @@ export function laneActions(services: RuntimeServices) {
                 ? [{ gate: input.gate, head: input.head, url: input["evidence-url"] }]
                 : [],
             ...(input.title ? { title: input.title } : {}),
+            ...(input["body-file"]
+              ? {
+                  body: readFileSync(
+                    resolve(services.configuration?.cwd ?? process.cwd(), input["body-file"]),
+                    "utf8",
+                  ),
+                }
+              : {}),
             draft: input.draft === true,
           }),
         ),
@@ -213,6 +230,14 @@ export function laneActions(services: RuntimeServices) {
       input: { ...selector, state },
       result: laneResult,
       handler: (input) => apply(input, { type: "resume" }),
+      exitCode,
+    }),
+    "grant-round": defineAction({
+      description:
+        "Grant a lane one more review round, recorded in the ledger; a lane held at its round limit resumes.",
+      input: { ...selector, state },
+      result: laneResult,
+      handler: (input) => selected(input, (laneService, id) => laneService.grantRound(id)),
       exitCode,
     }),
   };

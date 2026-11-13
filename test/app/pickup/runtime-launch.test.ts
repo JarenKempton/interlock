@@ -41,7 +41,7 @@ test(
       join(f.root, basename(f.remote.alice)),
       "-",
       "--title",
-      "TEST-492: Prepare a real pickup",
+      "🔨 TEST-492: Prepare a real pickup",
       "--worktree",
       base,
       "--branch",

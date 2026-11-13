@@ -3,7 +3,7 @@ import { GitHubArtifactHost } from "../../../src/adapters/github/artifact.ts";
 import type { CommandResult, GitCommandExecutor } from "../../../src/adapters/git/workspace.ts";
 import type { ArtifactTarget } from "../../../src/domain/submission/artifact.ts";
 import { checkedGit, gitRemoteFixture } from "../../fixtures/git/remote.ts";
-import { expectRejection } from "../../fixtures/assertions/rejection.ts";
+import { expectRejection, rejection } from "../../fixtures/assertions/rejection.ts";
 
 const head = "a".repeat(40);
 const branch = "feature/JWB-878";
@@ -206,4 +206,86 @@ test("merge proof names the repository exactly as prepare and the submission rec
   const prepared = await host.prepare({ path: target.path, branch }, head);
   expect(prepared.repository).toBe("github.com/jarenkempton/interlock");
   expect((await host.merged(url)).repository).toBe(prepared.repository);
+});
+
+test("failing gh and git calls carry their stderr, with credentials in URLs redacted", async () => {
+  const failing = (argv: readonly string[], stderr: string) =>
+    new Commands((call) =>
+      call.join(" ") === argv.join(" ") ? { exitCode: 1, stdout: "", stderr } : undefined,
+    );
+  const list = failing(
+    [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      "github.com/o/r",
+      "--state",
+      "all",
+      "--head",
+      branch,
+      "--json",
+      "url,headRefName,title,state",
+      "--limit",
+      "1000",
+    ],
+    "HTTP 502: Bad Gateway (https://api.github.com/graphql)\n",
+  );
+  await expectRejection(new GitHubArtifactHost(list).pullRequests(target)).toThrow(
+    "gh pr list exited 1: HTTP 502: Bad Gateway (https://api.github.com/graphql)",
+  );
+  const push = failing(
+    ["git", "push", "--porcelain", remote, `${head}:refs/heads/${branch}`],
+    "fatal: unable to access 'https://x-access-token:ghs_secret@github.com/o/r.git/': 403",
+  );
+  const pushed = await rejection(new GitHubArtifactHost(push).push(target));
+  expect(pushed.message).toBe(
+    "git push --porcelain exited 1: fatal: unable to access 'https://***@github.com/o/r.git/': 403",
+  );
+  const prepare = failing(
+    ["git", "rev-parse", "--verify", `refs/heads/${branch}`],
+    "fatal: Needed a single revision",
+  );
+  await expectRejection(
+    new GitHubArtifactHost(prepare).prepare({ path: target.path, branch }, head),
+  ).toThrow("git rev-parse --verify exited 1: fatal: Needed a single revision");
+});
+
+test("update edits the PR title and body, then reads the PR back", async () => {
+  const commands = new Commands();
+  commands.view = { ...pr, title: "JWB-878: new title" };
+  const updated = await new GitHubArtifactHost(commands).update(target, pr.url, {
+    title: "JWB-878: new title",
+    body: "evidence",
+  });
+  expect(updated).toEqual({ url: pr.url, branch, title: "JWB-878: new title", state: "OPEN" });
+  expect(commands.calls.filter((argv) => argv[0] === "gh")).toEqual([
+    [
+      "gh",
+      "pr",
+      "edit",
+      pr.url,
+      "--repo",
+      "github.com/o/r",
+      "--title",
+      "JWB-878: new title",
+      "--body",
+      "evidence",
+    ],
+    [
+      "gh",
+      "pr",
+      "view",
+      pr.url,
+      "--repo",
+      "github.com/o/r",
+      "--json",
+      "url,headRefName,title,state",
+    ],
+  ]);
+  await expectRejection(
+    new GitHubArtifactHost(commands).update(target, "https://github.com/cli/cli/pull/7", {
+      title: "x",
+    }),
+  ).toThrow("verified push repository");
 });

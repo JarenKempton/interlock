@@ -49,6 +49,9 @@ export function runActions(services: RuntimeServices) {
         ),
         "dry-run": flag("Print the launch plan without mutations."),
         launch: flag("Launch the lane through the t3 CLI after claiming."),
+        orchestrator: optional(
+          text("T3 thread the launched lane reports to and may ask questions of.", "THREAD"),
+        ),
       },
       result: pickupResultSchema,
       handler: (input) =>
@@ -61,6 +64,7 @@ export function runActions(services: RuntimeServices) {
           t3Catalog: input["t3-catalog"],
           dryRun: input["dry-run"],
           launch: input.launch,
+          orchestrator: input.orchestrator,
         }),
     }),
     runs: {

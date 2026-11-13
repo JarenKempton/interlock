@@ -150,9 +150,10 @@ test(
       expect(normalize(refusal, replacements)).toMatchSnapshot("lane refusal");
       services.lane = {
         tracker: {
-          read: async () => {
-            throw new Error("Unexpected tracker read");
-          },
+          read: async (ref) => ({
+            ticket: { ref, state: "open", status: "In Progress", title: "Prepare a real pickup" },
+            snapshot: { version: "1", payload: null },
+          }),
           linkArtifact: async () => {},
         },
         artifacts: {
@@ -170,6 +171,9 @@ test(
             title: request.title,
             state: "OPEN",
           }),
+          update: async () => {
+            throw new Error("Unexpected pull request update");
+          },
         },
       };
       const head = "a".repeat(40);

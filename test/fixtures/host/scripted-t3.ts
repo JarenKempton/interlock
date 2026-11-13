@@ -19,6 +19,7 @@ export class ScriptedT3 implements T3Process {
   bound: { path: string; branch: string; title: string } | undefined;
   listed = true;
   prompt: string | undefined;
+  sent: { thread: string; message: string }[] = [];
 
   constructor(readonly f: Fixture) {}
 
@@ -48,6 +49,10 @@ export class ScriptedT3 implements T3Process {
       expect(stdin).toContain("interlock");
       this.prompt = stdin;
       return ok({ threadId: "thread-1", projectId: "project-1", runId: "run-1" });
+    }
+    if (subcommand === "send") {
+      this.sent.push({ thread: argv[3] ?? "", message: stdin ?? "" });
+      return ok({ threadId: argv[3] });
     }
     if (subcommand === "show" && this.bound)
       return ok({ thread: this.thread(this.bound), messages: [] });

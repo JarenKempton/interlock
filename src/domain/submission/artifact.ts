@@ -24,10 +24,16 @@ export interface ArtifactRequest {
   draft: boolean;
 }
 
+export interface ArtifactUpdate {
+  title: string;
+  body?: string;
+}
+
 export interface ArtifactHost {
   prepare(workspace: ArtifactWorkspace, head: string): Promise<ArtifactTarget>;
   push(target: ArtifactTarget): Promise<void>;
   pullRequests(target: ArtifactTarget, key?: string): Promise<PullRequest[]>;
   open(target: ArtifactTarget, request: ArtifactRequest): Promise<PullRequest>;
+  update(target: ArtifactTarget, url: string, request: ArtifactUpdate): Promise<PullRequest>;
   merged?(url: string): Promise<MergeProof>;
 }

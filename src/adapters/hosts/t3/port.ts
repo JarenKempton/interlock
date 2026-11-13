@@ -19,7 +19,7 @@ import {
   listSchema,
   parseJson,
   readT3ServerDescriptor,
-  sentSchema,
+  sendT3Message,
   showSchema,
   type T3Process,
   type threadSchema,
@@ -56,6 +56,11 @@ export interface T3HostPortOptions {
 }
 
 const PROTOCOL = 2;
+const LANE_TITLE_MARK = "🔨 ";
+
+export function laneThreadTitle(key: string, summary: string): string {
+  return `${LANE_TITLE_MARK}${key}: ${summary}`;
+}
 const FAILED = new Set(["failed", "cancelled", "rolled_back", "interrupted"]);
 type Thread = z.infer<typeof threadSchema>;
 
@@ -77,7 +82,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
     if (!cliVersion)
       throw new HostRefusal(
         "host_unavailable",
-        `The t3 CLI at ${this.#cli} is not runnable: ${detail(version)}`,
+        `The t3 CLI at ${this.#cli} is not runnable: ${t3Failure(version)}`,
       );
     const descriptor = descriptorSchema.safeParse(await this.#descriptor());
     if (!descriptor.success)
@@ -96,7 +101,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
     if (listed.exitCode !== 0 || !parseJson(listSchema, listed.stdout))
       throw new HostRefusal(
         "host_unavailable",
-        `T3 cannot list threads for project ${this.#options.project}: ${detail(listed)}`,
+        `T3 cannot list threads for project ${this.#options.project}: ${t3Failure(listed)}`,
       );
     this.#environment = environmentId;
   }
@@ -148,7 +153,7 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
         reason:
           started.exitCode === 0
             ? "t3 thread start exited 0 without a readable thread"
-            : `t3 thread start failed: ${detail(started)}`,
+            : `t3 thread start failed: ${t3Failure(started)}`,
         acknowledged: started.exitCode === 0,
       };
     return this.#readback(environment, plan, launched.threadId, launched.projectId);
@@ -162,7 +167,11 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
     const environment = await this.#environmentId();
     return bindings.flatMap((binding) =>
       threads
-        .filter((thread) => thread.title.startsWith(`${binding.key}:`))
+        .filter((thread) =>
+          [`${binding.key}:`, `${LANE_TITLE_MARK}${binding.key}:`].some((prefix) =>
+            thread.title.startsWith(prefix),
+          ),
+        )
         .map((thread) => session(environment, binding, thread)),
     );
   }
@@ -179,14 +188,15 @@ export class T3HostPort implements HostCapability<T3LaunchPlan> {
     session: HostSession;
     message: string;
   }): Promise<HostSteerResult> {
-    const sent = await this.#t3(
-      ["thread", "send", request.session.session, "-", "--json"],
+    const sent = await sendT3Message(
+      this.#process,
+      this.#cli,
+      request.session.session,
       request.message,
     );
-    const parsed = sent.exitCode === 0 ? parseJson(sentSchema, sent.stdout) : undefined;
-    return parsed?.threadId === request.session.session
+    return sent.delivered
       ? { state: "delivered" }
-      : { state: "ambiguous", reason: `t3 thread send was not confirmed: ${detail(sent)}` };
+      : { state: "ambiguous", reason: `t3 thread send was not confirmed: ${t3Failure(sent)}` };
   }
 
   async recover(request: {
@@ -332,7 +342,7 @@ function view(
   };
 }
 
-function detail(result: { exitCode: number; stderr: string }): string {
+export function t3Failure(result: { exitCode: number; stderr: string }): string {
   const lines = result.stderr
     .split("\n")
     .map((line) => line.trim())

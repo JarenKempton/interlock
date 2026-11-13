@@ -19,7 +19,7 @@ import {
 
 const fixture = pickupRuntimeFixtures();
 
-async function supervised() {
+async function supervised(orchestrator?: string) {
   const f = await fixture();
   mkdirSync(dirname(f.state), { recursive: true });
   const store = new StateStore(f.state);
@@ -34,6 +34,7 @@ async function supervised() {
       project: `TEST-470=${f.remote.alice}`,
       once: true,
       state: f.state,
+      ...(orchestrator ? { orchestrator } : {}),
     });
     if (typeof report === "string") throw new Error(report);
     return report;
@@ -266,6 +267,42 @@ test(
       }),
     );
     expect(refused.message).toContain("--only needs comma-separated ticket keys, not nope");
+  },
+  GIT_TEST_TIMEOUT_MS,
+);
+
+test(
+  "run --orchestrator launches a 🔨 lane told its orchestrator, and reports its attention there once",
+  async () => {
+    const { f, tick, t3 } = await supervised("thread-orchestrator");
+
+    expect(await tick()).toMatchObject({ launched: [{ ticket: ref }], failures: [] });
+    expect(t3.bound?.title).toBe("🔨 TEST-492: Prepare a real pickup");
+    expect(t3.prompt).toContain("Orchestrator:\nThread thread-orchestrator.");
+    const lane = inspect(f, (store) => store.laneForTicket(ref));
+    if (!lane) throw new Error("Pickup recorded no lane");
+    const routed = await createApplication(f.services).lane.attention.execute({
+      lane: lane.id,
+      reason: "reviewer_unavailable",
+      state: f.state,
+    });
+    expect(routed).toMatchObject({ ok: true, value: { state: "attention" } });
+
+    const reported = await tick();
+    await tick();
+
+    expect(reported.reported).toEqual([
+      { lane: lane.id, event: expect.stringContaining("attention:reviewer_unavailable:") },
+    ]);
+    expect(t3.sent).toEqual([
+      {
+        thread: "thread-orchestrator",
+        message: [
+          "🤖 TEST-492 is blocked: reviewer_unavailable",
+          `Resume after fixing it with: interlock lane resume ${lane.id}`,
+        ].join("\n"),
+      },
+    ]);
   },
   GIT_TEST_TIMEOUT_MS,
 );
