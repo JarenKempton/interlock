@@ -13,19 +13,15 @@ import {
   GitWorkspaceAdapter,
   gitWorkspaceFileSystem,
 } from "../../adapters/git/workspace.ts";
-import {
-  configurationReference,
-  loadConfigurationInstructions,
-  projectConfigPath,
-} from "../../configuration/files.ts";
+import { loadConfigurationInstructions, projectConfigPath } from "../../configuration/files.ts";
 import { readUserSettings } from "../../configuration/local-settings.ts";
 import {
   resolveSharedConfiguration,
   sharedConfiguration,
 } from "../../configuration/project-files.ts";
 import {
-  type ExecutionConfiguration,
   REVIEWER_CHOICE_KEYS,
+  type ResolvedConfiguration,
   reviewChoicesFrom,
   type UserSettings,
 } from "../../configuration/schema.ts";
@@ -218,26 +214,11 @@ export async function withExecutionStore<T>(
   }
 }
 
-export function executionTarget(configuration: ExecutionConfiguration, repositoryName: string) {
-  if (configuration.version === 2) {
-    const { repository, settings } = configuration;
-    if (!repository || !settings.jira_site)
-      throw new Error("Recorded execution configuration has no repository or tracker site");
-    return { repository, site: settings.jira_site, claimedStatus: settings.claimed_status };
-  }
-  const repository = configuration.project.repositories[repositoryName];
-  if (!repository) throw new Error("Configured repository is missing");
-  return {
-    repository: {
-      name: repositoryName,
-      path: configurationReference(configuration.source.path, repository.path),
-      worktreeRoot: configurationReference(configuration.source.path, repository.worktree_root),
-      baseBranch: repository.base_branch,
-      remote: `https://github.com/${repository.github}.git`,
-    },
-    site: configuration.project.tracker.jira.site,
-    claimedStatus: "In Progress",
-  };
+export function executionTarget(configuration: ResolvedConfiguration) {
+  const { repository, settings } = configuration;
+  if (!repository || !settings.jira_site)
+    throw new Error("Recorded execution configuration has no repository or tracker site");
+  return { repository, site: settings.jira_site, claimedStatus: settings.claimed_status };
 }
 
 async function branchKnown(git: GitCommandExecutor, cwd: string, branch: string) {

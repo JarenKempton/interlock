@@ -11,7 +11,7 @@ import {
   resolveSharedConfiguration,
   sharedConfiguration,
 } from "../../configuration/project-files.ts";
-import type { ExecutionConfiguration } from "../../configuration/schema.ts";
+import type { ResolvedConfiguration } from "../../configuration/schema.ts";
 import { normalizeClaimHome } from "../../domain/claim/home.ts";
 import { gateEvidenceSchema } from "../../domain/gate/evidence.ts";
 import { adapterRefSchema, laneRefSchema, ticketRefSchema } from "../../domain/refs/identifiers.ts";
@@ -135,15 +135,24 @@ function releasedByCompletion(
   );
 }
 
-export function claimedStatus(configuration: ExecutionConfiguration | undefined) {
-  if (!configuration) return undefined;
-  return configuration.version === 2 ? configuration.settings.claimed_status : "In Progress";
+export function claimedStatus(configuration: ResolvedConfiguration | undefined) {
+  return configuration?.settings.claimed_status;
 }
 
-function repositoryPath(configuration: ExecutionConfiguration | undefined, fallback: string) {
-  return configuration?.version === 2 && configuration.repository
-    ? configuration.repository.path
-    : fallback;
+function recordedClaimedStatus(
+  store: StateStore,
+  run: RunRef,
+): { claimedStatus?: string; configurationError?: string } {
+  try {
+    const status = claimedStatus(getExecutionConfiguration(store, run));
+    return status ? { claimedStatus: status } : {};
+  } catch (error) {
+    return { configurationError: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function repositoryPath(configuration: ResolvedConfiguration | undefined, fallback: string) {
+  return configuration?.repository?.path ?? fallback;
 }
 
 async function locked<T>(
@@ -247,14 +256,14 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
           (lane.ticket !== undefined && claimedTickets.has(lane.ticket));
         if (!run) return { lane, live };
         const claim = laneClaim(store, lane, run);
-        const status = claimedStatus(getExecutionConfiguration(store, run));
+        const recorded = recordedClaimedStatus(store, run);
         return {
           lane,
           live,
           run,
           recoveryRequired: runNeedsRecovery(store, run),
           ...(claim ? { claim } : {}),
-          ...(status ? { claimedStatus: status } : {}),
+          ...recorded,
         };
       });
     },

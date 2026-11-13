@@ -63,17 +63,7 @@ export async function releaseClaim(
     const run = store.run(claim.run);
     const configuration = getExecutionConfiguration(store, run.ref);
     if (!configuration) throw new Error("Release requires the recorded execution configuration");
-    const intent = z
-      .object({ receipt_json: z.string() })
-      .parse(
-        store
-          .steps(run.ref)
-          .find((step) => z.object({ state: z.literal("planning") }).safeParse(step).success),
-      );
-    const plan = z
-      .object({ plan: z.object({ repository: z.string() }) })
-      .parse(JSON.parse(intent.receipt_json)).plan;
-    const { repository, site, claimedStatus } = executionTarget(configuration, plan.repository);
+    const { repository, site, claimedStatus } = executionTarget(configuration);
     if (resolve(repository.worktreeRoot, key ?? "") !== run.workspace.path)
       throw new Error("Recorded workspace does not match its selected repository");
     const entry = trackerOf(claim.ticket);
