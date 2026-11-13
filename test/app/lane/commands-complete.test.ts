@@ -11,7 +11,8 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
-import type { Ticket, TicketRef } from "../../../src/domain/model.ts";
+import type { TicketRef } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
 import { BunGitCommandExecutor } from "../../../src/adapters/git/workspace.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import {
@@ -374,7 +375,6 @@ function dependent(key: string, blockers: TicketRef[], options: Partial<Ticket> 
     kind: "task",
     state: "open",
     status: "To Do",
-    order: 0,
     dependencies: blockers.map((blocker) => blocks(blocker, jwb(key))),
     ...options,
   };

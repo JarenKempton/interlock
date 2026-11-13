@@ -8,16 +8,8 @@ import type {
 } from "../../domain/contracts.ts";
 import { ClaimCollisionError } from "../../domain/contracts.ts";
 import { HostLaunchUnresolvedError } from "../../domain/host/capability.ts";
-import {
-  type Claim,
-  capabilities,
-  type PreparedWorkspace,
-  type Run,
-  type RunRef,
-  requireCapabilities,
-  type Ticket,
-  type TrackerSnapshot,
-} from "../../domain/model.ts";
+import type { Claim, PreparedWorkspace, Run, RunRef, TrackerSnapshot } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import type { Tracker } from "../../domain/tracker/port.ts";
 import { ClaimCoordinator } from "../claim/coordinator.ts";
 
@@ -97,7 +89,6 @@ export class PickupCoordinator {
       host: request.host,
       harness: request.harness,
       workspace: { path: "" },
-      capabilities: capabilities(),
       status: "planning",
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
@@ -107,10 +98,6 @@ export class PickupCoordinator {
     if (ticket.state !== "open" || ticket.assignee !== undefined) {
       throw new Error("Ticket is not claimable");
     }
-    requireCapabilities(
-      await this.#options.claimLock.describe(),
-      capabilities("conditional_update"),
-    );
     await this.#options.workspace.preflight(ticket);
     const plan = await this.#options.workspace.plan(ticket);
 

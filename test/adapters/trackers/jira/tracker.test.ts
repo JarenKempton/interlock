@@ -28,7 +28,7 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../../../src/domain/refs/identifiers.ts";
-import { type ActorRef, capabilities, type TrackerSnapshot } from "../../../../src/domain/model.ts";
+import type { ActorRef, TrackerSnapshot } from "../../../../src/domain/model.ts";
 import type { MirrorRestore } from "../../../../src/domain/tracker/port.ts";
 import { ClaimCoordinator } from "../../../../src/execution/claim/coordinator.ts";
 import {
@@ -134,7 +134,6 @@ function adapter(api: FakeJira, validateClaim?: JiraTrackerOptions["validateClai
     namespace: "JWB",
     transport: api,
     ...(validateClaim ? { validateClaim } : {}),
-    rankField: "customfield_rank",
     claimHome: "github.com/jarenkempton/interlock",
   });
 }
@@ -226,14 +225,15 @@ describe("completion mirror removal", () => {
 });
 
 describe("Jira tracker read adapter", () => {
-  test("hydrates map tickets in standard Jira LexoRank order without numeric parsing", async () => {
+  test("lists map tickets in the order Jira's search returns them", async () => {
     const api = new FakeJira();
     api.issues = [issue("JWB-LOW", { rank: "0|zzzzz:" }), issue("JWB-HIGH", { rank: "0|aaaaa:" })];
-    const tickets = await adapter(api).list_work(map);
-    expect(tickets.map((item) => [String(item.ref), item.order, item.metadata?.rank])).toEqual([
-      ["jira:responsibid:JWB:ticket:JWB-HIGH", 0, "0|aaaaa:"],
-      ["jira:responsibid:JWB:ticket:JWB-LOW", 1, "0|zzzzz:"],
+    const tickets = await adapter(api).listWork(map);
+    expect(tickets.map((item) => String(item.ref))).toEqual([
+      "jira:responsibid:JWB:ticket:JWB-HIGH",
+      "jira:responsibid:JWB:ticket:JWB-LOW",
     ]);
+    expect(tickets.every((item) => !("order" in item))).toBe(true);
     const search = api.requests.find((request) => request.path === "/rest/api/3/search/jql");
     expect(search?.body).toMatchObject({ jql: 'parent = "JWB-274" ORDER BY Rank ASC' });
   });
@@ -264,7 +264,7 @@ describe("Jira tracker read adapter", () => {
         ],
       }),
     ];
-    const tickets = await adapter(api).list_work(map);
+    const tickets = await adapter(api).listWork(map);
     const current = required(tickets, 1);
     expect(current.dependencies).toEqual([
       {
@@ -289,10 +289,11 @@ describe("Jira tracker read adapter", () => {
     ).toBe(true);
   });
 
-  test("read derives its stable order from the complete parent map", async () => {
+  test("read reads one issue and never searches its map", async () => {
     const api = new FakeJira();
     api.issues = [issue("JWB-OTHER", { rank: "0|aaaaa:" }), issue("JWB-288", { rank: "0|bbbbb:" })];
-    expect((await adapter(api).read(ticket)).ticket).toMatchObject({ ref: ticket, map, order: 1 });
+    expect((await adapter(api).read(ticket)).ticket).toMatchObject({ ref: ticket, map });
+    expect(api.requests.some((request) => request.path === "/rest/api/3/search/jql")).toBe(false);
   });
 
   test("read reads the ticket without mutation", async () => {
@@ -414,17 +415,6 @@ async function lockedJira(api: FakeJira, firstTracker = adapter(api)) {
 }
 
 describe("Jira mirror behind the Git claim lock", () => {
-  test(
-    "only the claim lock advertises conditional ownership",
-    async () => {
-      const { first } = await lockedJira(new FakeJira());
-      const described = await first.lock.describe();
-      expect(described).toMatchObject(capabilities("conditional_update"));
-      expect(await adapter(new FakeJira()).describe()).not.toHaveProperty("conditional_update");
-    },
-    GIT_TEST_TIMEOUT_MS,
-  );
-
   test(
     "claim -> verify -> release restores Jira and releases the lock",
     async () => {
@@ -593,12 +583,6 @@ test("Jira requests and normalizes summary and ADF acceptance context without mu
   expect(result.title).toBe("Implement context");
   expect(result.description).toContain("Acceptance Criteria\nPreserve all ticket context.");
   expect(api.requests[0]?.path).toContain("summary,description");
-  expect(
-    z
-      .object({ fields: z.array(z.string()) })
-      .optional()
-      .parse(api.requests.find((request) => request.method === "POST")?.body)?.fields,
-  ).toEqual(expect.arrayContaining(["summary", "description"]));
   expect(api.mutationCount()).toBe(0);
 });
 
@@ -640,7 +624,6 @@ describe("Jira basic-auth transport", () => {
       instance: "responsibid",
       namespace: "JWB",
       transport: jiraBasicAuthTransport(jiraCredentials, recordingHttp(api, calls)),
-      rankField: "customfield_rank",
     });
     const result = (await subject.read(ticket)).ticket;
     expect(result).toMatchObject({ title: "Live summary", description: "Live description" });
@@ -652,8 +635,8 @@ describe("Jira basic-auth transport", () => {
         Authorization: `Basic ${btoa("lane@example.com:token-value")}`,
         Accept: "application/json",
       });
-    expect(calls[1]?.request).toMatchObject({ method: "POST" });
-    expect(calls[1]?.request.headers?.["Content-Type"]).toBe("application/json");
+    expect(calls[0]?.request).toMatchObject({ method: "GET" });
+    expect(calls[0]?.url).toContain("fields=summary,description");
     expect(api.mutationCount()).toBe(0);
   });
 
@@ -717,7 +700,6 @@ test("Jira satisfies portable tracker conformance through its injected transport
               kind: "task" as const,
               state: "open" as const,
               status: fields.status.name,
-              order: 0,
               ...(fields.assignee
                 ? { assignee: actorRefSchema.parse(fields.assignee.accountId) }
                 : {}),
@@ -848,7 +830,7 @@ test("an acknowledged no-op claim property write cannot advance assignment or st
   expect(api.mutationCount()).toBe(1);
 });
 
-test("Jira mirror without read configuration cannot advertise or perform normalized reads", async () => {
+test("Jira declares the structured mirror tier and needs no read configuration", async () => {
   const api = new FakeJira();
   const subject = new JiraTrackerAdapter({
     instance: "responsibid",
@@ -856,17 +838,15 @@ test("Jira mirror without read configuration cannot advertise or perform normali
     transport: api,
     claimHome: "github.com/jarenkempton/interlock",
   });
-  expect(await subject.describe()).toEqual({ link_artifact: true, transition: true });
-  await expectRejection(subject.read(ticket)).toThrow("normalized reads require");
-  await expectRejection(subject.list_work(map)).toThrow("normalized reads require");
-  expect(api.requests).toEqual([]);
+  expect(subject.mirror).toBe("structured");
+  expect((await subject.read(ticket)).ticket.ref).toBe(ticket);
   const claim = claimRequest(owner, "c", "absent");
   await subject.apply(claim);
   await subject.verify({ ...claim, state: "applied" });
   await subject.restore(restoreRequest());
   await subject.verify({ ...restoreRequest(), state: "restored" });
   expect(api.mirror()).toEqual({ assignee: null, status: "To Do", claim: null });
-  expect(api.requests[0]?.path).not.toContain("customfield");
+  expect(api.requests.some((request) => request.path.includes("customfield"))).toBe(false);
 });
 
 test.each([
@@ -950,7 +930,7 @@ describe("Jira link_artifact", () => {
 
   test("writes one remote link keyed by the PR URL and reads it back", async () => {
     const api = new FakeRemoteLinks();
-    await linker(api).link_artifact(linkTicket, pr, "JWB-1: title");
+    await linker(api).linkArtifact(linkTicket, pr, "JWB-1: title");
     expect(api.links.get(pr)).toEqual({ url: pr, title: "JWB-1: title" });
     expect(api.posts).toBe(1);
   });
@@ -958,7 +938,7 @@ describe("Jira link_artifact", () => {
   test("an already-linked PR is adopted without a duplicate write", async () => {
     const api = new FakeRemoteLinks();
     api.links.set(pr, { url: pr, title: "existing" });
-    await linker(api).link_artifact(linkTicket, pr);
+    await linker(api).linkArtifact(linkTicket, pr);
     expect(api.posts).toBe(0);
     expect(api.links.size).toBe(1);
   });
@@ -966,7 +946,7 @@ describe("Jira link_artifact", () => {
   test("a different link under the same globalId is refused, not overwritten", async () => {
     const api = new FakeRemoteLinks();
     api.links.set(pr, { url: "https://elsewhere.test", title: "other" });
-    await expectRejection(linker(api).link_artifact(linkTicket, pr)).toBeInstanceOf(
+    await expectRejection(linker(api).linkArtifact(linkTicket, pr)).toBeInstanceOf(
       ArtifactLinkConflictError,
     );
     expect(api.posts).toBe(0);
@@ -983,7 +963,7 @@ describe("Jira link_artifact", () => {
     ]) {
       const api = new FakeRemoteLinks();
       setup(api);
-      await expectRejection(linker(api).link_artifact(linkTicket, pr)).toBeInstanceOf(
+      await expectRejection(linker(api).linkArtifact(linkTicket, pr)).toBeInstanceOf(
         AmbiguousTrackerResultError,
       );
     }
@@ -992,18 +972,18 @@ describe("Jira link_artifact", () => {
   test("an ambiguous write is resolved by readback, and a retry adopts the link", async () => {
     const lost = new FakeRemoteLinks();
     lost.postOutcome = "lost_response";
-    await linker(lost).link_artifact(linkTicket, pr);
+    await linker(lost).linkArtifact(linkTicket, pr);
     expect(lost.links.size).toBe(1);
 
     const unreadable = new FakeRemoteLinks();
     unreadable.postOutcome = "server_error";
     unreadable.readback = "fail";
-    await expectRejection(linker(unreadable).link_artifact(linkTicket, pr)).toBeInstanceOf(
+    await expectRejection(linker(unreadable).linkArtifact(linkTicket, pr)).toBeInstanceOf(
       AmbiguousTrackerResultError,
     );
     unreadable.readback = "ok";
     unreadable.posts = 0;
-    await linker(unreadable).link_artifact(linkTicket, pr);
+    await linker(unreadable).linkArtifact(linkTicket, pr);
     expect(unreadable.posts).toBe(0);
     expect(unreadable.links.size).toBe(1);
   });
@@ -1011,9 +991,9 @@ describe("Jira link_artifact", () => {
   test("a definite rejection is a plain failure, not ambiguous", async () => {
     const api = new FakeRemoteLinks();
     api.postOutcome = "forbidden";
-    const failure = linker(api).link_artifact(linkTicket, pr);
+    const failure = linker(api).linkArtifact(linkTicket, pr);
     await expectRejection(failure).toThrow("Jira link artifact failed (403)");
-    await expectRejection(linker(api).link_artifact(linkTicket, pr)).not.toBeInstanceOf(
+    await expectRejection(linker(api).linkArtifact(linkTicket, pr)).not.toBeInstanceOf(
       AmbiguousTrackerResultError,
     );
   });

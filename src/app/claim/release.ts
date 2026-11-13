@@ -1,18 +1,20 @@
 import { resolve } from "node:path";
 import { z } from "zod";
-import {
-  JiraTrackerAdapter,
-  PendingJiraWriteError,
-  pendingJiraWriteSchema,
-} from "../../adapters/trackers/jira/tracker.ts";
 import { GitWorkspaceAdapter, gitWorkspaceFileSystem } from "../../adapters/git/workspace.ts";
 import { lockExecution } from "../../persistence/execution-lock.ts";
 import { CLAIM_RECORD_VERSION } from "../../domain/claim/lock.ts";
+import { PendingTrackerWriteError } from "../../domain/contracts.ts";
 import { claimRefSchema, runRefSchema, ticketRefSchema } from "../../domain/refs/identifiers.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 import { claimRef } from "../command-store.ts";
 import type { RuntimeServices } from "../runtime-services.ts";
-import { journalJiraWrite, verifyJournaledJiraWrite } from "../tracker/write-journal.ts";
+import { trackerOf } from "../tracker/registry.ts";
+import {
+  journaledWrite,
+  journalTrackerWrite,
+  verifyJournaledWrite,
+  verifyTrackerWrite,
+} from "../tracker/write-journal.ts";
 import {
   completionRecordMatches,
   releaseCompletedClaim,
@@ -23,7 +25,6 @@ import {
   executionStatePath,
   executionTarget,
   executionTracker,
-  jiraRankField,
   withExecutionStore,
 } from "../pickup/runtime.ts";
 import { getExecutionConfiguration } from "../../configuration/store.ts";
@@ -62,24 +63,25 @@ export async function releaseClaim(
     const run = store.run(claim.run);
     const configuration = getExecutionConfiguration(store, run.ref);
     if (!configuration) throw new Error("Release requires the recorded execution configuration");
-    const { repository, jiraSite, claimedStatus } = executionTarget(configuration);
+    const { repository, site, claimedStatus } = executionTarget(configuration);
     if (resolve(repository.worktreeRoot, key ?? "") !== run.workspace.path)
       throw new Error("Recorded workspace does not match its selected repository");
-    const jira = await executionTracker(
-      jiraSite,
+    const entry = trackerOf(claim.ticket);
+    if (!entry) throw new Error(`No registered tracker serves ${claim.ticket}`);
+    const tracker = await executionTracker(
+      entry,
+      site,
       parseRef(claim.ticket).namespace ?? "",
       services,
-      "release",
     );
-    if (jira.owner !== claim.humanOwner)
+    if (tracker.owner !== claim.humanOwner)
       throw new Error("Only the recorded claim owner can release it");
     if (!claim.currentVersion)
       throw new Error("Claim has no verified lock version; inspect recovery evidence");
-    const mirror = new JiraTrackerAdapter({
-      ...jira.options,
+    const mirror = tracker.connection.tracker({
       claimHome: home.identity,
       claimedStatus,
-      journalWrite: (pending) => journalJiraWrite(store, run.ref, pending),
+      journalWrite: (pending) => journalTrackerWrite(store, run.ref, pending),
     });
     const { claims, claimLock } = claimCoordination(repository, mirror, services, home);
     if ((await claimLock.ref(claim.ticket)) !== claim.lockRef)
@@ -95,7 +97,7 @@ export async function releaseClaim(
       claimedOwner: claim.humanOwner,
       originalSnapshot: claim.previousState,
       expectedVersion: claim.currentVersion,
-      authorizedBy: jira.owner,
+      authorizedBy: tracker.owner,
     };
     const before = await claimLock.read(claim.ticket);
     const released =
@@ -115,14 +117,11 @@ export async function releaseClaim(
       throw new Error("Claim lock changed; release refused");
     const latest =
       run.status === "recovery_required" ? store.recoveryEvidence(run.ref).at(-1) : undefined;
-    const pendingJiraWrite = latest
-      ? z
-          .object({ pendingJiraWrite: pendingJiraWriteSchema.optional() })
-          .parse(JSON.parse(z.object({ evidence_json: z.string() }).parse(latest).evidence_json))
-          .pendingJiraWrite
+    const pendingWrite = latest
+      ? journaledWrite(
+          JSON.parse(z.object({ evidence_json: z.string() }).parse(latest).evidence_json),
+        )
       : undefined;
-    if (pendingJiraWrite && pendingJiraWrite.ticket !== claim.ticket)
-      throw new Error("Pending Jira write ticket does not match the claim");
     const lastStep = z
       .object({ state: z.string(), receipt_json: z.string().nullable() })
       .parse(store.steps(run.ref).at(-1));
@@ -139,14 +138,10 @@ export async function releaseClaim(
       journaledWrites: true,
     });
     try {
-      await verifyJournaledJiraWrite(store, run.ref, claim.ticket, mirror);
-      if (pendingJiraWrite) await mirror.verifyPendingWrite(pendingJiraWrite);
+      await verifyJournaledWrite(store, run.ref, claim.ticket, mirror);
+      if (pendingWrite !== undefined) await verifyTrackerWrite(mirror, pendingWrite, claim.ticket);
       if (fenced) {
-        const reader = new JiraTrackerAdapter({
-          ...jira.options,
-          rankField: await jiraRankField(jira.options.transport),
-        });
-        if (!trackerTicketIsDone((await reader.read(claim.ticket)).ticket))
+        if (!trackerTicketIsDone((await tracker.tracker.read(claim.ticket)).ticket))
           throw new Error("Retirement claim release requires verified Done");
         store.recordStep(run.ref, "completion_done_verified", { ticket: claim.ticket });
         await releaseCompletedClaim({
@@ -192,7 +187,9 @@ export async function releaseClaim(
         command: `interlock runs export ${run.ref}`,
         originalSnapshot: claim.previousState,
         owner: claim.humanOwner,
-        ...(error instanceof PendingJiraWriteError ? { pendingJiraWrite: error.pendingWrite } : {}),
+        ...(error instanceof PendingTrackerWriteError
+          ? { pendingTrackerWrite: error.pendingWrite }
+          : {}),
       });
       throw new Error(`Release requires recovery; interlock runs export ${run.ref}`, {
         cause: error,

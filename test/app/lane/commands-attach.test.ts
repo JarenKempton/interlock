@@ -65,7 +65,6 @@ async function claimedRun(options: { lock?: "held" | "absent" | "other" | "owner
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: worktree, branch },
-    capabilities: {},
     status: "claimed",
     createdAt: now,
     updatedAt: now,

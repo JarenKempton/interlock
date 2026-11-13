@@ -39,7 +39,7 @@ export function runActions(services: RuntimeServices) {
       description:
         "Claim a ticket, prepare its worktree, and return T3 launch arguments, or launch the lane with --launch.",
       input: {
-        key: positional(text("Jira ticket key.", "KEY")),
+        key: positional(text("Tracker ticket key.", "KEY")),
         config: optional(text("Shared interlock.toml path; defaults to the work repo's.", "PATH")),
         repo: optional(text("Work repo; defaults to the current directory.", "PATH")),
         branch: optional(text("Branch name; defaults to the branch user setting.", "NAME")),
@@ -104,7 +104,7 @@ export function runActions(services: RuntimeServices) {
     claim: {
       release: defineAction({
         description:
-          "Restore Jira and release the recorded owner's remote lock; preserve the workspace.",
+          "Restore the tracker and release the recorded owner's remote lock; preserve the workspace.",
         input: { claim, state },
         result: releaseResultSchema,
         handler: (input) => releaseClaim(services, input),

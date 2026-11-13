@@ -1,4 +1,4 @@
-import type { Ticket, TicketKind } from "../../domain/model.ts";
+import { type Ticket, type TicketKind, ticketKind } from "../../domain/tracker/ticket.ts";
 
 const ROLE_TEMPLATES: Record<TicketKind, string> = {
   task: "Implement only the selected task and verify its acceptance criteria. Report the implementation artifact and verification evidence.",
@@ -93,8 +93,8 @@ export function buildLaunchPrompt(ticket: Ticket, options: LaunchPromptOptions =
     ...(options.tracker ? [`Tracker:\n${options.tracker}`] : []),
     ...(ticket.map ? [`Map:\n${ticket.map}`] : []),
     `Ticket:\n${ticket.ref}${ticket.title ? ` — ${ticket.title}` : ""}`,
-    `Role:\n${ticket.kind}`,
-    `Role guidance:\n${options.roleTemplate ?? ROLE_TEMPLATES[ticket.kind]}`,
+    `Role:\n${ticketKind(ticket)}`,
+    `Role guidance:\n${options.roleTemplate ?? ROLE_TEMPLATES[ticketKind(ticket)]}`,
     `Description:\n${ticket.description ?? "Not supplied by tracker."}`,
     `Acceptance criteria:\n${criteria ?? "Not supplied by tracker; verify with the ticket owner before completion."}`,
     "Required output:\n- Report the work performed and link any resulting artifacts.\n- Report acceptance evidence, unverified criteria, and remaining blockers.",

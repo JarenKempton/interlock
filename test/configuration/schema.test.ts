@@ -281,7 +281,6 @@ test("execution snapshots persist independently and cannot be silently replaced"
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/workspace" },
-    capabilities: {},
     status: "planning",
     createdAt: "now",
     updatedAt: "now",
@@ -623,7 +622,6 @@ test("a ledger holding a version 1 execution configuration is refused with a cle
       host: adapterRefSchema.parse("t3"),
       harness: adapterRefSchema.parse("codex"),
       workspace: { path: "/workspace" },
-      capabilities: {},
       status: "claimed",
       createdAt: "now",
       updatedAt: "now",
@@ -651,7 +649,7 @@ test("a ledger holding a version 1 execution configuration is refused with a cle
   }
 });
 
-test("execution targets come from the recorded repository and Jira site", () => {
+test("execution targets come from the recorded repository and tracker site", () => {
   const configuration = {
     ...resolveConfiguration(undefined, { jira_site: "https://example.atlassian.net" }),
     repository: {
@@ -664,14 +662,14 @@ test("execution targets come from the recorded repository and Jira site", () => 
   };
   expect(executionTarget(validateResolvedConfiguration(configuration))).toEqual({
     repository: configuration.repository,
-    jiraSite: "https://example.atlassian.net",
+    site: "https://example.atlassian.net",
     claimedStatus: "In Progress",
   });
   expect(() =>
     executionTarget(
       resolveConfiguration(undefined, { jira_site: "https://example.atlassian.net" }),
     ),
-  ).toThrow("no repository or Jira site");
+  ).toThrow("no repository or tracker site");
 });
 
 test("config show and edit report review choices from user settings, and --follow clears them", async () => {

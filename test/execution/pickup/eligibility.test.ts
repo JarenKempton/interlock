@@ -4,8 +4,9 @@ import {
   mapRefSchema,
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
-import type { Ticket, TicketRef } from "../../../src/domain/model.ts";
-import type { TrackerRead, TrackerReader } from "../../../src/domain/tracker/port.ts";
+import type { TicketRef } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
+import type { Tracker, TrackerRead } from "../../../src/domain/tracker/port.ts";
 import { pickupEligibility, unblockedBy } from "../../../src/execution/pickup/eligibility.ts";
 import { expectRejection } from "../../fixtures/assertions/rejection.ts";
 
@@ -22,7 +23,6 @@ function ticket(key: string, options: Partial<Ticket> = {}): Ticket {
     kind: "task",
     state: "open",
     status: "To Do",
-    order: 0,
     ...options,
   };
 }
@@ -31,12 +31,12 @@ function blocks(blocking: string, blocked: string) {
   return { blocking: ref(blocking), blocked: ref(blocked), kind: "blocks" as const };
 }
 
-class FakeReader implements TrackerReader {
+class FakeReader implements Pick<Tracker, "read" | "listWork"> {
   readonly reads: TicketRef[] = [];
   readonly failing = new Set<TicketRef>();
   constructor(readonly tickets: Ticket[]) {}
 
-  async list_work(): Promise<Ticket[]> {
+  async listWork(): Promise<Ticket[]> {
     throw new Error("Eligibility must not list maps");
   }
 

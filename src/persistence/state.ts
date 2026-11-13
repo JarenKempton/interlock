@@ -66,7 +66,7 @@ export class StateStore {
       harness: run.harness,
       model: run.model ?? null,
       workspace_json: JSON.stringify(run.workspace),
-      capabilities_json: JSON.stringify(run.capabilities),
+      capabilities_json: "{}",
       status: run.status,
       created_at: run.createdAt,
       updated_at: run.updatedAt,
@@ -79,7 +79,6 @@ export class StateStore {
         set: {
           model: values.model,
           workspace_json: values.workspace_json,
-          capabilities_json: values.capabilities_json,
           status: values.status,
           updated_at: values.updated_at,
         },
@@ -97,7 +96,6 @@ export class StateStore {
       harness: adapterRefSchema.parse(row.harness),
       ...(row.model ? { model: row.model } : {}),
       workspace: JSON.parse(row.workspace_json),
-      capabilities: JSON.parse(row.capabilities_json),
       status: z
         .enum(["planning", "claimed", "compensated", "collision", "released", "recovery_required"])
         .parse(row.status),

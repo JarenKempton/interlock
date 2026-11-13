@@ -1,8 +1,7 @@
 import { z } from "zod";
 import type { HttpTransport } from "../adapters/trackers/http.ts";
-import { jiraSignIn } from "../adapters/trackers/jira/sign-in.ts";
 import type { UserSettingKey } from "../configuration/schema.ts";
-import type { TrackerSignIn } from "../domain/tracker/port.ts";
+import type { TokenSignIn, TrackerSignIn } from "../domain/tracker/port.ts";
 import { withStore } from "../app/command-store.ts";
 import { type CredentialStore, osCredentialStore } from "../persistence/credential-store.ts";
 import type { RuntimeServices } from "../app/runtime-services.ts";
@@ -16,13 +15,12 @@ export interface SignInPlatform {
   environment?: Record<string, string | undefined>;
 }
 
-export function trackerSignIns(services: RuntimeServices) {
-  return {
-    jira: { label: "Jira", setting: "jira_site", adapter: jiraSignIn(services.signIn?.http) },
-  } as const satisfies Record<string, { label: string; setting: UserSettingKey; adapter: object }>;
+export interface TrackerAccount {
+  name: string;
+  label: string;
+  setting: UserSettingKey;
+  signIn: TrackerSignIn;
 }
-
-export type TrackerName = keyof ReturnType<typeof trackerSignIns>;
 
 export function signInPlatform(services: RuntimeServices) {
   return {
@@ -36,11 +34,13 @@ export function credentialName(tracker: string, site: string): string {
   return `${tracker}:${new URL(site).host}`;
 }
 
-export function savedSite(services: RuntimeServices, tracker: TrackerName): string | undefined {
-  const { adapter, setting } = trackerSignIns(services)[tracker];
-  const variable = signInPlatform(services).environment[adapter.site.environment];
-  if (variable) return adapter.site.parse(variable);
-  return withStore(services, (store) => storedUserSettings(store)[setting]);
+export function savedSite(services: RuntimeServices, account: TrackerAccount): string | undefined {
+  const { signIn, setting } = account;
+  const variable =
+    signIn.kind === "token" ? signInPlatform(services).environment[signIn.site.environment] : "";
+  if (variable && signIn.kind === "token") return signIn.site.parse(variable);
+  const stored = withStore(services, (store) => storedUserSettings(store)[setting]);
+  return typeof stored === "string" ? stored : undefined;
 }
 
 const storedSchema = z.record(z.string(), z.string());
@@ -57,7 +57,7 @@ function storedCredentials(raw: string | undefined): Record<string, string> {
 export async function lookupCredentials<C extends Record<string, string>>(
   services: RuntimeServices,
   tracker: string,
-  adapter: TrackerSignIn<C>,
+  adapter: TokenSignIn<C>,
   site: string,
 ) {
   const { store, environment } = signInPlatform(services);
@@ -83,14 +83,14 @@ export async function lookupCredentials<C extends Record<string, string>>(
 
 export async function requireCredentials<C extends Record<string, string>>(
   services: RuntimeServices,
-  tracker: TrackerName,
-  adapter: TrackerSignIn<C>,
+  account: Pick<TrackerAccount, "name" | "label">,
+  adapter: TokenSignIn<C>,
   site: string,
 ): Promise<C> {
-  const { credentials, missing } = await lookupCredentials(services, tracker, adapter, site);
+  const { credentials, missing } = await lookupCredentials(services, account.name, adapter, site);
   if (!credentials)
     throw new Error(
-      `Not signed in to ${trackerSignIns(services)[tracker].label} at ${site}; run interlock login ${tracker} or set ${missing.join(" and ")}`,
+      `Not signed in to ${account.label} at ${site}; run interlock login ${account.name} or set ${missing.join(" and ")}`,
     );
   return credentials;
 }

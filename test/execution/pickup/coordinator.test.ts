@@ -21,12 +21,13 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
-import type { ClaimRef, Run, RunRef, Ticket, TicketRef } from "../../../src/domain/model.ts";
+import type { ClaimRef, Run, RunRef, TicketRef } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
 import type {
   MirrorClaim,
   MirrorExpectation,
   MirrorRestore,
-  Tracker,
+  AssigneeOnlyTracker,
 } from "../../../src/domain/tracker/port.ts";
 import { HostLaunchUnresolvedError } from "../../../src/domain/host/capability.ts";
 import { PickupCoordinator, PickupResultError } from "../../../src/execution/pickup/coordinator.ts";
@@ -76,7 +77,8 @@ class FakeLedger implements Ledger {
   }
 }
 
-class FakeTracker implements Tracker {
+class FakeTracker implements AssigneeOnlyTracker {
+  readonly mirror = "assignee_only";
   preflightError?: Error;
   restoreError?: Error;
   verifyClaimError?: Error;
@@ -87,12 +89,6 @@ class FakeTracker implements Tracker {
   restoreCalls = 0;
   snapshotCalls = 0;
 
-  async describe() {
-    return {};
-  }
-  async list_work() {
-    return [];
-  }
   async read(ticket: TicketRef) {
     if (this.preflightError) throw this.preflightError;
     this.snapshotCalls += 1;
@@ -112,7 +108,6 @@ class FakeTracker implements Tracker {
       kind: "task",
       state: "open",
       status: "To Do",
-      order: 0,
     };
   }
   async apply(request: MirrorClaim) {
@@ -128,13 +123,13 @@ class FakeTracker implements Tracker {
     this.restoreRequest = request;
     if (this.restoreError) throw this.restoreError;
   }
+  async removeMirror() {}
 }
 
 class FakeLock implements RecoverableClaimLock {
   readonly core = fakeLockFixture().adapter;
   claimError?: Error;
   claimRequest?: ClaimRequest;
-  describe = this.core.describe.bind(this.core);
   read = this.core.read.bind(this.core);
   release = this.core.release.bind(this.core);
   async claim(request: ClaimRequest) {
@@ -255,16 +250,6 @@ describe("pickup coordinator", () => {
     await expectRejection(subject.prepare(request)).toThrow("unsupported");
     expect(tracker.claimCalls).toBe(0);
     expect(tracker.restoreCalls).toBe(0);
-  });
-
-  test("an unverified lock capability fails before any write", async () => {
-    const item = coordinator();
-    Object.assign(item.claimLock, { describe: async () => ({}) });
-    await expectRejection(item.coordinator.prepare(request)).toThrow(
-      "Unsupported capabilities: conditional_update",
-    );
-    expect(item.tracker.claimCalls).toBe(0);
-    expect(item.claimLock.claimRequest).toBeUndefined();
   });
 
   test("the selected model is recorded on the prepared run", async () => {

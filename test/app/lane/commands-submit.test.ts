@@ -102,7 +102,7 @@ class LinkingTracker implements LaneTrackerPort {
   async available() {
     if (this.unavailable) throw new TrackerUnavailableError("Not signed in to Jira");
   }
-  async link_artifact(_ticket: TicketRef, url: string, title?: string) {
+  async linkArtifact(_ticket: TicketRef, url: string, title?: string) {
     this.links.push(url);
     this.titles.push(title);
     if (this.failWith) throw this.failWith;
@@ -156,7 +156,6 @@ async function setup(
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch: options.branch ?? branch },
-    capabilities: {},
     status: "claimed",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -445,7 +444,6 @@ test("CLI lane submit goes through the artifact host and records the PR", async 
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch },
-    capabilities: {},
     status: "claimed",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -519,7 +517,6 @@ async function cliLane(services: RuntimeServices, statePath: string, directory: 
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("t3"),
     workspace: { path: directory, branch },
-    capabilities: {},
     status: "claimed",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

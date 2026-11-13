@@ -105,7 +105,6 @@ test(
         host: adapterRefSchema.parse("t3"),
         harness: adapterRefSchema.parse("codex"),
         workspace: { path: "/historical" },
-        capabilities: {},
         status: "claimed",
         createdAt: now,
         updatedAt: now,
@@ -136,7 +135,7 @@ test(
     f.jira.relatedIssues.push({
       ...structuredClone(f.jira.issue),
       key: "TEST-493",
-      fields: { ...structuredClone(f.jira.issue.fields), customfield_rank: "0|b:" },
+      fields: structuredClone(f.jira.issue.fields),
     });
     const run = (parallelism: string) =>
       createApplication(f.services).run.execute({

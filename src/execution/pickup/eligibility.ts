@@ -1,9 +1,12 @@
-import type { Ticket, TicketRef } from "../../domain/model.ts";
-import type { PickableStatuses, TrackerReader } from "../../domain/tracker/port.ts";
+import type { TicketRef } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
+import type { PickableStatuses, TrackerRead } from "../../domain/tracker/port.ts";
 
 export type Eligibility = "eligible" | "unavailable" | "blocked";
 
-type TicketReader = Pick<TrackerReader, "read">;
+interface TicketReader {
+  read(ticket: TicketRef): Promise<TrackerRead>;
+}
 
 export async function pickupEligibility(
   tracker: TicketReader,

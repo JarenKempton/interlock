@@ -71,9 +71,9 @@ object is not for reuse. See the [host capability](domain-model.md#engine-ready-
 Pickup checks eligibility (open, unassigned, in a pickable status, every blocker
 closed) before claiming and again before writing the mirror. A parent epic is
 not required. Unfinished or unreadable blockers
-fail closed. Jira search supplies ordering; a subsequent direct issue read
-supplies current fields, so search index lag cannot reopen completed tickets or
-hide reopened blockers.
+fail closed. Pickup reads the ticket and each blocker directly, never through
+search, so search index lag cannot reopen completed tickets or hide reopened
+blockers.
 
 When a catalog is supplied, the implementer uses the user's `harness` and `model`,
 or the calling thread's when unset, checked against exact harness instance/model IDs and advertised
@@ -107,19 +107,18 @@ and keeps them in the OS credential store (macOS Keychain, Windows Credential
 Manager, or Linux Secret Service, through Bun's built-in `Bun.secrets`); the site it asks for is
 saved in user settings. `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` override the store
 for CI and headless agents, and `JIRA_SITE` overrides the saved site. Each tracker
-adapter declares its credential fields, verification call and permission check
-(`TrackerSignIn` in `src/domain/tracker/port.ts`); the core prompts, stores and looks
-them up. `interlock doctor` reports sign-in, missing Jira permissions and Git
+adapter declares its auth kind and, for tokens, its credential fields,
+verification call and permission check (`TrackerSignIn` in
+`src/domain/tracker/port.ts`); the core prompts, stores and looks them up. `interlock doctor` reports sign-in, missing Jira permissions and Git
 claim-lock push access. Pickup's site comes from shared configuration, else
 user settings; an optional `JIRA_SITE` must match it. The authenticated Jira account owns the claim.
-Instruction paths resolve relative to the shared TOML. The Jira Rank
-field is discovered through a read-only endpoint; a claimed status with no
+Instruction paths resolve relative to the shared TOML. A claimed status with no
 Jira transition fails closed.
 
 `claim release CLAIM --json` uses the saved execution configuration and verifies
 the authenticated owner, remote lock and restored Jira fields. It preserves the
 workspace, including dirty work. Release does not require the ticket's current
-parent map, Rank discovery or the original workspace base branch.
+parent map or the original workspace base branch.
 A lost local release receipt can be retried;
 an uncertain remote result remains `recovery_required`. `runs list`, `runs show`
 and `runs export` expose local run evidence; export includes configuration,

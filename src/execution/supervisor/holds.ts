@@ -1,5 +1,5 @@
 import { type GateEvidence, trackerSource } from "../../domain/gate/evidence.ts";
-import type { Ticket } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import type { RemoteClaim, SupervisedLane, SupervisorPorts } from "./ports.ts";
 
 export type HumanHold = "reassigned" | "reopened" | "reblocked" | "claim_changed";

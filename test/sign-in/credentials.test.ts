@@ -7,6 +7,7 @@ import { jiraApiToken } from "../../src/adapters/trackers/jira/sign-in.ts";
 import type { CommandResult, GitCommandExecutor } from "../../src/adapters/git/workspace.ts";
 import { run } from "../../src/main.ts";
 import { executionTracker } from "../../src/app/pickup/runtime.ts";
+import { trackerNamed } from "../../src/app/tracker/registry.ts";
 import { type CredentialStore, osCredentialStore } from "../../src/persistence/credential-store.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 import type { RuntimeServices } from "../../src/app/runtime-services.ts";
@@ -16,6 +17,11 @@ import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 const TOKEN = `ATATT3x${"A".repeat(176)}=0A1B2C3D`;
 const SITE = "https://example.atlassian.net";
+const jira = (() => {
+  const entry = trackerNamed("jira");
+  if (!entry) throw new Error("Jira is not registered");
+  return entry;
+})();
 const directories: string[] = [];
 afterEach(() => {
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
@@ -221,7 +227,7 @@ test("doctor names the missing sign-in, Jira permissions, and claim-lock push ac
   const signedOut = harness({ push: 128 });
   expect(await doctor(signedOut)).toMatchObject({
     ok: false,
-    jira: { site: null, signedIn: false },
+    trackers: { jira: { site: null, signedIn: false } },
     claimLock: { repository: "/work/repo", dryRunPush: false },
     missing: [
       "Jira sign-in: run interlock login jira",
@@ -241,12 +247,14 @@ test("doctor names the missing sign-in, Jira permissions, and claim-lock push ac
   await signedIn.cli("login", "jira");
   expect(await doctor(signedIn, "--project", "JWB")).toMatchObject({
     ok: false,
-    jira: {
-      site: SITE,
-      signedIn: true,
-      account: "Lane Person",
-      from: ["credential store"],
-      permissions: { project: "JWB" },
+    trackers: {
+      jira: {
+        site: SITE,
+        signedIn: true,
+        account: "Lane Person",
+        from: ["credential store"],
+        permissions: { project: "JWB" },
+      },
     },
     claimLock: { dryRunPush: true },
     missing: ["Jira permission Edit issues (issue properties) (EDIT_ISSUES) in JWB"],
@@ -268,16 +276,16 @@ test("environment variables bypass the store and need no login or project config
   };
   expect(await doctor(subject)).toMatchObject({
     ok: true,
-    jira: { signedIn: true, from: ["environment"] },
+    trackers: { jira: { signedIn: true, from: ["environment"] } },
     missing: [],
   });
-  const tracker = await executionTracker(SITE, "JWB", subject.services, "release");
+  const tracker = await executionTracker(jira, SITE, "JWB", subject.services);
   expect(String(tracker.owner)).toBe("account-1");
 });
 
 test("pickup refuses to reach Jira before sign-in", async () => {
   const subject = harness();
-  await expectRejection(executionTracker(SITE, "JWB", subject.services, "release")).toThrow(
+  await expectRejection(executionTracker(jira, SITE, "JWB", subject.services)).toThrow(
     `Not signed in to Jira at ${SITE}; run interlock login jira or set JIRA_USER_EMAIL and JIRA_API_TOKEN`,
   );
   expect(subject.jira.calls).toEqual([]);
@@ -310,7 +318,7 @@ test("a failed permission check keeps the verified sign-in", async () => {
       url.includes("mypermissions") ? new Response(null, { status: 403 }) : http(url, request),
   };
   expect(await doctor(subject)).toMatchObject({
-    jira: { signedIn: true, account: "Lane Person" },
+    trackers: { jira: { signedIn: true, account: "Lane Person" } },
     missing: [`Jira permission check at ${SITE}: Jira permission check failed (403)`],
   });
 });

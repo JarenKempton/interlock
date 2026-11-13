@@ -4,7 +4,6 @@ import { GitClaimLock } from "../../adapters/git/claim-lock.ts";
 import { heldClaim } from "../../domain/claim/lock.ts";
 import type { ClaimLockRecord } from "../../domain/claim/lock.ts";
 import { T3HostPort } from "../../adapters/hosts/t3/port.ts";
-import type { JiraTrackerAdapter } from "../../adapters/trackers/jira/tracker.ts";
 import { BunGitCommandExecutor } from "../../adapters/git/workspace.ts";
 import { projectConfigPath } from "../../configuration/files.ts";
 import { readUserSettings } from "../../configuration/local-settings.ts";
@@ -23,6 +22,8 @@ import { resolveClaimHome } from "../claim/home.ts";
 import { pickupEligibility } from "../../execution/pickup/eligibility.ts";
 import { laneService } from "../lane/commands.ts";
 import { signedInLaneTracker } from "../tracker/signed-in.ts";
+import { siteUnknown, trackerOf } from "../tracker/registry.ts";
+import type { Tracker } from "../../domain/tracker/port.ts";
 import {
   executionTracker,
   pickup,
@@ -184,16 +185,19 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
   const artifacts = services.lane?.artifacts ?? new GitHubArtifactHost(git);
   const reader = services.lane?.tracker ?? signedInLaneTracker(services, store);
   const user = () => readUserSettings(statePath);
-  const trackers = new Map<string, Promise<JiraTrackerAdapter>>();
+  const trackers = new Map<string, Promise<Tracker>>();
   const projectTracker = (project: SupervisorProject) => {
     const ref = parseRef(project.map);
-    const site = user().jira_site;
-    if (!site || !ref.namespace)
-      throw new Error("Jira site is unknown; run interlock config edit --set jira_site URL");
-    const key = `${site}|${ref.namespace}`;
+    const entry = trackerOf(project.map);
+    if (!entry) throw new Error(`No registered tracker serves ${project.map}`);
+    const site = user()[entry.setting];
+    if (!site || !ref.namespace) throw siteUnknown(entry);
+    const key = `${entry.name}|${site}|${ref.namespace}`;
     let tracker = trackers.get(key);
     if (!tracker) {
-      tracker = executionTracker(site, ref.namespace, services).then((jira) => jira.tracker);
+      tracker = executionTracker(entry, site, ref.namespace, services).then(
+        (connected) => connected.tracker,
+      );
       trackers.set(key, tracker);
     }
     return tracker;
@@ -294,7 +298,11 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
       if (!result.ok && result.refusal.code !== "invalid_transition")
         throw new Error(result.refusal.message);
     },
-    frontier: async (project) => (await projectTracker(project)).list_work(project.map),
+    frontier: async (project) => {
+      const tracker = await projectTracker(project);
+      if (!tracker.listWork) throw new Error(`Tracker cannot list the work in ${project.map}`);
+      return tracker.listWork(project.map);
+    },
     eligible: async (project, ticket) => {
       const path = projectConfigPath(project.repository);
       const configured = resolveSharedConfiguration(path, sharedConfiguration(path, false), user());
