@@ -5,7 +5,7 @@ import { BunGitCommandExecutor } from "../adapters/git/workspace.ts";
 import { projectConfigPath } from "../configuration/files.ts";
 import type { RuntimeServices } from "../app/runtime-services.ts";
 import { lookupCredentials, savedSite, type TrackerAccount } from "./credentials.ts";
-import { TRACKERS, trackerAccount } from "../app/tracker/registry.ts";
+import { configuredTracker, TRACKERS, trackerAccount } from "../app/tracker/registry.ts";
 
 const trackerReportSchema = z.union([
   z.strictObject({
@@ -40,8 +40,12 @@ export const doctorReportSchema = z.strictObject({
 export type DoctorReport = z.infer<typeof doctorReportSchema>;
 
 export async function doctorChecks(services: RuntimeServices, project: string | undefined) {
+  const sites = Object.fromEntries(
+    TRACKERS.map((entry) => [entry.setting, savedSite(services, trackerAccount(entry, services))]),
+  );
+  const configured = TRACKERS.filter((entry) => sites[entry.setting]);
   const trackers: Record<string, TrackerReport> = {};
-  for (const entry of TRACKERS)
+  for (const entry of configured.length ? configured : [configuredTracker(sites).entry])
     trackers[entry.name] = await trackerSignIn(services, trackerAccount(entry, services), project);
   const claimLock = await pushAccess(services);
   return {
@@ -170,6 +174,7 @@ export function renderDoctor(report: DoctorReport) {
 
 function renderTracker(name: string, tracker: TrackerReport): string[] {
   const { label, missing } = tracker;
+  if (tracker.signedIn && !("account" in tracker)) return check(true, `${label} needs no sign-in`);
   if (!("account" in tracker))
     return [
       ...check(

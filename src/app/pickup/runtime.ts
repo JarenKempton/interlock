@@ -220,11 +220,12 @@ export async function withExecutionStore<T>(
   }
 }
 
-export function executionTarget(configuration: ResolvedConfiguration) {
+export function executionTarget(configuration: ResolvedConfiguration, entry: RegisteredTracker) {
   const { repository, settings } = configuration;
-  if (!repository || !settings.jira_site)
+  const site = settings[entry.setting];
+  if (!repository || !site)
     throw new Error("Recorded execution configuration has no repository or tracker site");
-  return { repository, site: settings.jira_site, claimedStatus: settings.claimed_status };
+  return { repository, site, claimedStatus: settings.claimed_status };
 }
 
 async function branchKnown(git: GitCommandExecutor, cwd: string, branch: string) {
@@ -307,7 +308,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
     user,
   );
   const { settings } = configuration;
-  const { entry, site } = configuredTracker(settings);
+  const { entry, site } = configuredTracker(settings, input.key);
   const namespace = entry.namespace(input.key);
   if (!namespace) throw new Error(`Pickup requires a canonical ${entry.label} key`);
   if (!site) throw siteUnknown(entry);

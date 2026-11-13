@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { HttpTransport } from "../../adapters/trackers/http.ts";
+import { githubIssues } from "../../adapters/trackers/github/registration.ts";
+import type { GitHubTransport } from "../../adapters/trackers/github/transport.ts";
 import { jiraSignIn } from "../../adapters/trackers/jira/sign-in.ts";
 import {
   JiraTrackerAdapter,
@@ -16,6 +17,7 @@ import type { RuntimeServices } from "../runtime-services.ts";
 
 export interface TrackerTransports {
   jira?: JiraTransport;
+  github?: GitHubTransport;
 }
 
 export interface TrackerOptions {
@@ -34,9 +36,10 @@ export interface TrackerConnection {
 export interface RegisteredTracker {
   name: string;
   label: string;
-  setting: "jira_site";
-  signIn(http?: HttpTransport): TrackerSignIn;
+  setting: "jira_site" | "github_repo";
+  signIn(services: RuntimeServices): TrackerSignIn;
   instance(site: string): string;
+  siteOf?(instance: string): string;
   namespace(key: string): string | undefined;
   connect(services: RuntimeServices, site: string, namespace: string): Promise<TrackerConnection>;
 }
@@ -47,7 +50,7 @@ const jira: RegisteredTracker = {
   name: "jira",
   label: "Jira",
   setting: "jira_site",
-  signIn: jiraSignIn,
+  signIn: (services) => jiraSignIn(services.signIn?.http),
   instance: (site) => new URL(site).hostname.replace(/\.atlassian\.net$/, ""),
   namespace: (key) => (CANONICAL_KEY.test(key) ? key.slice(0, key.lastIndexOf("-")) : undefined),
   async connect(services, site, namespace) {
@@ -87,7 +90,7 @@ const jira: RegisteredTracker = {
   },
 };
 
-export const TRACKERS: readonly RegisteredTracker[] = [jira];
+export const TRACKERS: readonly RegisteredTracker[] = [jira, githubIssues];
 
 export function trackerAccount(
   entry: RegisteredTracker,
@@ -97,7 +100,7 @@ export function trackerAccount(
     name: entry.name,
     label: entry.label,
     setting: entry.setting,
-    signIn: entry.signIn(services.signIn?.http),
+    signIn: entry.signIn(services),
   };
 }
 
@@ -107,11 +110,21 @@ export function trackerNamed(name: string | undefined): RegisteredTracker | unde
 
 export type TrackerSettings = { [K in RegisteredTracker["setting"]]?: string | undefined };
 
-export function configuredTracker(settings: TrackerSettings): {
+export function configuredTracker(
+  settings: TrackerSettings,
+  key?: string,
+): {
   entry: RegisteredTracker;
   site: string | undefined;
 } {
-  const entry = TRACKERS.find((item) => settings[item.setting]) ?? jira;
+  const serving = TRACKERS.filter(
+    (item) => settings[item.setting] && (key === undefined || item.namespace(key)),
+  );
+  const entry =
+    serving.find((item) => item !== jira) ??
+    serving[0] ??
+    TRACKERS.find((item) => settings[item.setting]) ??
+    jira;
   return { entry, site: settings[entry.setting] };
 }
 

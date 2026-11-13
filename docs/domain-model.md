@@ -97,9 +97,12 @@ stores and looks up token fields; it never handles the other kinds' secrets.
 3. Run the [conformance suite](../src/conformance/tracker.ts) against it, as
    the [Jira tests](../test/adapters/trackers/jira/tracker.test.ts) do. The
    [fake tracker](../src/conformance/fake-tracker.ts) passes it in both tiers
-   and is the smallest working example.
+   and is the smallest working example; the
+   [GitHub Issues adapter](../src/adapters/trackers/github/) is the
+   assignee-only one on a real tracker.
 4. Add one entry to the [tracker registry](../src/app/tracker/registry.ts):
-   name, label, site setting, sign-in, ref parsing and `connect`. The registry
+   name, label, site setting, sign-in, ref parsing and `connect`, plus
+   `siteOf` when the ref instance alone names the site. The registry
    is the only file that may import an adapter; lint rejects any other import
    from `src/adapters/trackers/`.
 

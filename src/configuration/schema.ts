@@ -42,6 +42,7 @@ const jiraSite = configText.refine((site) => {
     return false;
   }
 });
+const githubRepo = configText.regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9_.-]+$/);
 const branchTemplate = configText.refine((value) => value.includes("{key}"));
 const statusList = configText.refine((value) => statuses(value).length > 0);
 const lensName = configText.regex(/^[a-z][a-z0-9-]*$/);
@@ -75,6 +76,7 @@ export function reviewChoicesFrom(user: UserSettings): ReviewChoices {
 export const userSettingsSchema = z
   .strictObject({
     jira_site: jiraSite,
+    github_repo: githubRepo,
     claim_home: configText,
     ...personalChoices,
     reviewers: lensList,
@@ -151,6 +153,7 @@ const resolvedSettingsSchema = z.strictObject({
   pickable_statuses: z.array(configText).min(1),
   claimed_status: configText,
   jira_site: jiraSite.optional(),
+  github_repo: githubRepo.optional(),
 });
 export type ResolvedSettings = z.infer<typeof resolvedSettingsSchema>;
 type SettingsLayer = { [K in keyof ResolvedSettings]?: ResolvedSettings[K] | undefined };

@@ -63,11 +63,11 @@ export async function releaseClaim(
     const run = store.run(claim.run);
     const configuration = getExecutionConfiguration(store, run.ref);
     if (!configuration) throw new Error("Release requires the recorded execution configuration");
-    const { repository, site, claimedStatus } = executionTarget(configuration);
-    if (resolve(repository.worktreeRoot, key ?? "") !== run.workspace.path)
-      throw new Error("Recorded workspace does not match its selected repository");
     const entry = trackerOf(claim.ticket);
     if (!entry) throw new Error(`No registered tracker serves ${claim.ticket}`);
+    const { repository, site, claimedStatus } = executionTarget(configuration, entry);
+    if (resolve(repository.worktreeRoot, key ?? "") !== run.workspace.path)
+      throw new Error("Recorded workspace does not match its selected repository");
     const tracker = await executionTracker(
       entry,
       site,
