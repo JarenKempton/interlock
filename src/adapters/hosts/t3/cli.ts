@@ -80,6 +80,29 @@ export const listSchema = z.array(threadSchema.omit({ branch: true, worktreePath
 
 export const sentSchema = z.object({ threadId: z.string().min(1) });
 
+export async function sendT3Message(
+  process: T3Process,
+  cli: string,
+  thread: string,
+  message: string,
+): Promise<T3CommandResult & { delivered: boolean }> {
+  let result: T3CommandResult;
+  try {
+    result = await process.run(
+      [cli, "--log-level", "error", "thread", "send", thread, "-", "--json"],
+      message,
+    );
+  } catch (error) {
+    result = {
+      exitCode: -1,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const sent = result.exitCode === 0 ? parseJson(sentSchema, result.stdout) : undefined;
+  return { ...result, delivered: sent?.threadId === thread };
+}
+
 export function parseJson<T>(schema: z.ZodType<T>, text: string): T | undefined {
   try {
     const parsed = schema.safeParse(JSON.parse(text));

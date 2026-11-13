@@ -7,11 +7,12 @@ import type {
   ArtifactHost,
   ArtifactRequest,
   ArtifactTarget,
+  ArtifactUpdate,
   ArtifactWorkspace,
   PullRequest,
 } from "../../domain/submission/artifact.ts";
 import type { GitCommandExecutor } from "../git/workspace.ts";
-import { checkedGitCommand, verifyRemoteDestination } from "../git/remote.ts";
+import { checkedGitCommand, commandFailure, verifyRemoteDestination } from "../git/remote.ts";
 
 const pullRequestSchema = z.object({
   url: z.url(),
@@ -75,11 +76,15 @@ export class GitHubArtifactHost implements ArtifactHost {
   async push(target: ArtifactTarget): Promise<void> {
     commitOidSchema.parse(target.head);
     await verifyRemoteDestination(this.commands, target.path, target.remote);
-    const result = await this.commands.run(
-      ["git", "push", "--porcelain", target.remote, `${target.head}:refs/heads/${target.branch}`],
-      target.path,
-    );
-    if (result.exitCode !== 0) throw new Error(`git push exited ${result.exitCode}`);
+    const argv = [
+      "git",
+      "push",
+      "--porcelain",
+      target.remote,
+      `${target.head}:refs/heads/${target.branch}`,
+    ];
+    const result = await this.commands.run(argv, target.path);
+    if (result.exitCode !== 0) throw commandFailure(argv, result);
     const tip = await checkedGitCommand(this.commands, target.path, [
       "git",
       "ls-remote",
@@ -105,31 +110,49 @@ export class GitHubArtifactHost implements ArtifactHost {
   }
 
   async open(target: ArtifactTarget, request: ArtifactRequest): Promise<PullRequest> {
-    const result = await this.commands.run(
-      [
-        "gh",
-        "pr",
-        "create",
-        "--repo",
-        target.repository,
-        "--head",
-        target.branch,
-        "--title",
-        request.title,
-        "--body",
-        request.body,
-        ...(request.draft ? ["--draft"] : []),
-      ],
-      target.path,
-    );
-    if (result.exitCode !== 0) throw new Error(`gh pr create exited ${result.exitCode}`);
+    const argv = [
+      "gh",
+      "pr",
+      "create",
+      "--repo",
+      target.repository,
+      "--head",
+      target.branch,
+      "--title",
+      request.title,
+      "--body",
+      request.body,
+      ...(request.draft ? ["--draft"] : []),
+    ];
+    const result = await this.commands.run(argv, target.path);
+    if (result.exitCode !== 0) throw commandFailure(argv, result);
     const url = z.url().parse(result.stdout.trim().split(/\r?\n/).at(-1)?.trim());
     this.requireUrl(url, target);
-    const view = await this.commands.run(
-      ["gh", "pr", "view", url, "--repo", target.repository, "--json", fields],
-      target.path,
-    );
-    if (view.exitCode !== 0) throw new Error("Created PR readback failed");
+    return this.view(url, target);
+  }
+
+  async update(target: ArtifactTarget, url: string, request: ArtifactUpdate): Promise<PullRequest> {
+    this.requireUrl(url, target);
+    const argv = [
+      "gh",
+      "pr",
+      "edit",
+      url,
+      "--repo",
+      target.repository,
+      "--title",
+      request.title,
+      ...(request.body === undefined ? [] : ["--body", request.body]),
+    ];
+    const result = await this.commands.run(argv, target.path);
+    if (result.exitCode !== 0) throw commandFailure(argv, result);
+    return this.view(url, target);
+  }
+
+  private async view(url: string, target: ArtifactTarget): Promise<PullRequest> {
+    const argv = ["gh", "pr", "view", url, "--repo", target.repository, "--json", fields];
+    const view = await this.commands.run(argv, target.path);
+    if (view.exitCode !== 0) throw commandFailure(argv, view);
     return this.parse(pullRequestSchema.parse(JSON.parse(view.stdout)), target);
   }
 
@@ -137,11 +160,9 @@ export class GitHubArtifactHost implements ArtifactHost {
     const parsed = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([1-9][0-9]*)$/.exec(url);
     if (!parsed) throw new Error("Expected a canonical GitHub pull request URL");
     const repository = `${parsed[1]}/${parsed[2]}`;
-    const result = await this.commands.run(
-      ["gh", "api", `repos/${repository}/pulls/${parsed[3]}`],
-      tmpdir(),
-    );
-    if (result.exitCode !== 0) throw new Error(`gh api exited ${result.exitCode}`);
+    const argv = ["gh", "api", `repos/${repository}/pulls/${parsed[3]}`];
+    const result = await this.commands.run(argv, tmpdir());
+    if (result.exitCode !== 0) throw commandFailure(argv, result);
     const repo = z.object({ full_name: z.string() });
     const view = z
       .object({
@@ -170,24 +191,22 @@ export class GitHubArtifactHost implements ArtifactHost {
   }
 
   private async list(target: ArtifactTarget, filter: readonly string[]) {
-    const result = await this.commands.run(
-      [
-        "gh",
-        "pr",
-        "list",
-        "--repo",
-        target.repository,
-        "--state",
-        "all",
-        ...filter,
-        "--json",
-        fields,
-        "--limit",
-        "1000",
-      ],
-      target.path,
-    );
-    if (result.exitCode !== 0) throw new Error(`gh pr list exited ${result.exitCode}`);
+    const argv = [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      target.repository,
+      "--state",
+      "all",
+      ...filter,
+      "--json",
+      fields,
+      "--limit",
+      "1000",
+    ];
+    const result = await this.commands.run(argv, target.path);
+    if (result.exitCode !== 0) throw commandFailure(argv, result);
     const items = z.array(pullRequestSchema).parse(JSON.parse(result.stdout));
     if (items.length === 1000)
       throw new Error("PR listing may be truncated; cannot verify uniqueness");

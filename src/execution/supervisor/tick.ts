@@ -1,6 +1,11 @@
 import { type GateEvidence, observedValue, trackerSource } from "../../domain/gate/evidence.ts";
 import type { HostSessionView } from "../../domain/host/capability.ts";
-import type { LaneRefusalCode, LaneState } from "../../domain/lane/lifecycle.ts";
+import {
+  type Lane,
+  type LaneRefusalCode,
+  type LaneState,
+  REVIEW_ROUND_LIMIT,
+} from "../../domain/lane/lifecycle.ts";
 import type { LaneRef, TicketRef } from "../../domain/model.ts";
 import type { Ticket } from "../../domain/tracker/ticket.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
@@ -17,6 +22,8 @@ import { RESUME_MESSAGE, stallDecision } from "./stall.ts";
 
 const COMPLETABLE = new Set<LaneState>(["approved", "merged"]);
 const SESSION_MISS_LIMIT = 3;
+export const READ_MISS_LIMIT = 5;
+const REASON_LIMIT = 200;
 
 const RETRYABLE_REFUSALS = new Set<LaneRefusalCode>([
   "ambiguous_write",
@@ -35,6 +42,8 @@ class Tick {
     resumed: [],
     held: [],
     attention: [],
+    reported: [],
+    warnings: [],
     failures: [],
     evidence: [],
   };
@@ -64,9 +73,45 @@ class Tick {
       this.ports.journal.record(lane, { kind: "gate", evidence });
   }
 
-  async attention(lane: SupervisedLane["lane"], reason: string): Promise<void> {
-    await this.ports.attention(lane, reason);
+  async attention(lane: Lane, reason: string): Promise<void> {
+    const routed = await this.ports.attention(lane, reason);
+    if (routed.state === "attention") await this.flag(routed, routed.attentionReason ?? reason);
+  }
+
+  async flag(lane: Lane, reason: string): Promise<void> {
     this.report.attention.push({ lane: lane.id, reason });
+    await this.tell(lane, `attention:${reason}:${lane.updatedAt}`, attentionMessage(lane, reason));
+  }
+
+  async tell(lane: Lane, event: string, message: string): Promise<void> {
+    const thread = this.policy.orchestrator;
+    if (!thread) return;
+    const told = this.ports.journal
+      .entries(lane.id)
+      .some((entry) => entry.kind === "reported" && entry.event === event);
+    if (told) return;
+    try {
+      await this.ports.report(thread, message);
+    } catch (error) {
+      this.report.failures.push({ lane: lane.id, step: "report", message: errorMessage(error) });
+      return;
+    }
+    this.ports.journal.record(lane.id, { kind: "reported", event });
+    this.report.reported.push({ lane: lane.id, event });
+  }
+
+  async readFailed(lane: Lane, step: string, message: string): Promise<void> {
+    const entries = this.ports.journal.entries(lane.id);
+    this.ports.journal.record(lane.id, { kind: "read_miss", step, message, at: this.observedAt() });
+    if (trailing(entries, lane.updatedAt, "read_miss", "read_seen") + 1 >= READ_MISS_LIMIT)
+      return this.attention(lane, `read_failing: ${step}: ${message}`.slice(0, REASON_LIMIT));
+    this.report.failures.push({ lane: lane.id, step, message });
+  }
+
+  readSucceeded(lane: Lane): void {
+    const entries = this.ports.journal.entries(lane.id);
+    if (trailing(entries, lane.updatedAt, "read_miss", "read_seen") > 0)
+      this.ports.journal.record(lane.id, { kind: "read_seen" });
   }
 
   async humanEdits(supervised: SupervisedLane): Promise<boolean> {
@@ -93,6 +138,8 @@ class Tick {
       observed: { value: proof.merged ? (proof.commit ?? proof.head) : false },
       observedAt: this.observedAt(),
     });
+    if (!proof.merged && lane.state === "approved" && proof.head === lane.head)
+      await this.tell(lane, `ready:${proof.head}`, readyMessage(lane, lane.artifact, proof.head));
     if (!proof.merged || (await this.humanEdits(supervised))) return;
     const result = await this.ports.complete(lane);
     if (result.ok) {
@@ -107,7 +154,7 @@ class Tick {
     }
     const { code, message } = result.refusal;
     if (!RETRYABLE_REFUSALS.has(code)) return this.attention(lane, `completion_${code}`);
-    this.report.failures.push({ lane: lane.id, step: "complete", message: `${code}: ${message}` });
+    throw new Error(`${code}: ${message}`);
   }
 
   async session(supervised: SupervisedLane): Promise<void> {
@@ -138,7 +185,7 @@ class Tick {
         views.length ? "session_ambiguous" : "session_missing",
         `Host reports ${views.length} sessions for the lane`,
       );
-    if (trailingMisses(entries, lane.updatedAt) > 0)
+    if (trailing(entries, lane.updatedAt, "session_miss", "session_seen") > 0)
       this.ports.journal.record(lane.id, { kind: "session_seen" });
     const mark = entries.findLast(
       (entry): entry is Extract<JournalEntry, { kind: "progress" }> => entry.kind === "progress",
@@ -174,7 +221,7 @@ class Tick {
   ): Promise<void> {
     const at = this.observedAt();
     this.ports.journal.record(lane.id, { kind: "session_miss", reason, at });
-    if (trailingMisses(entries, lane.updatedAt) + 1 >= SESSION_MISS_LIMIT)
+    if (trailing(entries, lane.updatedAt, "session_miss", "session_seen") + 1 >= SESSION_MISS_LIMIT)
       return this.attention(lane, reason);
     this.report.failures.push({ lane: lane.id, step: "session", message: `${reason}: ${message}` });
   }
@@ -185,21 +232,20 @@ class Tick {
 
   allowed(ticket: TicketRef): boolean {
     if (!this.policy.only) return true;
-    try {
-      const key = parseRef(ticket).nativeId;
-      return key !== undefined && this.policy.only.includes(key);
-    } catch {
-      return false;
-    }
+    const key = nativeKey(ticket);
+    return key !== undefined && this.policy.only.includes(key);
   }
 
   async scope(): Promise<{ tickets: Set<TicketRef>; complete: boolean }> {
     const tickets = new Set<TicketRef>();
+    const seen = new Set<string>();
     let complete = true;
     for (const project of this.policy.projects) {
       try {
-        for (const ticket of await this.ports.frontier(project))
+        for (const ticket of await this.ports.frontier(project)) {
+          seen.add(nativeKey(ticket.ref) ?? "");
           if (this.allowed(ticket.ref)) tickets.add(ticket.ref);
+        }
       } catch (error) {
         complete = false;
         this.report.failures.push({
@@ -208,6 +254,12 @@ class Tick {
         });
       }
     }
+    if (complete)
+      for (const key of this.policy.only ?? [])
+        if (!seen.has(key))
+          this.report.warnings.push(
+            `--only ${key} is not in any map: ${this.policy.projects.map((project) => project.map).join(", ")}`,
+          );
     return { tickets, complete };
   }
 
@@ -289,13 +341,49 @@ class Tick {
   }
 }
 
-function trailingMisses(entries: readonly JournalEntry[], since: string): number {
+function trailing(
+  entries: readonly JournalEntry[],
+  since: string,
+  miss: "session_miss" | "read_miss",
+  seen: "session_seen" | "read_seen",
+): number {
   let misses = 0;
   for (const entry of [...entries].reverse()) {
-    if (entry.kind === "session_seen" || entry.kind === "progress") break;
-    if (entry.kind === "session_miss" && Date.parse(entry.at) >= Date.parse(since)) misses += 1;
+    if (entry.kind === seen || (miss === "session_miss" && entry.kind === "progress")) break;
+    if (entry.kind === miss && Date.parse(entry.at) >= Date.parse(since)) misses += 1;
   }
   return misses;
+}
+
+function nativeKey(ticket: TicketRef | undefined): string | undefined {
+  if (!ticket) return undefined;
+  try {
+    return parseRef(ticket).nativeId;
+  } catch {
+    return undefined;
+  }
+}
+
+function readyMessage(lane: Lane, artifact: string, head: string): string {
+  return [
+    `🤖 ${nativeKey(lane.ticket) ?? lane.id} is approved and ready to merge`,
+    `PR ${artifact}, approved head ${head}`,
+    "Interlock completes the lane after the merge.",
+  ].join("\n");
+}
+
+function attentionMessage(lane: Lane, reason: string): string {
+  const next =
+    lane.state !== "attention"
+      ? []
+      : reason === REVIEW_ROUND_LIMIT
+        ? [`Grant a round with: interlock lane grant-round ${lane.id}`]
+        : [`Resume after fixing it with: interlock lane resume ${lane.id}`];
+  return [
+    `🤖 ${nativeKey(lane.ticket) ?? lane.id} is blocked: ${reason}`,
+    ...(lane.artifact ? [`PR ${lane.artifact}`] : []),
+    ...next,
+  ].join("\n");
 }
 
 function unsettledResume(entries: readonly JournalEntry[]) {
@@ -321,17 +409,21 @@ export async function superviseTick(
   for (const supervised of tick.scoped(scope)) {
     const { lane } = supervised;
     if (!lane.ticket || !supervised.run) continue;
+    const step = COMPLETABLE.has(lane.state) ? "complete" : lane.state;
     try {
-      if (lane.state === "attention")
-        tick.report.attention.push({ lane: lane.id, reason: lane.attentionReason ?? "attention" });
+      if (lane.state === "attention") await tick.flag(lane, lane.attentionReason ?? "attention");
       else if (COMPLETABLE.has(lane.state)) {
         if (supervised.configurationError) throw new Error(supervised.configurationError);
         await tick.complete(supervised);
-      } else if (supervised.recoveryRequired)
-        tick.report.attention.push({ lane: lane.id, reason: "recovery_required" });
+      } else if (supervised.recoveryRequired) await tick.flag(lane, "recovery_required");
       else if (lane.state === "implementing") await tick.session(supervised);
+      if (lane.state !== "attention") tick.readSucceeded(lane);
     } catch (error) {
-      tick.report.failures.push({ lane: lane.id, step: lane.state, message: errorMessage(error) });
+      await tick
+        .readFailed(lane, step, errorMessage(error))
+        .catch((failure: unknown) =>
+          tick.report.failures.push({ lane: lane.id, step, message: errorMessage(failure) }),
+        );
     }
   }
   if (complete) await tick.frontier(scope);

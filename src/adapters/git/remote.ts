@@ -1,5 +1,17 @@
 import { normalizeClaimHome } from "../../domain/claim/home.ts";
-import type { GitCommandExecutor } from "./workspace.ts";
+import type { CommandResult, GitCommandExecutor } from "./workspace.ts";
+
+const STDERR_LIMIT = 500;
+
+export function commandFailure(argv: readonly string[], result: CommandResult): Error {
+  const stderr = result.stderr
+    .replaceAll(/\/\/[^/@\s]+@/g, "//***@")
+    .trim()
+    .slice(-STDERR_LIMIT);
+  return new Error(
+    `${argv.slice(0, 3).join(" ")} exited ${result.exitCode}${stderr ? `: ${stderr}` : ""}`,
+  );
+}
 
 export async function checkedGitCommand(
   git: GitCommandExecutor,
@@ -7,7 +19,7 @@ export async function checkedGitCommand(
   argv: readonly string[],
 ): Promise<string> {
   const result = await git.run(argv, cwd);
-  if (result.exitCode !== 0) throw new Error("Git submission verification failed");
+  if (result.exitCode !== 0) throw commandFailure(argv, result);
   return result.stdout.trim();
 }
 

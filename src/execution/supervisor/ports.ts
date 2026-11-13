@@ -13,6 +13,7 @@ export interface SupervisorProject {
 export interface SupervisorPolicy {
   projects: readonly SupervisorProject[];
   only?: readonly string[];
+  orchestrator?: string;
   parallelism: number;
   stallAfterMs: number;
   maxResumes: number;
@@ -40,7 +41,10 @@ export type JournalEntry =
   | { kind: "resume_pending"; operation: OperationIdentity; session: string }
   | { kind: "resume_settled"; operation: OperationIdentity; outcome: string }
   | { kind: "session_miss"; reason: string; at: string }
-  | { kind: "session_seen" };
+  | { kind: "session_seen" }
+  | { kind: "read_miss"; step: string; message: string; at: string }
+  | { kind: "read_seen" }
+  | { kind: "reported"; event: string };
 
 export interface SupervisorJournal {
   entries(lane: LaneRef): readonly JournalEntry[];
@@ -71,7 +75,8 @@ export interface SupervisorPorts {
     operation: OperationIdentity,
     message: string,
   ): Promise<HostSteerResult>;
-  attention(lane: Lane, reason: string): Promise<void>;
+  attention(lane: Lane, reason: string): Promise<Lane>;
+  report(thread: string, message: string): Promise<void>;
   journal: SupervisorJournal;
   now(): Date;
 }
@@ -82,6 +87,8 @@ export interface TickReport {
   resumed: { lane: LaneRef; session: string }[];
   held: { lane?: LaneRef; ticket: TicketRef; reason: string }[];
   attention: { lane: LaneRef; reason: string }[];
+  reported: { lane: LaneRef; event: string }[];
+  warnings: string[];
   failures: { lane?: LaneRef; ticket?: TicketRef; step: string; message: string }[];
   evidence: { lane: LaneRef; evidence: GateEvidence }[];
 }

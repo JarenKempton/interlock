@@ -282,6 +282,15 @@ export class StateStore {
     });
   }
 
+  grantReviewRound(lane: Lane, receipt: unknown): void {
+    if (!lane.run) throw new Error("A review round grant requires a run");
+    const run = lane.run;
+    this.#transaction(() => {
+      this.saveLane(lane);
+      this.recordStep(run, "review_round_granted", receipt);
+    });
+  }
+
   saveLane(lane: Lane): void {
     const values = {
       id: lane.id,

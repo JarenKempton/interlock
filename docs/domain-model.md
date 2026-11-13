@@ -131,8 +131,11 @@ or attach creates it, and only attach binds a run and claim. The
 through implementing, submitted, reviewing, approved and done; stored queued
 and claimed lanes become implementing when the ledger loads; legacy merged lanes remain completable; changes_requested loops back to implementing up to the lane's
 configured round limit, then routes to attention, which resumes to the prior
-state. Verdicts and evidence are bound to the submitted head and go stale for
-any other head. `lane next` returns exactly one action for the lane's state.
+state. A submitted or reviewing lane takes a new head, such as a conflict
+resolution, as its next round within the same limit. A lane held at the limit
+cannot be resumed; only `lane grant-round`, accepted only at the limit, allows
+one more round, journals `review_round_granted` on the run, and resumes it. Verdicts and evidence are bound to the submitted head and go
+stale for any other head. `lane next` returns exactly one action for the lane's state.
 Lanes persist in the local ledger. `lane complete --ticket KEY` accepts approved or
 legacy merged lanes. GitHub must prove the recorded PR URL, branch and approved
 head; a missing URL is adopted from the head branch. Before tracker mutation,
@@ -254,7 +257,8 @@ can replay them. No action gains a capability by the presence of these types.
 supervisor ([tick](../src/execution/supervisor/tick.ts)). It acts only on
 tickets its maps list, and with `--only KEY[,KEY]` only on those tickets: other
 lanes in the ledger are never completed, resumed, steered or counted toward
-`--parallelism`. A map's children must belong to the map's own tracker project.
+`--parallelism`. An `--only` key that no map lists is reported as a warning.
+A map's children must belong to the map's own tracker project.
 When a map cannot be listed, the tick launches nothing. Each tick, in order:
 
 1. **Completion.** For an approved or merged lane it reads GitHub merge state.
@@ -276,7 +280,14 @@ When a map cannot be listed, the tick launches nothing. Each tick, in order:
    open, unassigned, pickable ticket whose blockers are closed, with no held
    claim and no lane in the ledger, through `pickup --launch`, until the number
    of unfinished lanes reaches `--parallelism`. A launched lane that has not
-   attached yet counts.
+   attached yet counts. Its T3 thread is titled `🔨 KEY: summary`.
+
+With `--orchestrator THREAD`, launched lanes are told that thread, and the
+supervisor sends it one message, prefixed 🤖, when the pull request's tip is
+the lane's approved head and is not yet merged, and one per attention episode
+with its reason, through
+`t3 thread send`. Each report is journaled once sent; an undelivered report is
+retried on the next tick.
 
 Human edits win. A ticket reassigned away from the claim owner, moved out of
 the claimed status, re-blocked, or whose remote claim is no longer the lane's,
@@ -286,7 +297,9 @@ resolved needs attention. A ticket with only done lanes that is open again is
 reported as reopened and not picked up. The supervisor never releases or
 reassigns a claim. Completion refusals route the lane to attention unless they
 are transient tracker, claim-lock, artifact-host or readback failures, which
-retry on the next tick without marking the run for recovery.
+retry on the next tick without marking the run for recovery. A lane whose reads
+fail five ticks in a row stops retrying and moves to attention with the last
+error, which carries the failing command's stderr.
 
 Each observed fact is journaled as [gate evidence](../src/domain/gate/evidence.ts)
 when its value changes. `interlock status` shows each lane's state, whether it
@@ -302,7 +315,10 @@ configured, otherwise the declared default `human`, where the agent moves the
 lane to review and attention and a person records the verdict. `lane submit`
 without `--gate` pushes and opens the pull request first; a second
 `lane submit` with the gate and the evidence URL for that pushed head records
-the evidence and submits the lane.
+the evidence and submits the lane. Every submit titles the pull request from the
+ticket, or `--title`, prefixed with the key, and `--body-file` sets its body
+with the lane's evidence appended; a resubmit edits both on the existing pull
+request.
 
 ## Conformance
 

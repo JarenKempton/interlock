@@ -23,7 +23,7 @@ import type {
   SupervisorPolicy,
   SupervisorPorts,
 } from "../../../src/execution/supervisor/ports.ts";
-import { superviseTick } from "../../../src/execution/supervisor/tick.ts";
+import { READ_MISS_LIMIT, superviseTick } from "../../../src/execution/supervisor/tick.ts";
 
 const map = mapRefSchema.parse("jira:x:JWB:map:JWB-1");
 const owner = actorRefSchema.parse("owner");
@@ -50,6 +50,7 @@ class World implements SupervisorPorts {
   log: string[] = [];
   journalEntries = new Map<LaneRef, JournalEntry[]>();
   configurationErrors = new Map<LaneRef, string>();
+  recovering = new Set<LaneRef>();
 
   ticket(key: string, patch: Partial<Ticket> = {}): Ticket {
     const ticket: Ticket = {
@@ -118,6 +119,7 @@ class World implements SupervisorPorts {
         ...(lane.run ? { run: lane.run } : {}),
         ...(claim ? { claim } : {}),
         claimedStatus: "In Progress",
+        ...(this.recovering.has(lane.id) ? { recoveryRequired: true } : {}),
         ...(configurationError ? { configurationError } : {}),
       };
     });
@@ -133,12 +135,19 @@ class World implements SupervisorPorts {
     source: "refs/interlock/claims/x",
   });
 
-  merged = async (url: string) => ({
+  merged = async (url: string) => {
+    if (this.mergedFailure) throw new Error(this.mergedFailure);
+    return this.proof(url);
+  };
+
+  prHead = "a".repeat(40);
+
+  proof = (url: string) => ({
     merged: this.mergedUrls.has(url),
     url,
     repository: "github.com/o/r",
     branch: "task/x",
-    head: "a".repeat(40),
+    head: this.prHead,
     base: "main",
     commit: this.mergedUrls.has(url) ? "b".repeat(40) : null,
   });
@@ -199,13 +208,28 @@ class World implements SupervisorPorts {
 
   attention = async (lane: Lane, reason: string) => {
     this.log.push(`attention ${lane.ticket} ${reason}`);
-    this.lanesById.set(lane.id, {
+    const current = this.lanesById.get(lane.id);
+    if (current && current.state !== lane.state) return current;
+    const routed: Lane = {
       ...lane,
       state: "attention",
       previousState: lane.state,
       attentionReason: reason,
-    });
+      updatedAt: this.time.toISOString(),
+    };
+    this.lanesById.set(lane.id, routed);
+    return routed;
   };
+
+  reports: { thread: string; message: string }[] = [];
+  reportFailure: string | undefined;
+
+  report = async (thread: string, message: string) => {
+    if (this.reportFailure) throw new Error(this.reportFailure);
+    this.reports.push({ thread, message });
+  };
+
+  mergedFailure: string | undefined;
 
   view(lane: Lane, status: string, messages: number): HostSessionView {
     const view: HostSessionView = {
@@ -421,7 +445,7 @@ test("a merged lane with an unreadable recorded configuration fails alone; its s
   const report = await superviseTick(world, policy);
 
   expect(report.failures).toEqual([
-    { lane: historical.id, step: "approved", message: "version 1 refused" },
+    { lane: historical.id, step: "complete", message: "version 1 refused" },
   ]);
   expect(report.completed.map((item) => item.ticket)).toEqual([ref("JWB-3")]);
   expect(world.lanesById.get(historical.id)?.state).toBe("approved");
@@ -624,5 +648,169 @@ test("a map that cannot be listed for scoping blocks every launch that tick", as
   expect(world.log).toEqual([]);
   expect(report.failures).toEqual([
     { step: "scope", message: `${map}: jira_unavailable; no launches this tick` },
+  ]);
+});
+
+const orchestrated = { ...policy, orchestrator: "thread-orchestrator" };
+
+test("the orchestrator hears each attention lane once, with its reason", async () => {
+  const world = new World();
+  const held = world.lane("JWB-2", "attention", {
+    previousState: "implementing",
+    attentionReason: "review_round_limit",
+  });
+  const stalled = world.lane("JWB-3", "implementing");
+  world.view(stalled, "ready", 1);
+  const tick = () => superviseTick(world, { ...orchestrated, maxResumes: 0 });
+
+  const first = await tick();
+  world.time = new Date(world.time.getTime() + 31 * 60_000);
+  const second = await tick();
+  await tick();
+
+  expect(first.reported).toEqual([
+    { lane: held.id, event: `attention:review_round_limit:${held.updatedAt}` },
+  ]);
+  expect(second.reported.map((item) => item.lane)).toEqual([stalled.id]);
+  expect(world.reports).toEqual([
+    {
+      thread: "thread-orchestrator",
+      message: [
+        "🤖 JWB-2 is blocked: review_round_limit",
+        `PR ${held.artifact}`,
+        `Grant a round with: interlock lane grant-round ${held.id}`,
+      ].join("\n"),
+    },
+    {
+      thread: "thread-orchestrator",
+      message: [
+        "🤖 JWB-3 is blocked: stalled",
+        `PR ${stalled.artifact}`,
+        `Resume after fixing it with: interlock lane resume ${stalled.id}`,
+      ].join("\n"),
+    },
+  ]);
+});
+
+test("the orchestrator hears an approved lane is ready to merge once per head, only while the PR tip is that head", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "approved");
+  await superviseTick(world, policy);
+  expect(world.reports).toEqual([]);
+
+  await superviseTick(world, orchestrated);
+  await superviseTick(world, orchestrated);
+  world.prHead = "c".repeat(40);
+  await superviseTick(world, orchestrated);
+  world.lanesById.set(lane.id, { ...lane, head: "c".repeat(40) });
+  await superviseTick(world, orchestrated);
+
+  expect(world.reports.map((item) => item.message.split("\n")[0])).toEqual([
+    "🤖 JWB-2 is approved and ready to merge",
+    "🤖 JWB-2 is approved and ready to merge",
+  ]);
+  expect(world.reports[1]?.message).toContain(`approved head ${"c".repeat(40)}`);
+});
+
+test("an undelivered report is retried on the next tick", async () => {
+  const world = new World();
+  world.lane("JWB-2", "attention", { attentionReason: "reviewer_unavailable" });
+  world.reportFailure = "t3 thread send failed: thread not found";
+
+  const failed = await superviseTick(world, orchestrated);
+  world.reportFailure = undefined;
+  const retried = await superviseTick(world, orchestrated);
+
+  expect(failed.failures).toEqual([
+    {
+      lane: laneRefSchema.parse("interlock-lane:JWB-2"),
+      step: "report",
+      message: "t3 thread send failed: thread not found",
+    },
+  ]);
+  expect(retried.reported).toHaveLength(1);
+  expect(world.reports).toHaveLength(1);
+});
+
+test("a read that keeps failing stops retrying at the limit and routes the lane to attention", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "approved");
+  world.mergedFailure = "gh api exited 1: HTTP 502";
+
+  for (let tick = 1; tick < READ_MISS_LIMIT; tick += 1) {
+    const report = await superviseTick(world, orchestrated);
+    expect(report.failures).toEqual([
+      { lane: lane.id, step: "complete", message: "gh api exited 1: HTTP 502" },
+    ]);
+  }
+  const limited = await superviseTick(world, orchestrated);
+  const after = await superviseTick(world, orchestrated);
+
+  const reason = "read_failing: complete: gh api exited 1: HTTP 502";
+  expect(limited.attention).toEqual([{ lane: lane.id, reason }]);
+  expect(world.lanesById.get(lane.id)?.state).toBe("attention");
+  expect(after.failures).toEqual([]);
+  expect(world.reports.map((item) => item.message.split("\n")[0])).toEqual([
+    `🤖 JWB-2 is blocked: ${reason}`,
+  ]);
+});
+
+test("a successful read resets the read failure count", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "approved");
+  for (let round = 0; round < 2; round += 1) {
+    world.mergedFailure = "gh api exited 1: HTTP 502";
+    for (let tick = 1; tick < READ_MISS_LIMIT; tick += 1) await superviseTick(world, policy);
+    world.mergedFailure = undefined;
+    await superviseTick(world, policy);
+  }
+  expect(world.lanesById.get(lane.id)?.state).toBe("approved");
+});
+
+test("--only warns about a key that is in no project map", async () => {
+  const world = new World();
+  world.ticket("JWB-3");
+
+  const report = await superviseTick(world, { ...policy, only: ["JWB-3", "JWB-77"] });
+
+  expect(report.warnings).toEqual([`--only JWB-77 is not in any map: ${map}`]);
+});
+
+test("a lane routed to attention elsewhere is reported with its own reason, once", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "approved");
+  world.mergedUrls.add(lane.artifact ?? "");
+  world.completeRefusal = "claim_collision";
+  const held: Lane = {
+    ...lane,
+    state: "attention",
+    previousState: "approved",
+    attentionReason: "reviewer_unavailable",
+  };
+  const complete = world.complete;
+  world.complete = async (current) => {
+    world.lanesById.set(lane.id, held);
+    return complete(current);
+  };
+
+  const first = await superviseTick(world, orchestrated);
+  world.complete = complete;
+  await superviseTick(world, orchestrated);
+
+  expect(first.attention).toEqual([{ lane: lane.id, reason: "reviewer_unavailable" }]);
+  expect(world.reports.map((item) => item.message.split("\n")[0])).toEqual([
+    "🤖 JWB-2 is blocked: reviewer_unavailable",
+  ]);
+});
+
+test("a run that needs recovery is reported without a resume command that would refuse", async () => {
+  const world = new World();
+  const lane = world.lane("JWB-2", "implementing");
+  world.recovering.add(lane.id);
+
+  await superviseTick(world, orchestrated);
+
+  expect(world.reports.map((item) => item.message)).toEqual([
+    ["🤖 JWB-2 is blocked: recovery_required", `PR ${lane.artifact}`].join("\n"),
   ]);
 });

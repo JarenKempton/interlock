@@ -22,6 +22,7 @@ import type {
   ArtifactHost,
   ArtifactRequest,
   ArtifactTarget,
+  ArtifactUpdate,
   ArtifactWorkspace,
   PullRequest,
 } from "../../../src/domain/submission/artifact.ts";
@@ -36,6 +37,7 @@ import { checkedGit, GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { rejection } from "../../fixtures/assertions/rejection.ts";
 import { updateUserSettings } from "../../../src/configuration/store.ts";
 import { gitLaneService } from "../../../src/app/lane/service.ts";
+import { PickupJira } from "../../fixtures/pickup/runtime.ts";
 
 setDefaultTimeout(GIT_TEST_TIMEOUT_MS);
 
@@ -52,6 +54,7 @@ class FakeArtifacts implements ArtifactHost {
   open_: PullRequest[] = [];
   pushes: { workspace: ArtifactWorkspace; head: string }[] = [];
   opens: ArtifactRequest[] = [];
+  updates: ArtifactUpdate[] = [];
   failPush = false;
   failList = false;
   openOutcome: "created" | "lost_response" | "failed" = "created";
@@ -89,6 +92,29 @@ class FakeArtifacts implements ArtifactHost {
     if (this.openOutcome === "lost_response") throw new Error("connection reset");
     return created;
   }
+
+  async update(_target: ArtifactTarget, url: string, request: ArtifactUpdate) {
+    this.updates.push(request);
+    const found = this.open_.find((item) => item.url === url);
+    if (!found) throw new Error(`gh pr edit exited 1: no pull request ${url}`);
+    found.title = request.title;
+    return found;
+  }
+}
+
+const ticketTitle = "Core PR submission";
+
+function servingIssue(next: JiraTransport["request"]): JiraTransport {
+  const fake = new PickupJira();
+  fake.issue.key = "JWB-878";
+  return {
+    request: (method, path, body) =>
+      method === "GET" &&
+      (path.startsWith("/rest/api/3/issue/JWB-878?") ||
+        path.startsWith("/rest/api/3/issue/JWB-878/properties/"))
+        ? fake.request(method, path, body)
+        : next(method, path, body),
+  };
 }
 
 class LinkingTracker implements LaneTrackerPort {
@@ -96,8 +122,11 @@ class LinkingTracker implements LaneTrackerPort {
   titles: (string | undefined)[] = [];
   failWith: Error | undefined;
   unavailable = false;
-  async read(): Promise<never> {
-    throw new Error("not used");
+  async read(ref: TicketRef) {
+    return {
+      ticket: { ref, state: "open" as const, status: "In Progress", title: ticketTitle },
+      snapshot: { version: "1", payload: null },
+    };
   }
   async available() {
     if (this.unavailable) throw new TrackerUnavailableError("Not signed in to Jira");
@@ -262,7 +291,7 @@ test("lane commands read the tracker sign-in from the --state ledger", async () 
       ["lane", "submit", id, "--head", "abc", "--json", "--state", statePath],
       (text) => output.push(text),
       {
-        execution: { jira: { request: async () => ({ status: 503 }) } },
+        execution: { jira: servingIssue(async () => ({ status: 503 })) },
         lane: { artifacts },
       },
     );
@@ -334,7 +363,13 @@ test("a failed push followed by a retry opens exactly one PR", async () => {
     artifacts.failPush = true;
     const id = implementing(store);
     const refused = await service.submit(id, { head: "abc", evidence: evidence("abc") });
-    expect(refused).toMatchObject({ ok: false, refusal: { code: "push_failed" } });
+    expect(refused).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "push_failed",
+        message: `Push of ${branch} failed; lane remains implementing: rejected`,
+      },
+    });
     expect(artifacts.opens).toEqual([]);
     expect(service.get(id)).toMatchObject({ ok: true, value: { state: "implementing" } });
     artifacts.failPush = false;
@@ -569,19 +604,17 @@ test("CLI submit reaches the signed-in Jira adapter and writes one verified remo
   const statePath = join(directory, "interlock.db");
   const links = new Map<string, unknown>();
   const posts: unknown[] = [];
-  const jira: JiraTransport = {
-    async request(method, path, body) {
-      if (!path.startsWith("/rest/api/3/issue/JWB-878/remotelink")) return { status: 404 };
-      if (method === "POST") {
-        posts.push(body);
-        const parsed = z.object({ globalId: z.string(), object: z.unknown() }).parse(body);
-        links.set(parsed.globalId, { object: parsed.object });
-        return { status: 201 };
-      }
-      const link = links.get(decodeURIComponent(path.split("globalId=")[1] ?? ""));
-      return link ? { status: 200, body: link } : { status: 404 };
-    },
-  };
+  const jira = servingIssue(async (method, path, body) => {
+    if (!path.startsWith("/rest/api/3/issue/JWB-878/remotelink")) return { status: 404 };
+    if (method === "POST") {
+      posts.push(body);
+      const parsed = z.object({ globalId: z.string(), object: z.unknown() }).parse(body);
+      links.set(parsed.globalId, { object: parsed.object });
+      return { status: 201 };
+    }
+    const link = links.get(decodeURIComponent(path.split("globalId=")[1] ?? ""));
+    return link ? { status: 200, body: link } : { status: 404 };
+  });
   try {
     const services = {
       statePath,
@@ -658,13 +691,76 @@ test("title prefix and existing title checks require the complete ticket key", a
       artifacts.open_ = [{ url: prUrl, branch, title, state: "OPEN" }];
       const id = implementing(store);
       expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
-        ok: false,
-        refusal: { code: "artifact_mismatch" },
+        ok: true,
+        value: { artifact: prUrl },
       });
-      expect(artifacts.pushes).toEqual([]);
+      expect(artifacts.updates).toEqual([{ title: `JWB-878: ${ticketTitle}` }]);
     } finally {
       cleanup();
     }
+  }
+});
+
+test("submit titles the PR from the ticket, and a resubmit updates its title and body", async () => {
+  const { service, store, artifacts, cleanup } = await setup();
+  try {
+    const id = implementing(store);
+    await service.submit(id, {
+      head: "abc",
+      evidence: [],
+      body: "## Evidence\n\n$ vp run test\n1 pass",
+    });
+    expect(artifacts.opens[0]?.title).toBe(`JWB-878: ${ticketTitle}`);
+    expect(artifacts.opens[0]?.body).toBe(
+      "## Evidence\n\n$ vp run test\n1 pass\n\n---\nInterlock lane interlock-lane:submit",
+    );
+    await service.submit(id, {
+      head: "abc",
+      evidence: evidence("abc"),
+      title: "Retitled",
+      body: "## Evidence\n\nupdated",
+    });
+    expect(artifacts.opens).toHaveLength(1);
+    expect(artifacts.updates).toEqual([
+      {
+        title: "JWB-878: Retitled",
+        body: "## Evidence\n\nupdated\n\n---\nInterlock lane interlock-lane:submit\n- test at abc: https://ci.test/abc",
+      },
+    ]);
+    expect(artifacts.open_[0]?.title).toBe("JWB-878: Retitled");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a lane in review takes a new head as the next round, up to its round limit", async () => {
+  const { service, store, artifacts, cleanup } = await setup();
+  try {
+    const id = implementing(store);
+    await service.submit(id, { head: "abc", evidence: evidence("abc") });
+    await service.apply(id, { type: "begin_review" });
+    expect(await service.submit(id, { head: "abc", evidence: evidence("abc") })).toMatchObject({
+      ok: false,
+      refusal: { code: "invalid_transition" },
+    });
+    expect(await service.submit(id, { head: "def", evidence: [] })).toMatchObject({
+      ok: true,
+      value: { state: "reviewing", head: "abc", reviewRound: 1 },
+    });
+    expect(await service.submit(id, { head: "def", evidence: evidence("def") })).toMatchObject({
+      ok: true,
+      value: { state: "submitted", head: "def", reviewRound: 2 },
+    });
+    expect(artifacts.pushes.map((item) => item.head)).toEqual(["abc", "def", "def"]);
+    await service.apply(id, { type: "begin_review" });
+    await service.submit(id, { head: "ghi", evidence: evidence("ghi") });
+    await service.apply(id, { type: "begin_review" });
+    expect(await service.submit(id, { head: "jkl", evidence: [] })).toMatchObject({
+      ok: false,
+      refusal: { code: "gates_unmet", message: expect.stringContaining("lane grant-round") },
+    });
+  } finally {
+    cleanup();
   }
 });
 

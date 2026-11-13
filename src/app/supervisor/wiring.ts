@@ -3,7 +3,8 @@ import { GitHubArtifactHost } from "../../adapters/github/artifact.ts";
 import { GitClaimLock } from "../../adapters/git/claim-lock.ts";
 import { heldClaim } from "../../domain/claim/lock.ts";
 import type { ClaimLockRecord } from "../../domain/claim/lock.ts";
-import { T3HostPort } from "../../adapters/hosts/t3/port.ts";
+import { T3HostPort, t3Failure } from "../../adapters/hosts/t3/port.ts";
+import { bunT3Process, hostT3Cli, sendT3Message } from "../../adapters/hosts/t3/cli.ts";
 import { BunGitCommandExecutor } from "../../adapters/git/workspace.ts";
 import { projectConfigPath } from "../../configuration/files.ts";
 import { readUserSettings } from "../../configuration/local-settings.ts";
@@ -56,6 +57,14 @@ const journalEntrySchema: z.ZodType<JournalEntry> = z.discriminatedUnion("kind",
   z.object({ kind: z.literal("resume_settled"), operation: operationSchema, outcome: z.string() }),
   z.object({ kind: z.literal("session_miss"), reason: z.string(), at: z.string() }),
   z.object({ kind: z.literal("session_seen") }),
+  z.object({
+    kind: z.literal("read_miss"),
+    step: z.string(),
+    message: z.string(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("read_seen") }),
+  z.object({ kind: z.literal("reported"), event: z.string() }),
 ]);
 const LOCK_RETRIES = 40;
 
@@ -176,10 +185,11 @@ export interface SupervisorWiring {
   statePath: string;
   explicitState: boolean;
   store: StateStore;
+  orchestrator?: string;
 }
 
 export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
-  const { statePath, explicitState, store } = wiring;
+  const { statePath, explicitState, store, orchestrator } = wiring;
   const services = { ...wiring.services, statePath };
   const git = services.execution?.git ?? new BunGitCommandExecutor();
   const artifacts = services.lane?.artifacts ?? new GitHubArtifactHost(git);
@@ -295,8 +305,19 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
       const result = await locked(services, statePath, (ledger) =>
         laneService(services, ledger).apply(lane.id, { type: "attention", reason }),
       );
-      if (!result.ok && result.refusal.code !== "invalid_transition")
-        throw new Error(result.refusal.message);
+      if (result.ok) return result.value;
+      if (result.refusal.code !== "invalid_transition") throw new Error(result.refusal.message);
+      return store.findLane(lane.id) ?? lane;
+    },
+    report: async (thread, message) => {
+      const sent = await sendT3Message(
+        services.execution?.t3?.process ?? bunT3Process,
+        user().t3_cli ?? hostT3Cli(),
+        thread,
+        message,
+      );
+      if (!sent.delivered)
+        throw new Error(`t3 thread send to ${thread} failed: ${t3Failure(sent)}`);
     },
     frontier: async (project) => {
       const tracker = await projectTracker(project);
@@ -320,6 +341,7 @@ export function supervisorPorts(wiring: SupervisorWiring): SupervisorPorts {
         key,
         repo: project.repository,
         launch: true,
+        ...(orchestrator ? { orchestrator } : {}),
         ...(explicitState ? { state: statePath } : {}),
       });
       if (result.dryRun) throw new Error("Pickup planned without launching");

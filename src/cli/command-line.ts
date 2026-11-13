@@ -9,6 +9,7 @@ import {
   registeredActions,
 } from "../app/action.ts";
 import { commandParser, invocationParser, transportOptions } from "./parser.ts";
+import { unknownCommand } from "./suggest.ts";
 
 export function actionHelp(tree: ActionTree, prefix: string[] = [], json = false): string {
   if (json)
@@ -51,7 +52,7 @@ function selectCommand(tree: ActionTree, args: string[]) {
     const next: ActionTree | ActionView | undefined = Object.hasOwn(node, word)
       ? node[word]
       : undefined;
-    if (!next) throw new Error("Unknown command; use --help");
+    if (!next) throw unknownCommand(tree, args);
     node = next;
     command.push(word);
   }

@@ -21,6 +21,7 @@ import {
   type LaneResult,
   nextLaneAction,
   isApprovedForHead,
+  pushRefusal,
   type MergeProof,
   mergeProofSchema,
   laneResultSchema,
@@ -56,6 +57,7 @@ export interface LaneSubmitInput {
   head: string;
   evidence: readonly LaneEvidence[];
   title?: string;
+  body?: string;
   draft?: boolean;
 }
 
@@ -71,6 +73,7 @@ export interface LaneStore {
   steps(run: RunRef): readonly { state: string; receipt_json: string | null }[];
   recordStep(run: RunRef, state: string, receipt?: unknown, error?: unknown): void;
   commitLaneCompletion(lane: Lane, receipt: unknown, lockVersion: string): void;
+  grantReviewRound(lane: Lane, receipt: unknown): void;
   saveRecoveryRequired(run: Run, receipt: unknown, error: unknown, evidence: unknown): void;
 }
 
@@ -198,32 +201,47 @@ export class LaneService {
     return transition.refusal ? { ok: false, refusal: transition.refusal } : ok(transition.lane);
   }
 
+  grantRound(id: LaneRef): LaneResult<Lane> {
+    const lane = this.#store.findLane(id);
+    if (!lane) return fail("lane_not_found", `Lane not found: ${id}`);
+    if (!lane.run) return fail("invalid_transition", "Cannot grant a round before lane attach");
+    const transition = transitionLane(
+      lane,
+      { type: "grant_round" },
+      this.#clock.now().toISOString(),
+    );
+    if (transition.refusal) return { ok: false, refusal: transition.refusal };
+    this.#store.grantReviewRound(transition.lane, {
+      lane: lane.id,
+      reviewRound: lane.reviewRound,
+      maxReviewRounds: transition.lane.maxReviewRounds,
+      state: transition.lane.state,
+    });
+    return ok(transition.lane);
+  }
+
   async submit(id: LaneRef, input: LaneSubmitInput): Promise<LaneResult<Lane>> {
     const lane = this.#store.findLane(id);
     if (!lane) return fail("lane_not_found", `Lane not found: ${id}`);
     const now = this.#clock.now().toISOString();
     const command = { type: "submit", head: input.head, evidence: input.evidence } as const;
     const pushOnly = input.evidence.length === 0;
-    const gate = transitionLane(
-      lane,
-      {
-        ...command,
-        artifact: lane.artifact ?? "pending",
-        ...(pushOnly ? { evidence: [{ gate: "push", head: input.head, url: "pending" }] } : {}),
-      },
-      now,
-    );
-    if (gate.refusal) return { ok: false, refusal: gate.refusal };
+    const refusal = pushOnly
+      ? pushRefusal(lane, input.head)
+      : transitionLane(lane, { ...command, artifact: lane.artifact ?? "pending" }, now).refusal;
+    if (refusal) return { ok: false, refusal };
     const artifacts = this.#artifacts;
     if (!artifacts) return fail("unsupported_capability", "Submit requires an artifact host");
     const workspace = this.#workspace(lane);
     if (!workspace)
       return fail("workspace_unknown", "Lane has no recorded workspace branch to push");
+    let summary = input.title;
     if (lane.ticket) {
       if (!this.#tracker?.linkArtifact)
         return fail("tracker_unavailable", "Submit requires a tracker that links artifacts");
       try {
         await this.#tracker.available?.(lane.ticket);
+        summary ??= (await this.#tracker.read(lane.ticket)).ticket.title;
       } catch (error) {
         return fail("tracker_unavailable", errorMessage(error, "Tracker is unavailable"));
       }
@@ -234,8 +252,11 @@ export class LaneService {
     let target: ArtifactTarget;
     try {
       target = await artifacts.prepare(workspace, input.head);
-    } catch {
-      return fail("gates_unmet", "Submission head, branch, or remote cannot be verified");
+    } catch (error) {
+      return fail(
+        "gates_unmet",
+        `Submission head, branch, or remote cannot be verified: ${errorMessage(error, "unknown")}`,
+      );
     }
     const found = await findPullRequests(artifacts, target, key);
     if (!found.ok) return found;
@@ -252,14 +273,8 @@ export class LaneService {
         `Lane pull request ${lane.artifact} is not open on ${workspace.branch}; refusing a second pull request`,
       );
     const existing = own[0];
-    if (
-      existing &&
-      (existing.state !== "OPEN" || (key && !ticketKeyMatches(existing.title ?? "", key)))
-    )
-      return fail(
-        "artifact_mismatch",
-        "Existing PR must be open and its title must carry the ticket key",
-      );
+    if (existing && existing.state !== "OPEN")
+      return fail("artifact_mismatch", `Existing PR ${existing.url} is ${existing.state}`);
     if (!lane.run || !lane.claim)
       return fail("unsupported_capability", "Submit requires recorded run/claim identity");
     try {
@@ -299,10 +314,31 @@ export class LaneService {
     }
     try {
       await artifacts.push(target);
-    } catch {
-      return fail("push_failed", `Push of ${workspace.branch} failed; lane remains implementing`);
+    } catch (error) {
+      return fail(
+        "push_failed",
+        `Push of ${workspace.branch} failed; lane remains ${lane.state}: ${errorMessage(error, "unknown")}`,
+      );
     }
-    const pullRequest = existing ?? (await openPullRequest(artifacts, lane, target, key, input));
+    const request = {
+      title: pullRequestTitle(key, summary ?? workspace.branch),
+      body: pullRequestBody(lane, input),
+      draft: input.draft === true,
+    };
+    let pullRequest: PullRequest | undefined;
+    if (existing) {
+      try {
+        pullRequest = await artifacts.update(target, existing.url, {
+          title: request.title,
+          ...(input.body === undefined ? {} : { body: request.body }),
+        });
+      } catch (error) {
+        return fail(
+          "artifact_host_unavailable",
+          `Pushed, but ${existing.url} was not updated; resubmit to retry: ${errorMessage(error, "unknown")}`,
+        );
+      }
+    } else pullRequest = await openPullRequest(artifacts, target, request);
     if (!pullRequest)
       return fail(
         "ambiguous_write",
@@ -418,8 +454,11 @@ export class LaneService {
     let proof: MergeProof;
     try {
       proof = mergeProofSchema.parse(await artifacts.merged(lane.artifact));
-    } catch {
-      return fail("artifact_host_unavailable", `Could not verify ${lane.artifact}`);
+    } catch (error) {
+      return fail(
+        "artifact_host_unavailable",
+        `Could not verify ${lane.artifact}: ${errorMessage(error, "unknown")}`,
+      );
     }
     if (!proof.merged) return fail("pull_request_unmerged", "Pull request is not merged");
     if (proof.branch !== workspace.branch || proof.url !== lane.artifact)
@@ -684,27 +723,31 @@ async function findPullRequests(
 ): Promise<LaneResult<PullRequest[]>> {
   try {
     return ok(await artifacts.pullRequests(workspace, key));
-  } catch {
-    return fail("artifact_host_unavailable", "Could not read pull requests in all states");
+  } catch (error) {
+    return fail(
+      "artifact_host_unavailable",
+      `Could not read pull requests in all states: ${errorMessage(error, "unknown")}`,
+    );
   }
+}
+
+function pullRequestTitle(key: string | undefined, summary: string): string {
+  return key && !ticketKeyMatches(summary, key) ? `${key}: ${summary}` : summary;
+}
+
+function pullRequestBody(lane: Lane, input: LaneSubmitInput): string {
+  return [
+    ...(input.body?.trim() ? [input.body.trim(), "", "---"] : []),
+    `Interlock lane ${lane.id}`,
+    ...input.evidence.map((item) => `- ${item.gate} at ${item.head}: ${item.url}`),
+  ].join("\n");
 }
 
 async function openPullRequest(
   artifacts: ArtifactHost,
-  lane: Lane,
   workspace: ArtifactTarget,
-  key: string | undefined,
-  input: LaneSubmitInput,
+  request: { title: string; body: string; draft: boolean },
 ): Promise<PullRequest | undefined> {
-  const summary = input.title ?? lane.title ?? workspace.branch;
-  const request = {
-    title: key && !ticketKeyMatches(summary, key) ? `${key}: ${summary}` : summary,
-    body: [
-      `Interlock lane ${lane.id}`,
-      ...input.evidence.map((item) => `- ${item.gate} at ${item.head}: ${item.url}`),
-    ].join("\n"),
-    draft: input.draft === true,
-  };
   try {
     return await artifacts.open(workspace, request);
   } catch {

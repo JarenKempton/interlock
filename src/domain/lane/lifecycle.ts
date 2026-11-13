@@ -137,7 +137,8 @@ export type LaneCommand =
       baseMergesOnly?: boolean;
     }
   | { type: "attention"; reason: string }
-  | { type: "resume" };
+  | { type: "resume" }
+  | { type: "grant_round" };
 
 export interface LaneTransition {
   lane: Lane;
@@ -205,6 +206,35 @@ export function nextLaneAction(lane: Lane): LaneAction {
   }
 }
 
+export const REVIEW_ROUND_LIMIT = "review_round_limit";
+
+function isAtRoundLimit(lane: Lane): boolean {
+  return lane.attentionReason === REVIEW_ROUND_LIMIT && lane.reviewRound >= lane.maxReviewRounds;
+}
+
+function isResubmittable(lane: Lane): boolean {
+  return lane.state === "submitted" || lane.state === "reviewing";
+}
+
+export function pushRefusal(
+  lane: Lane,
+  head: string,
+): { code: LaneRefusalCode; message: string } | undefined {
+  if (lane.state === "done")
+    return { code: "invalid_transition", message: "Lane is done and cannot submit" };
+  if (lane.state !== "implementing" && !isResubmittable(lane))
+    return { code: "invalid_transition", message: `Cannot submit a lane in ${lane.state}` };
+  if (!lane.run)
+    return { code: "invalid_transition", message: "Cannot submit a lane before lane attach" };
+  if (!head.trim()) return { code: "gates_unmet", message: "Submit requires a head commit" };
+  if (isResubmittable(lane) && head !== lane.head && lane.reviewRound >= lane.maxReviewRounds)
+    return {
+      code: "gates_unmet",
+      message: `Review round limit ${lane.maxReviewRounds} reached; grant one more with lane grant-round`,
+    };
+  return undefined;
+}
+
 function refused(lane: Lane, code: LaneRefusalCode, message: string): LaneTransition {
   return { lane, refusal: { code, message } };
 }
@@ -223,10 +253,14 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
       return moved(lane, now, { run: command.run, claim: command.claim });
     }
     case "submit": {
-      if (lane.state !== "implementing")
-        return refused(lane, "invalid_transition", `Cannot submit a lane in ${lane.state}`);
-      if (!lane.run)
-        return refused(lane, "invalid_transition", "Cannot submit a lane before lane attach");
+      const push = pushRefusal(lane, command.head);
+      if (push) return refused(lane, push.code, push.message);
+      if (isResubmittable(lane) && command.head === lane.head)
+        return refused(
+          lane,
+          "invalid_transition",
+          `Lane is already ${lane.state} at ${command.head}; a new round needs a new head`,
+        );
       if (!command.artifact.trim())
         return refused(lane, "artifact_required", "Submit requires an artifact");
       if (lane.artifact && lane.artifact !== command.artifact)
@@ -235,8 +269,6 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
           "artifact_mismatch",
           "Lane already has a different artifact; one lane produces one artifact",
         );
-      if (!command.head.trim())
-        return refused(lane, "gates_unmet", "Submit requires a head commit");
       if (command.evidence.length === 0)
         return refused(lane, "gates_unmet", "Submit requires evidence for the head commit");
       if (command.evidence.some((item) => !item.gate.trim() || !item.url.trim()))
@@ -285,7 +317,7 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
         return moved(lane, now, {
           state: "attention",
           previousState: "implementing",
-          attentionReason: "review_round_limit",
+          attentionReason: REVIEW_ROUND_LIMIT,
           verdict,
         });
       return moved(lane, now, { state: "implementing", verdict });
@@ -322,6 +354,12 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
     case "resume": {
       if (lane.state !== "attention")
         return refused(lane, "invalid_transition", `Cannot resume a lane in ${lane.state}`);
+      if (isAtRoundLimit(lane))
+        return refused(
+          lane,
+          "gates_unmet",
+          `Lane is held at its review round limit ${lane.maxReviewRounds}; grant one more with lane grant-round`,
+        );
       const next: Lane = {
         ...lane,
         state: lane.previousState ?? "implementing",
@@ -330,6 +368,26 @@ export function transitionLane(lane: Lane, command: LaneCommand, now: string): L
       delete next.previousState;
       delete next.attentionReason;
       return { lane: next };
+    }
+    case "grant_round": {
+      if (lane.reviewRound < lane.maxReviewRounds)
+        return refused(
+          lane,
+          "invalid_transition",
+          `Lane has used ${lane.reviewRound} of ${lane.maxReviewRounds} review rounds; grant one only at the limit`,
+        );
+      if (lane.state === "attention" && lane.attentionReason !== REVIEW_ROUND_LIMIT)
+        return refused(
+          lane,
+          "invalid_transition",
+          `Lane needs attention for ${lane.attentionReason ?? "another reason"}, not its round limit`,
+        );
+      const granted: Lane = { ...lane, maxReviewRounds: lane.reviewRound + 1, updatedAt: now };
+      if (lane.state !== "attention") return { lane: granted };
+      const resumed: Lane = { ...granted, state: lane.previousState ?? "implementing" };
+      delete resumed.previousState;
+      delete resumed.attentionReason;
+      return { lane: resumed };
     }
   }
 }

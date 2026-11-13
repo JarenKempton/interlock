@@ -44,6 +44,8 @@ const tickReportSchema = z.strictObject({
     z.strictObject({ lane: laneRefSchema.optional(), ticket: ticketRefSchema, reason: z.string() }),
   ),
   attention: z.array(z.strictObject({ lane: laneRefSchema, reason: z.string() })),
+  reported: z.array(z.strictObject({ lane: laneRefSchema, event: z.string() })),
+  warnings: z.array(z.string()),
   failures: z.array(
     z.strictObject({
       lane: laneRefSchema.optional(),
@@ -67,6 +69,12 @@ const supervisorInput = {
   only: optional(
     text("Comma-separated ticket keys; the supervisor acts only on these tickets.", "KEY"),
   ),
+  orchestrator: optional(
+    text(
+      "T3 thread that launched lanes report to and that hears each ready or blocked lane.",
+      "THREAD",
+    ),
+  ),
   interval: optional(text(`Seconds between ticks (default ${DEFAULTS.intervalSeconds}).`, "S")),
   state: optional(text("Local execution database path.", "PATH")),
 };
@@ -76,6 +84,7 @@ type SupervisorInput = {
   parallelism?: string | undefined;
   "stall-minutes"?: string | undefined;
   only?: string | undefined;
+  orchestrator?: string | undefined;
   interval?: string | undefined;
   state?: string | undefined;
 };
@@ -125,9 +134,11 @@ export function parseOnly(value: string | undefined): string[] | undefined {
 
 function policyFrom(input: SupervisorInput, statePath: string): SupervisorPolicy {
   const only = parseOnly(input.only);
+  const orchestrator = input.orchestrator?.trim();
   return {
     projects: parseProjects(input.project, readUserSettings(statePath)),
     ...(only ? { only } : {}),
+    ...(orchestrator ? { orchestrator } : {}),
     parallelism: positiveInteger(input.parallelism, DEFAULTS.parallelism, "parallelism"),
     stallAfterMs:
       positiveInteger(input["stall-minutes"], DEFAULTS.stallMinutes, "stall-minutes") * 60_000,
@@ -140,7 +151,13 @@ async function tickOnce(services: RuntimeServices, input: SupervisorInput, state
   const store = openSupervisorStore(services, statePath);
   try {
     return await superviseTick(
-      supervisorPorts({ services, statePath, explicitState: input.state !== undefined, store }),
+      supervisorPorts({
+        services,
+        statePath,
+        explicitState: input.state !== undefined,
+        store,
+        ...(policy.orchestrator ? { orchestrator: policy.orchestrator } : {}),
+      }),
       policy,
     );
   } finally {
@@ -156,6 +173,8 @@ function summary(report: z.infer<typeof tickReportSchema>): string {
     resumed: report.resumed.map((item) => item.lane),
     held: report.held,
     attention: report.attention,
+    reported: report.reported,
+    warnings: report.warnings,
     failures: report.failures,
   });
 }
@@ -256,13 +275,14 @@ export function supervisorActions(services: RuntimeServices) {
         }),
         handler: async (input) => {
           const statePath = executionStatePath(services, input.state);
-          policyFrom(input, statePath);
+          const orchestrator = policyFrom(input, statePath).orchestrator;
           const options = [
             "--project",
             input.project,
             ...(input.parallelism ? ["--parallelism", input.parallelism] : []),
             ...(input["stall-minutes"] ? ["--stall-minutes", input["stall-minutes"]] : []),
             ...(input.only ? ["--only", input.only] : []),
+            ...(orchestrator ? ["--orchestrator", orchestrator] : []),
             ...(input.interval ? ["--interval", input.interval] : []),
             ...(input.state ? ["--state", resolve(input.state)] : []),
           ];

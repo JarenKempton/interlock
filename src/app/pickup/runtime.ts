@@ -6,7 +6,12 @@ import { z } from "zod";
 import { GitClaimLock } from "../../adapters/git/claim-lock.ts";
 import { heldClaim } from "../../domain/claim/lock.ts";
 import type { T3Process } from "../../adapters/hosts/t3/cli.ts";
-import { type T3LaneBinding, type T3LaunchPlan, T3HostPort } from "../../adapters/hosts/t3/port.ts";
+import {
+  laneThreadTitle,
+  type T3LaneBinding,
+  type T3LaunchPlan,
+  T3HostPort,
+} from "../../adapters/hosts/t3/port.ts";
 import {
   BunGitCommandExecutor,
   type GitCommandExecutor,
@@ -170,6 +175,7 @@ export interface PickupInput {
   t3Catalog?: string | undefined;
   dryRun?: boolean | undefined;
   launch?: boolean | undefined;
+  orchestrator?: string | undefined;
 }
 
 export class PickupRefusal extends Error {
@@ -391,6 +397,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
         ? { runtimeContract: instructions.runtimeContract.resolvedPath }
         : {}),
       ...(instructions.roleTemplate ? { roleTemplate: instructions.roleTemplate.content } : {}),
+      ...(input.orchestrator ? { orchestrator: input.orchestrator } : {}),
       lane: {
         command: selfCommand(),
         ...(input.state ? { state: resolve(statePath) } : {}),
@@ -428,7 +435,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
       configCommit: claimHome.configCommit,
     },
     launch: {
-      title: `${input.key}: ${ticket.title ?? input.key}`,
+      title: laneThreadTitle(input.key, ticket.title ?? input.key),
       message: prompt,
       ...(models.implementer ? { modelSelection: models.implementer } : {}),
       runtimeMode: models.runtimeMode,
@@ -540,7 +547,7 @@ export async function pickup(services: RuntimeServices, input: PickupInput) {
         plan: {
           ...binding,
           project: repositoryPath,
-          title: plan.title,
+          title: plan.launch.title,
           message: prompt,
           baseCommit,
           branch: worktree.branch,

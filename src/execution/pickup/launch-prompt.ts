@@ -54,6 +54,7 @@ export interface LaunchPromptOptions {
   roleTemplate?: string;
   runtimeContract?: string;
   tracker?: string;
+  orchestrator?: string;
   lane?: LaneProcedure;
 }
 
@@ -69,7 +70,7 @@ export function laneProcedure(ticket: Ticket, lane: LaneProcedure): string {
     ? [
         `5. Run ${run("lane", "review", "LANE", "--json")}. Then start one fresh delegate_task per review lens, in parallel, with role review and the exact target below. Brief each with the lens, the PR URL and the head SHA; each returns approved or changes_requested with findings. If T3 rejects a target, run ${run("lane", "attention", "LANE", "--reason", "reviewer_unavailable")} and stop; never substitute another reviewer or review the change yourself.`,
         ...lenses.map(([lens, target]) => `   - ${lens}: target ${JSON.stringify(target)}`),
-        `6. Record one verdict for that head: ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")} only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit.`,
+        `6. Record one verdict for that head: ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")} only when every lens approved; otherwise --decision changes_requested --findings with every finding joined. On changes_requested, fix, commit and repeat from step 3 with the new head; the lane routes to attention at its review round limit, and only a person grants another round with lane grant-round.`,
       ]
     : [
         `5. Review policy: human, the declared default when no reviewer lenses are configured. Run ${run("lane", "review", "LANE", "--json")}, then ${run("lane", "attention", "LANE", "--reason", "review_required")}, and wait; a person reviews, runs ${run("lane", "resume", "LANE")} and records the verdict with ${run("lane", "verdict", "LANE", "--head", "SHA", "--decision", "approved")}.`,
@@ -79,7 +80,7 @@ export function laneProcedure(ticket: Ticket, lane: LaneProcedure): string {
     "Lane procedure:",
     `1. Before any work, run ${run("lane", "attach", "--ticket", ticket.ref, "--json")} from this worktree. If it refuses, report the refusal and stop. Its value.id is LANE below.`,
     "2. Implement and commit on this branch only. Do not push, open, edit or merge pull requests, and do not use GitHub write tools or credentials; Interlock pushes and opens the pull request.",
-    `3. When your checks pass at HEAD, run ${run("lane", "submit", "LANE", "--head", "SHA", "--json")} with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request; the lane stays implementing. Once the check you ran has a result for that pushed SHA, run ${run("lane", "submit", "LANE", "--head", "SHA", "--gate", "GATE", "--evidence-url", "URL", "--json")} with the check and a link to that result to record the gate evidence and submit the lane.`,
+    `3. When your checks pass at HEAD, write the pull request body, with the acceptance evidence as exact commands and their output, to a file outside the worktree and run ${run("lane", "submit", "LANE", "--head", "SHA", "--body-file", "FILE", "--json")} with the full HEAD SHA. It pushes the branch and opens or updates this lane's one pull request, titled from the ticket; the lane keeps its state. Once the check you ran has a result for that pushed SHA, run ${run("lane", "submit", "LANE", "--head", "SHA", "--gate", "GATE", "--evidence-url", "URL", "--json")} with the check and a link to that result to record the gate evidence and submit the lane. A new head while the lane is in review, such as a conflict resolution, goes through this step again as the next review round.`,
     "4. Call link_pull_request with the returned value.artifact URL, then watch_pull_request on it. Link and watch no other pull request.",
     ...review,
     `7. Merge is not yours. When the watched pull request merges at the approved head, run ${run("lane", "complete", "--ticket", ticket.ref, "--json")}, which verifies the merge and remote claim, moves the ticket to Done and leaves this worktree and branch intact. Repeat the same command after an interruption to recover the journaled completion. Then unwatch the pull request.`,
@@ -98,6 +99,11 @@ export function buildLaunchPrompt(ticket: Ticket, options: LaunchPromptOptions =
     `Description:\n${ticket.description ?? "Not supplied by tracker."}`,
     `Acceptance criteria:\n${criteria ?? "Not supplied by tracker; verify with the ticket owner before completion."}`,
     "Required output:\n- Report the work performed and link any resulting artifacts.\n- Report acceptance evidence, unverified criteria, and remaining blockers.",
+    ...(options.orchestrator
+      ? [
+          `Orchestrator:\nThread ${options.orchestrator}. Interlock reports this lane there when it is approved and ready to merge, and when it is blocked in attention. To ask the orchestrator something, send it at most 5 lines prefixed 🤖 with t3_thread_send; send no progress updates.`,
+        ]
+      : []),
     ...(options.lane ? [laneProcedure(ticket, options.lane)] : []),
     `Authorization and completion:\n${options.lane ? "Apart from the Interlock lane commands above, this" : "This"} prompt does not grant authority to mutate tracker state, close tickets, or update maps. Follow the project/workflow instructions and explicit authorization for those actions. Passing acceptance checks alone does not authorize completion; all configured completion gates and required human approvals must also be satisfied.`,
   ].join("\n\n");

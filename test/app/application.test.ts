@@ -258,3 +258,15 @@ test("an action fails when its handler result does not match its result schema",
   ).toThrow("does not match its contract");
   expect(output).toEqual([]);
 });
+
+test("an unknown command suggests the closest registered command", async () => {
+  const tree = createApplication();
+  const unknown = (args: string[]) => expectRejection(dispatch(tree, args, () => {}));
+  await unknown(["jira", "login"]).toThrow(
+    'Unknown command "jira login"; did you mean "interlock login jira"?',
+  );
+  await unknown(["lane", "submt", "interlock-lane:x", "--head", "abc"]).toThrow(
+    'Unknown command "lane submt interlock-lane:x"; did you mean "interlock lane submit"?',
+  );
+  await unknown(["qqqqqqqq"]).toThrow('Unknown command "qqqqqqqq"; use --help');
+});
