@@ -89,7 +89,6 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
 }
 
 export function parseProjects(value: string, settings: TrackerSettings): SupervisorProject[] {
-  const { entry, site } = configuredTracker(settings);
   const projects = value
     .split(",")
     .map((pair) => pair.trim())
@@ -101,6 +100,7 @@ export function parseProjects(value: string, settings: TrackerSettings): Supervi
       if (separator < 1 || !repository) throw new Error(`Project ${pair} must be MAP=REPO`);
       if (map.includes(":"))
         return { map: mapRefSchema.parse(map), repository: resolve(repository) };
+      const { entry, site } = configuredTracker(settings, map);
       if (!entry.namespace(map)) throw new Error(`Map ${map} is not a ${entry.label} key`);
       if (!site) throw siteUnknown(entry);
       return { map: mapRef(entry, site, map), repository: resolve(repository) };

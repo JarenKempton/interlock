@@ -14,7 +14,8 @@ export function signedInLaneTracker(services: RuntimeServices, store: StateStore
     const entry = trackerOf(ticket);
     if (!entry || !ref.instance || !ref.namespace)
       throw new TrackerUnavailableError(`No signed-in tracker serves ${ticket}`);
-    const site = savedSite(services, trackerAccount(entry, services));
+    const site =
+      entry.siteOf?.(ref.instance) ?? savedSite(services, trackerAccount(entry, services));
     if (!site || entry.instance(site) !== ref.instance)
       throw new TrackerUnavailableError(
         `Not signed in to ${entry.label} for ${ref.instance}; run interlock login ${entry.name}`,

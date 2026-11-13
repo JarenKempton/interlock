@@ -146,6 +146,7 @@ test("Optique completes schema enum values through the real shell transport with
     "claimed_status",
     "t3_cli",
     "jira_site",
+    "github_repo",
     "all",
   ]);
   expect(actionHelp(app, ["config", "edit"])).toContain("--set SETTING VALUE");
