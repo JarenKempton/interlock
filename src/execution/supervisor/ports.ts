@@ -1,7 +1,8 @@
 import type { GateEvidence } from "../../domain/gate/evidence.ts";
 import type { HostSessionView, HostSteerResult } from "../../domain/host/capability.ts";
 import type { Lane, LaneResult, MergeProof } from "../../domain/lane/lifecycle.ts";
-import type { Claim, LaneRef, MapRef, RunRef, Ticket, TicketRef } from "../../domain/model.ts";
+import type { Claim, LaneRef, MapRef, RunRef, TicketRef } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import type { OperationIdentity } from "../../domain/operation/identity.ts";
 
 export interface SupervisorProject {

@@ -62,23 +62,46 @@ as `dependencies` and the tickets it blocks as `dependents`.
 A claim names a human owner and a run, and retains the original tracker snapshot.
 A run never substitutes for its human assignee. See [claim semantics](claim-semantics.md).
 
-## Capabilities
-
-Each boundary owns its vocabulary: `TrackerCapabilities` and the claim lock's `conditional_update`, the only entry in `CAPABILITIES`.
-Identifiers are additive; published names cannot be repurposed. An adapter advertises only behavior it can verify; a
-method's presence or successful authentication is not evidence. Operations
-check the exact required set through `requireCapabilities`, which raises
-`UnsupportedCapabilityError` before invoking anything.
-
 ## Tracker
 
 [`Tracker`](../src/domain/tracker/port.ts) reads work and mirrors a claim the lock
-already holds. `list_work` and `read` never mutate. `apply` installs the claim,
-run and owner; `verify` checks an applied or restored mirror by readback;
-`restore` returns the original snapshot and refuses to overwrite human changes.
-Repeating `apply` or `restore` writes nothing. Trackers never claim or
-release, and never advertise `conditional_update`. Optional `transition` and
-`link_artifact` must be read back and idempotent.
+already holds. There is one [ticket type](../src/domain/tracker/ticket.ts); its
+`kind` is optional and defaults to `task`. `read` and the optional `listWork`
+never mutate; `listWork` returns a map's tickets in the tracker's own order.
+`apply` installs the mirror; `verify` checks an applied or restored mirror by
+readback; `restore` returns the original snapshot and refuses to overwrite
+human changes; `removeMirror` drops the claim marker after completion and keeps
+the assignee. Repeating any of them writes nothing. Trackers never claim or
+release. Optional `complete` (mark the ticket done) and `linkArtifact` must be
+read back and idempotent; an adapter without them cannot complete or link, and
+the lane refuses rather than guessing.
+
+Each adapter declares a mirror tier. A `structured` tracker writes the claim
+and run into a structured field and reads both back (`claimMarker`), so the
+mirror alone identifies the holder. An `assignee_only` tracker mirrors only the
+owner and status; the [Git claim ref](claim-semantics.md#git-remote-claim-lock)
+is then the only exact authority, and two runs of one owner are told apart
+only there.
+
+Sign-in declares an auth kind: `none`, `external_cli` (the adapter checks a
+vendor CLI's own login, such as `gh auth status`) or `token` (site, credential
+fields, verification and an optional permission check). The core prompts,
+stores and looks up token fields; it never handles the other kinds' secrets.
+
+## Write an adapter
+
+1. Implement `StructuredTracker` or `AssigneeOnlyTracker` from the
+   [port](../src/domain/tracker/port.ts) under `src/adapters/trackers/<vendor>/`,
+   with refs of the form `<vendor>:<instance>:<namespace>:ticket:<id>`.
+2. Return a `TrackerSignIn` of the kind the tracker needs.
+3. Run the [conformance suite](../src/conformance/tracker.ts) against it, as
+   the [Jira tests](../test/adapters/trackers/jira/tracker.test.ts) do. The
+   [fake tracker](../src/conformance/fake-tracker.ts) passes it in both tiers
+   and is the smallest working example.
+4. Add one entry to the [tracker registry](../src/app/tracker/registry.ts):
+   name, label, site setting, sign-in, ref parsing and `connect`. The registry
+   is the only file that may import an adapter; lint rejects any other import
+   from `src/adapters/trackers/`.
 
 ## Claim lock
 
@@ -128,7 +151,7 @@ as unknown, never as empty, and completion still succeeds. Core owns the lane's 
 `lane submit` pushes the head to the branch recorded for the lane's run
 workspace through the user's own Git and `gh` auth, opens or adopts the
 branch's pull request with the ticket key in its title, records the URL on
-the lane and links it through the tracker's `link_artifact`, which for Jira is
+the lane and links it through the tracker's `linkArtifact`, which for Jira is
 one issue remote link keyed by the pull request URL and read back after the
 write. A ticket lane with no signed-in tracker is refused as
 `tracker_unavailable` before anything is pushed. Submit accepts only the exact
@@ -246,7 +269,7 @@ When a map cannot be listed, the tick launches nothing. Each tick, in order:
    an unconfirmed resume, a pending resume found after a restart, or a stall
    past the allowance moves the lane to attention. Submitted and reviewing lanes
    are not resumed: they wait on checks and a person.
-3. **Frontier.** It lists each map's tickets in rank order and launches each
+3. **Frontier.** It lists each map's tickets in the order `listWork` returns them and launches each
    open, unassigned, pickable ticket whose blockers are closed, with no held
    claim and no lane in the ledger, through `pickup --launch`, until the number
    of unfinished lanes reaches `--parallelism`. A launched lane that has not
@@ -282,5 +305,8 @@ the evidence and submits the lane.
 
 [Tracker](../src/conformance/tracker.ts) and
 [claim-lock](../src/conformance/claim-lock.ts) suites check collision,
-stale-version refusal, readback, safe restoration, idempotence and ambiguous
-writes. [Fakes](../test/conformance/runner.test.ts), Jira and the Git lock run them.
+stale-version refusal, readback, safe restoration, mirror removal, idempotence
+and ambiguous writes; the tracker suite applies the checks its mirror tier can
+prove. The tracker suite and [fake tracker](../src/conformance/fake-tracker.ts)
+are the adapter kit. [Fakes of both tiers](../test/conformance/runner.test.ts),
+Jira and the Git lock run them.

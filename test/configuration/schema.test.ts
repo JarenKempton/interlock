@@ -283,7 +283,6 @@ test("execution snapshots persist independently and cannot be silently replaced"
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/workspace" },
-    capabilities: {},
     status: "planning",
     createdAt: "now",
     updatedAt: "now",
@@ -664,7 +663,7 @@ test("version 1 receipts retain their historical resolution contract", () => {
       baseBranch: "main",
       remote: "https://github.com/o/app.git",
     },
-    jiraSite: "https://example.atlassian.net",
+    site: "https://example.atlassian.net",
     claimedStatus: "In Progress",
   });
 });

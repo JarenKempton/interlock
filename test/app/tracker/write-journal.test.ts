@@ -7,6 +7,7 @@ import { createApplication } from "../../../src/app/application.ts";
 import { normalizeClaimHome } from "../../../src/domain/claim/home.ts";
 import { ticketRefSchema } from "../../../src/domain/refs/identifiers.ts";
 import { StateStore } from "../../../src/persistence/state.ts";
+import { journaledWrite } from "../../../src/app/tracker/write-journal.ts";
 import { GIT_TEST_TIMEOUT_MS } from "../../fixtures/git/remote.ts";
 import { pickupFixture } from "../../fixtures/pickup/runtime.ts";
 import { expectRejection } from "../../fixtures/assertions/rejection.ts";
@@ -149,7 +150,10 @@ test.each(["status", "assignee", "property"])(
       const store = new StateStore(f.state);
       try {
         expect(store.pendingWrite(picked.run)?.receipt).toMatchObject({
-          pendingJiraWrite: { ticket, expected: { field: field === "property" ? "claim" : field } },
+          pendingTrackerWrite: {
+            ticket,
+            expected: { field: field === "property" ? "claim" : field },
+          },
         });
         expect(store.recoveryEvidence(picked.run)).toHaveLength(0);
       } finally {
@@ -225,3 +229,10 @@ test.each(["intent", "completion"])(
   },
   GIT_TEST_TIMEOUT_MS,
 );
+
+test("a journaled write recorded under the pre-registry key is still recovered", () => {
+  const pending = { ticket: "jira:example:TEST:ticket:TEST-492", operation: "assign issue" };
+  expect(journaledWrite({ pendingJiraWrite: pending })).toEqual(pending);
+  expect(journaledWrite({ pendingTrackerWrite: pending })).toEqual(pending);
+  expect(journaledWrite({ operation: "release" })).toBeUndefined();
+});

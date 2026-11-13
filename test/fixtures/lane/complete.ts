@@ -23,7 +23,8 @@ import {
   runRefSchema,
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
-import type { Ticket, TicketRef } from "../../../src/domain/model.ts";
+import type { TicketRef } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
 import { createLane, type MergeProof, transitionLane } from "../../../src/domain/lane/lifecycle.ts";
 import type { LaneTrackerPort } from "../../../src/execution/lane/service.ts";
 import { callTool } from "../mcp/stdio-client.ts";
@@ -79,7 +80,6 @@ export class FakeJira implements LaneTrackerPort {
     kind: "task",
     state: "open",
     status: "In Progress",
-    order: 0,
   };
   others: Ticket[] = [];
   failing = new Set<TicketRef>();
@@ -104,8 +104,8 @@ export class FakeJira implements LaneTrackerPort {
     return { ticket, snapshot: { version: "1", payload: null } };
   }
 
-  async transition(_ticket: TicketRef, status: string) {
-    this.transitions.push(status);
+  async complete(_ticket: TicketRef) {
+    this.transitions.push("Done");
     this.onTransition(this);
   }
 }
@@ -208,7 +208,6 @@ export function laneCompleteFixtures() {
       host: adapterRefSchema.parse("t3"),
       harness: adapterRefSchema.parse("t3"),
       workspace: { path: repo.lane, branch },
-      capabilities: {},
       status: "claimed",
       createdAt: now,
       updatedAt: now,

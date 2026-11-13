@@ -13,7 +13,7 @@ import {
   mapRefSchema,
   ticketRefSchema,
 } from "../../../src/domain/refs/identifiers.ts";
-import type { Ticket } from "../../../src/domain/model.ts";
+import type { Ticket } from "../../../src/domain/tracker/ticket.ts";
 import { HostLaunchWorkspace } from "../../../src/execution/pickup/host-launch.ts";
 import { rejection } from "../../fixtures/assertions/rejection.ts";
 
@@ -25,7 +25,6 @@ const ticket: Ticket = {
   kind: "task",
   state: "open",
   status: "To Do",
-  order: 0,
 };
 const session: HostSession = {
   environment: "env-1",

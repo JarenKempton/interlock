@@ -11,7 +11,8 @@ import {
   type ReleaseClaimRequest,
   type RestoreClaimRequest,
 } from "../../domain/contracts.ts";
-import type { ClaimRef, Ticket, TicketRef, TrackerSnapshot } from "../../domain/model.ts";
+import type { ClaimRef, TicketRef, TrackerSnapshot } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import type { Tracker } from "../../domain/tracker/port.ts";
 
 export class ClaimCoordinator {

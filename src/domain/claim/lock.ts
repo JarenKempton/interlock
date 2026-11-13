@@ -4,6 +4,14 @@ import type { ActorRef, ClaimRef, RunRef, TicketRef } from "../model.ts";
 
 export const CLAIM_RECORD_VERSION = 2;
 
+export const claimMarkerSchema = z.object({
+  claim: z.string(),
+  run: z.string(),
+  owner: z.string(),
+  home: z.string(),
+  version: z.literal(CLAIM_RECORD_VERSION),
+});
+
 export const lockedPayloadSchema = z.object({
   tracker: z.object({ version: z.string(), payload: z.unknown() }),
 });
@@ -33,7 +41,6 @@ export interface ClaimLockState {
 }
 
 export interface ClaimLock {
-  describe(): Promise<{ conditional_update: true }>;
   read(ticket: TicketRef): Promise<ClaimLockState>;
   claim(request: ClaimRequest): Promise<void>;
   release(request: ReleaseClaimRequest): Promise<void>;

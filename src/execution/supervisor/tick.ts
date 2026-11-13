@@ -1,7 +1,8 @@
 import { type GateEvidence, observedValue, trackerSource } from "../../domain/gate/evidence.ts";
 import type { HostSessionView } from "../../domain/host/capability.ts";
 import type { LaneRefusalCode, LaneState } from "../../domain/lane/lifecycle.ts";
-import type { LaneRef, Ticket, TicketRef } from "../../domain/model.ts";
+import type { LaneRef, TicketRef } from "../../domain/model.ts";
+import type { Ticket } from "../../domain/tracker/ticket.ts";
 import { parseRef } from "../../domain/refs/parse.ts";
 import { readHumanEdits } from "./holds.ts";
 import type {
@@ -233,7 +234,7 @@ class Tick {
         });
         continue;
       }
-      for (const ticket of [...tickets].sort((a, b) => a.order - b.order)) {
+      for (const ticket of tickets) {
         if (active >= this.policy.parallelism) return;
         if (ticket.state !== "open" || !this.allowed(ticket.ref)) continue;
         const onlyDone = laned.get(ticket.ref);

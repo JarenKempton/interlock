@@ -89,7 +89,7 @@ test(
     f.jira.relatedIssues.push({
       ...structuredClone(f.jira.issue),
       key: "TEST-493",
-      fields: { ...structuredClone(f.jira.issue.fields), customfield_rank: "0|b:" },
+      fields: structuredClone(f.jira.issue.fields),
     });
     const run = (parallelism: string) =>
       createApplication(f.services).run.execute({

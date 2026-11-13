@@ -68,10 +68,6 @@ export class GitClaimLock implements RecoverableClaimLock {
     this.#beforeClaimWrite = options.beforeClaimWrite;
   }
 
-  async describe(): Promise<{ conditional_update: true }> {
-    return { conditional_update: true };
-  }
-
   async ref(ticket: TicketRef): Promise<string> {
     const { instance, nativeId: key } = parseRef(ticket);
     const ref = `${CLAIM_LOCK_NAMESPACE}/${instance}/${key}`;

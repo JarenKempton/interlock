@@ -29,9 +29,6 @@ export function fakeLockFixture(): ClaimLockFixture {
   }
   function adapter(): ClaimLock {
     return {
-      async describe() {
-        return { conditional_update: true };
-      },
       async read() {
         if (unreadable) throw new AmbiguousTrackerResultError();
         return structuredClone(state);

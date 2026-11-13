@@ -188,17 +188,15 @@ test(
 );
 
 test(
-  "release needs no Rank or map discovery",
+  "release needs no map discovery",
   async () => {
     const f = await fixture();
     const app = createApplication(f.services);
     const picked = await app.pickup.execute(f.input);
     if (!("claim" in picked)) throw new Error("Expected claimed plan");
     Reflect.deleteProperty(f.jira.issue.fields, "parent");
-    Reflect.deleteProperty(f.jira.issue.fields, "customfield_rank");
     f.jira.fail = (_method, path) => {
-      if (["/rest/api/3/field", "/rest/api/3/search/jql"].includes(path))
-        throw new Error("pickup discovery unavailable");
+      if (path === "/rest/api/3/search/jql") throw new Error("pickup discovery unavailable");
     };
     expect((await app.claim.release.execute({ claim: picked.claim })).state).toBe("released");
     expect(heldClaim(await lock(f).read(ref))).toBeUndefined();

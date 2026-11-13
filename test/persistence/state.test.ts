@@ -9,7 +9,7 @@ import {
   adapterRefSchema,
   ticketRefSchema,
 } from "../../src/domain/refs/identifiers.ts";
-import { type Claim, capabilities, type Run } from "../../src/domain/model.ts";
+import type { Claim, Run } from "../../src/domain/model.ts";
 import { StateStore } from "../../src/persistence/state.ts";
 
 test("SQLite store round-trips runs", () => {
@@ -23,7 +23,6 @@ test("SQLite store round-trips runs", () => {
     harness: adapterRefSchema.parse("codex"),
     model: "gpt",
     workspace: { path: "/tmp/work", branch: "task/A" },
-    capabilities: capabilities("conditional_update"),
     status: "claimed",
     createdAt: now,
     updatedAt: now,
@@ -68,7 +67,6 @@ test("SQLite store atomically records recovery-required run, step, and evidence"
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities(),
     status: "planning",
     createdAt: now,
     updatedAt: now,
@@ -109,7 +107,6 @@ test("runs export shows a recovery-required run with its claim, steps, and evide
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities(),
     status: "planning",
     createdAt: now,
     updatedAt: now,
@@ -169,7 +166,6 @@ test("SQLite recovery-required transaction rolls back every row on a mid-transac
     host: adapterRefSchema.parse("t3"),
     harness: adapterRefSchema.parse("codex"),
     workspace: { path: "/tmp/work" },
-    capabilities: capabilities(),
     status: "planning",
     createdAt: now,
     updatedAt: now,
