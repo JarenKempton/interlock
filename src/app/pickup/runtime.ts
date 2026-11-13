@@ -221,9 +221,10 @@ export async function withExecutionStore<T>(
 export function executionTarget(configuration: ExecutionConfiguration, repositoryName: string) {
   if (configuration.version === 2) {
     const { repository, settings } = configuration;
-    if (!repository || !settings.jira_site)
+    const { site } = configuredTracker(settings);
+    if (!repository || !site)
       throw new Error("Recorded execution configuration has no repository or tracker site");
-    return { repository, site: settings.jira_site, claimedStatus: settings.claimed_status };
+    return { repository, site, claimedStatus: settings.claimed_status };
   }
   const repository = configuration.project.repositories[repositoryName];
   if (!repository) throw new Error("Configured repository is missing");

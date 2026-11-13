@@ -12,7 +12,9 @@ import { type CredentialStore, osCredentialStore } from "../../src/persistence/c
 import { StateStore } from "../../src/persistence/state.ts";
 import type { RuntimeServices } from "../../src/app/runtime-services.ts";
 import { lineInput, type Terminal } from "../../src/sign-in/terminal.ts";
-import { storedUserSettings } from "../../src/configuration/store.ts";
+import { saveUserSetting, storedUserSettings } from "../../src/configuration/store.ts";
+import { renderDoctor } from "../../src/sign-in/doctor.ts";
+import { FakeGitHub } from "../fixtures/github/issues.ts";
 import { expectRejection } from "../fixtures/assertions/rejection.ts";
 
 const TOKEN = `ATATT3x${"A".repeat(176)}=0A1B2C3D`;
@@ -353,6 +355,43 @@ test("doctor follows each failing check with its fix", async () => {
     `✓ Database ${subject.statePath}`,
     `✓ Config ${subject.configPath} (not found)`,
   ]);
+});
+
+test("doctor checks only the configured tracker, signing in to GitHub through gh", async () => {
+  const subject = harness();
+  const github = new FakeGitHub();
+  subject.services.execution = { ...subject.services.execution, github: github.transport };
+  const store = new StateStore(subject.statePath);
+  try {
+    saveUserSetting(store, "github_repo", "octo-org/repo");
+  } finally {
+    store.close();
+  }
+  expect(await doctor(subject)).toMatchObject({
+    trackers: {
+      github: { signedIn: true, site: null, account: "octocat", from: ["external cli"] },
+    },
+    missing: [],
+  });
+  subject.output.length = 0;
+  await subject.cli("doctor");
+  expect(subject.output.join("\n").split("\n")[0]).toBe(
+    "✓ GitHub Issues signed in as octocat (external cli)",
+  );
+});
+
+test("doctor shows a tracker that needs no sign-in as ready", () => {
+  expect(
+    renderDoctor({
+      ok: true,
+      version: "test",
+      database: "/state.db",
+      config: { path: "/interlock.toml", found: true },
+      trackers: { local: { label: "Local", site: null, signedIn: true, missing: [] } },
+      claimLock: { repository: "/repo", dryRunPush: true },
+      missing: [],
+    })[0],
+  ).toBe("✓ Local needs no sign-in");
 });
 
 test("doctor exits 1 when any check fails, with or without --json", async () => {

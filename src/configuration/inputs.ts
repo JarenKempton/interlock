@@ -5,7 +5,7 @@ const path = configText
   .describe("Shared configuration file; defaults to interlock.toml in the current directory.")
   .meta({ metavar: "FILE" });
 const setting = z
-  .enum([...CHOICE_KEYS, "jira_site", "claim-home"])
+  .enum([...CHOICE_KEYS, "jira_site", "github_repo", "claim-home"])
   .describe("User setting")
   .meta({ metavar: "SETTING" });
 export const initInput = {
@@ -24,9 +24,9 @@ export const editInput = {
     .describe("Save one user setting in local SQLite; never supply secrets.")
     .optional(),
   follow: z
-    .enum([...CHOICE_KEYS, "jira_site", "all"])
+    .enum([...CHOICE_KEYS, "jira_site", "github_repo", "all"])
     .describe(
-      "Clear a user setting so shared config or the default applies; all clears every choice except jira_site.",
+      "Clear a user setting so shared config or the default applies; all clears every choice except jira_site and github_repo.",
     )
     .meta({ metavar: "SETTING" })
     .optional(),
