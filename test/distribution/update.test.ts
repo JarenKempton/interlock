@@ -119,6 +119,49 @@ describe("update notifications", () => {
     expect(result?.latestVersion).toBe("1.2.0-beta.alpha");
   });
 
+  test("each prerelease in SemVer precedence order is offered the next one", async () => {
+    const ordered = [
+      "1.0.0-alpha",
+      "1.0.0-alpha.1",
+      "1.0.0-alpha.beta",
+      "1.0.0-beta",
+      "1.0.0-beta.2",
+      "1.0.0-beta.11",
+      "1.0.0-rc.1",
+      "1.0.0",
+    ];
+    for (const [index, currentVersion] of ordered.slice(0, -1).entries()) {
+      const cachePath = join(await mkdtemp(join(tmpdir(), "interlock-update-")), "cache.json");
+      const result = await checkForUpdate({
+        currentVersion,
+        interactive: true,
+        environment: { INTERLOCK_UPDATE_URL: "https://releases.example.test/releases" },
+        cachePath,
+        fetch: async () =>
+          Response.json(
+            ordered
+              .slice(0, index + 2)
+              .toReversed()
+              .map((version) => release(`v${version}`, version.includes("-"))),
+          ),
+      });
+      expect(result?.latestVersion).toBe(ordered[index + 1]);
+    }
+  });
+
+  test("a stable installation is never offered a prerelease of its own version", async () => {
+    const cachePath = join(await mkdtemp(join(tmpdir(), "interlock-update-")), "cache.json");
+    const result = await checkForUpdate({
+      currentVersion: "1.0.0",
+      interactive: true,
+      environment: { INTERLOCK_UPDATE_URL: "https://releases.example.test/releases" },
+      cachePath,
+      fetch: async () =>
+        Response.json([release("v1.0.0-rc.9", false), release("v1.0.0+build.5", false)]),
+    });
+    expect(result).toBeUndefined();
+  });
+
   test("records failed attempts so failure stays silent and is not retried for 24 hours", async () => {
     const directory = await mkdtemp(join(tmpdir(), "interlock-update-"));
     const cachePath = join(directory, "cache.json");

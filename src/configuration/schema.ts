@@ -177,80 +177,6 @@ export const resolvedConfigurationSchema = z.strictObject({
 export type ResolvedConfiguration = z.infer<typeof resolvedConfigurationSchema>;
 type ResolvedSource = "default" | "user" | "shared";
 
-const repositoryV1Schema = z.strictObject({
-  github: configText.regex(/^[\w.-]+\/[\w.-]+$/),
-  path: configText,
-  worktree_root: configText,
-  base_branch: configText,
-});
-const roleModelV1Schema = z.strictObject({
-  harness: configText,
-  model: configText,
-  options: z.record(configText, z.union([configText, z.boolean()])).optional(),
-});
-const projectConfigurationV1Schema = z
-  .strictObject({
-    version: z.literal(1),
-    claim_home: configText.optional(),
-    repositories: z.record(configText, repositoryV1Schema),
-    maps: z.record(
-      configText,
-      z.strictObject({
-        repository: configText,
-        claim_status: configText,
-        available_statuses: z.array(configText).min(1),
-      }),
-    ),
-    tracker: trackerSchema,
-    t3: z
-      .strictObject({
-        harness: configText.optional(),
-        model: configText.optional(),
-        thinking_effort: configText.optional(),
-        context_window: configText.optional(),
-        runtime_mode: runtimeMode.optional(),
-        interaction_mode: interactionMode.optional(),
-        open: z.enum(["none", "browser"]).optional(),
-      })
-      .default({}),
-    defaults: personalSettingsSchema.default({}),
-    required: personalSettingsSchema.default({}),
-    roles: z
-      .strictObject({
-        implementer: roleModelV1Schema.optional(),
-        reviewers: z.record(configText, roleModelV1Schema).optional(),
-      })
-      .optional(),
-    instructions: instructionsSchema.optional(),
-  })
-  .superRefine((project, ctx) => {
-    for (const [key, map] of Object.entries(project.maps)) {
-      if (!Object.hasOwn(project.repositories, map.repository))
-        ctx.addIssue({
-          code: "custom",
-          path: ["maps", key, "repository"],
-          message: "Unknown repository",
-        });
-    }
-  });
-export type ProjectConfigurationV1 = z.infer<typeof projectConfigurationV1Schema>;
-export const resolvedConfigurationV1Schema = z.strictObject({
-  version: z.literal(1),
-  source: sourceSchema,
-  project: projectConfigurationV1Schema,
-  settings: personalSettingsSchema,
-  sources: z.partialRecord(
-    personalSettingsSchema.keyof(),
-    z.enum(["default", "personal", "required"]),
-  ),
-});
-export type ResolvedConfigurationV1 = z.infer<typeof resolvedConfigurationV1Schema>;
-export const executionConfigurationSchema = z.union([
-  resolvedConfigurationSchema,
-  resolvedConfigurationV1Schema,
-]);
-export type ExecutionConfiguration = ResolvedConfiguration | ResolvedConfigurationV1;
-
 // Only schema-owned field names may reach diagnostics; record keys and values are untrusted.
 function diagnosticPath(schema: z.core.$ZodType, path: readonly PropertyKey[]): string {
   const parts: string[] = [];
@@ -375,49 +301,6 @@ function resolveConfigurationV2(
   });
 }
 
-// Version 1 is a persisted format, including its resolution semantics. It is kept only to
-// validate saved execution snapshots; new resolutions always use the latest version.
-function t3DefaultsV1(project: ProjectConfigurationV1): PersonalSettings {
-  const defaults: PersonalSettings = { host: "t3" };
-  const entries = [
-    ["harness", project.t3.harness],
-    ["model", project.t3.model],
-    ["effort", project.t3.thinking_effort],
-    ["context_window", project.t3.context_window],
-    ["runtime_mode", project.t3.runtime_mode],
-    ["interaction_mode", project.t3.interaction_mode],
-  ] as const;
-  for (const [setting, value] of entries) {
-    if (value !== undefined) defaults[setting] = value;
-  }
-  return defaults;
-}
-function resolveConfigurationV1(
-  project: ProjectConfigurationV1,
-  personal: PersonalSettings,
-  source: ResolvedConfigurationV1["source"],
-): ResolvedConfigurationV1 {
-  project = parseConfiguration(projectConfigurationV1Schema, project, "project");
-  personal = validatePersonalSettings(personal);
-  const settings = { ...t3DefaultsV1(project), ...project.defaults };
-  const sources: ResolvedConfigurationV1["sources"] = {};
-  for (const key of SETTING_KEYS) {
-    if (settings[key] !== undefined) sources[key] = "default";
-    if (personal[key] !== undefined) {
-      settings[key] = personal[key];
-      sources[key] = "personal";
-    }
-    const required = project.required[key];
-    if (required !== undefined) {
-      if (personal[key] !== undefined && personal[key] !== required)
-        throw new Error(`Personal ${key} conflicts with project requirement in ${source.path}`);
-      settings[key] = required;
-      sources[key] = "required";
-    }
-  }
-  return structuredClone({ version: 1, source, project, settings, sources });
-}
-
 /** Validate the current resolution without re-reading today's user settings. */
 export function validateResolvedConfiguration(value: unknown): ResolvedConfiguration {
   const item = parseConfiguration(resolvedConfigurationSchema, value, "resolved");
@@ -434,24 +317,4 @@ export function validateResolvedConfiguration(value: unknown): ResolvedConfigura
     ...resolved,
     ...(item.repository ? { repository: item.repository } : {}),
   });
-}
-
-/** Validate saved execution snapshots of any released version. */
-export function validateExecutionConfiguration(value: unknown): ExecutionConfiguration {
-  if (z.object({ version: z.literal(2) }).safeParse(value).success)
-    return validateResolvedConfiguration(value);
-  const item = parseConfiguration(resolvedConfigurationV1Schema, value, "resolved");
-  const personal: PersonalSettings = {};
-  for (const key of SETTING_KEYS) {
-    if (item.sources[key] === "personal" && item.settings[key] !== undefined)
-      personal[key] = item.settings[key];
-  }
-  const resolved = resolveConfigurationV1(item.project, personal, item.source);
-  for (const key of SETTING_KEYS)
-    if (
-      resolved.settings[key] !== item.settings[key] ||
-      resolved.sources[key] !== item.sources[key]
-    )
-      throw new Error("Invalid configuration at resolved.settings");
-  return resolved;
 }

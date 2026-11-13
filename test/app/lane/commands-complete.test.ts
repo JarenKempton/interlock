@@ -2,7 +2,6 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { run as runCli } from "../../../src/main.ts";
-import { resolveConfiguration } from "../../../src/configuration/schema.ts";
 import { AmbiguousTrackerResultError } from "../../../src/domain/contracts.ts";
 import {
   actorRefSchema,
@@ -406,39 +405,18 @@ test("CLI complete reports dependents with every blocker closed that pickup woul
   const { code, result } = await lane.complete();
   expect(code).toBe(0);
   expect(result).toMatchObject({ ok: true, value: { state: "done" } });
-  expect(result.unblocked).toEqual({ state: "known", tickets: [jwb("JWB-911")] });
+  expect(result.unblocked).toEqual({ state: "known", tickets: [jwb("JWB-911"), jwb("JWB-913")] });
   expect(tracker.transitions).toEqual(["Done"]);
 });
 
-test("a run picked up without maps reports dependents in any epic, or none, by pickable status", async () => {
+test("CLI complete reports every dependent in any epic, or none, once all of its blockers are closed", async () => {
   const tracker = blockingTracker(true);
   const unparented = tracker.others.find((other) => other.ref === jwb("JWB-911"));
   if (unparented) delete unparented.map;
-  const lane = await mergedLane({
-    tracker,
-    pickedUp: true,
-    configuration: {
-      ...resolveConfiguration(undefined, { jira_site: "https://x.atlassian.net" }),
-      repository: {
-        name: "r",
-        remote: "https://github.com/o/r.git",
-        path: "/r",
-        worktreeRoot: "/worktrees/r",
-        baseBranch: "main",
-      },
-    },
-  });
+  const lane = await mergedLane({ tracker, pickedUp: true });
   expect((await lane.complete()).result.unblocked).toEqual({
     state: "known",
     tickets: [jwb("JWB-911"), jwb("JWB-912"), jwb("JWB-913")],
-  });
-});
-
-test("CLI complete reports every dependent once all of its blockers are closed", async () => {
-  const lane = await mergedLane({ tracker: blockingTracker(true), pickedUp: true });
-  expect((await lane.complete()).result.unblocked).toEqual({
-    state: "known",
-    tickets: [jwb("JWB-911"), jwb("JWB-912")],
   });
 });
 
@@ -474,7 +452,7 @@ test("MCP complete returns the same unblocked report", async () => {
   const lane = await mergedLane({ tracker: blockingTracker(false), pickedUp: true, mcp: true });
   expect((await lane.complete()).result.unblocked).toEqual({
     state: "known",
-    tickets: [jwb("JWB-911")],
+    tickets: [jwb("JWB-911"), jwb("JWB-913")],
   });
 });
 

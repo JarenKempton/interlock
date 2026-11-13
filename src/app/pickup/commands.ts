@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineAction } from "../action.ts";
 import { flag, optional, positional, text } from "../../cli/schema.ts";
-import { executionConfigurationSchema } from "../../configuration/schema.ts";
+import { resolvedConfigurationSchema } from "../../configuration/schema.ts";
 import { type Claim, claimSchema, runSchema } from "../../domain/model.ts";
 import { claimRef, runRef, withStore } from "../command-store.ts";
 import { recoveryEvidenceRowSchema } from "../../persistence/schema/recovery-evidence.ts";
@@ -25,7 +25,7 @@ const runExportSchema = z.strictObject({
       .pick({ outcome: true, evidence_json: true, occurred_at: true })
       .strict(),
   ),
-  configuration: executionConfigurationSchema.optional(),
+  configuration: resolvedConfigurationSchema.optional(),
 });
 
 export function runActions(services: RuntimeServices) {
